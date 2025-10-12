@@ -1,0 +1,155 @@
+.chapter {
+  background: white;
+  margin-bottom: 0.75rem;
+  text-align: left;
+  width: 100%;
+}
+
+.chapter[style*="margin-left: 1.5rem"] {
+  margin-bottom: 0.4rem;
+}
+
+.chapter-header {
+  padding: 0.25rem 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: baseline;
+  user-select: none;
+  background: white;
+}
+
+.chapter-header:hover h3 {
+  text-decoration: underline;
+}
+
+.chapter-header h3 {
+  margin: 0 0 0 0.5rem;
+  font-size: 1.2rem;
+  color: black;
+  font-weight: bold;
+  font-family: 'Times New Roman', Times, serif;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.chapter[style*="margin-left: 1.5rem"] .chapter-header h3 {
+  font-size: 1rem;
+  text-transform: none;
+  font-weight: normal;
+}
+
+.chapter-number {
+  font-weight: bold;
+  margin-right: 0.5rem;
+}
+
+.toggle-icon {
+  font-size: 1rem;
+  color: black;
+  font-weight: normal;
+  min-width: 1rem;
+}
+
+.chapter-body {
+  padding: 0.5rem 0 0.5rem 2rem;
+  text-align: left;
+}
+
+.chapter-content {
+  margin-bottom: 1rem;
+  padding: 0;
+  line-height: 1.6;
+  font-family: 'Times New Roman', Times, serif;
+  font-size: 1rem;
+  color: black;
+}
+
+.chapter-content p {
+  margin: 0 0 1rem 0;
+  line-height: 1.6;
+  font-family: 'Times New Roman', Times, serif;
+}
+
+.chapter-content p:last-child {
+  margin-bottom: 0;
+}
+
+.chapter-content h1,
+.chapter-content h2,
+.chapter-content h3 {
+  font-family: 'Times New Roman', Times, serif;
+  font-weight: bold;
+  margin: 1.5rem 0 1rem 0;
+  color: black;
+}
+
+.chapter-content h1 {
+  font-size: 1.4rem;
+}
+
+.chapter-content h2 {
+  font-size: 1.2rem;
+}
+
+.chapter-content h3 {
+  font-size: 1.1rem;
+}
+
+.large-text {
+  font-size: 1.3rem;
+  font-weight: bold;
+  font-family: 'Times New Roman', Times, serif;
+}
+
+.child-chapters {
+  margin-top: 0.5rem;
+}
+
+.chapter-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.chapter-actions button {
+  padding: 0.5rem 1rem;
+  border: 1px solid black;
+  background: white;
+  cursor: pointer;
+  font-family: 'Times New Roman', Times, serif;
+  font-size: 0.9rem;
+}
+
+.btn-edit {
+  background: white;
+  color: black;
+}
+
+.btn-edit:hover {
+  background: black;
+  color: white;
+}
+
+.btn-delete {
+  background: white;
+  color: #d33;
+  border-color: #d33;
+}
+
+.btn-delete:hover {
+  background: #d33;
+  color: white;
+}
+
+.btn-add-sub {
+  background: white;
+  color: #0066cc;
+  border-color: #0066cc;
+}
+
+.btn-add-sub:hover {
+  background: #0066cc;
+  color: white;
+}
+

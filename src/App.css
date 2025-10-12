@@ -1,0 +1,84 @@
+.app {
+  min-height: 100vh;
+  background: white;
+}
+
+.app-header {
+  background: white;
+  padding: 2rem 0;
+}
+
+.header-content {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0 2rem;
+  text-align: center;
+}
+
+.book-concept {
+  margin: 0;
+  color: black;
+  font-size: 1.1rem;
+  font-style: italic;
+  font-family: 'Times New Roman', Times, serif;
+  line-height: 1.6;
+  text-align: justify;
+}
+
+.setup-link {
+  padding: 0.5rem 1rem;
+  border: 1px solid black;
+  background: white;
+  cursor: pointer;
+  font-family: 'Times New Roman', Times, serif;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.setup-link:hover {
+  background: black;
+  color: white;
+}
+
+.app-main {
+  padding: 2rem 2rem;
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.chapters-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.bottom-actions {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  display: flex;
+  flex-direction: row;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.add-chapter-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid black;
+  background: white;
+  cursor: pointer;
+  font-family: 'Times New Roman', Times, serif;
+  font-size: 0.8rem;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.add-chapter-btn:hover {
+  background: black;
+  color: white;
+}
