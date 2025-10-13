@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useEditorMode } from '../hooks/useEditorMode';
 import { renderMarkdownWithParagraphs } from '../utils/markdown';
 import './Chapter.css';
+import { SortableSubchapters } from './SortableSubchapters';
 
-export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumber = null, parentChapterId = null, onEdit, onAddSubchapter, onDelete }) => {
+export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumber = null, parentChapterId = null, onEdit, onAddSubchapter, onDelete, dragHandleProps }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const { isEditor } = useEditorMode();
 
@@ -21,6 +22,9 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
       <div className="chapter-header" onClick={() => setIsExpanded(!isExpanded)}>
         <span className="toggle-icon">{isExpanded ? '▼' : '▶'}</span>
         <h3><span className="chapter-number">{getFormalNumber()}</span> {chapter.title}</h3>
+        {isEditor && (
+          <span {...(dragHandleProps || {})} style={{ cursor: 'grab', marginLeft: '0.5rem', userSelect: 'none' }} aria-label="Drag handle">⋮⋮</span>
+        )}
       </div>
       
       {isExpanded && (
@@ -36,19 +40,30 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
           {/* Render child chapters recursively */}
           {chapter.children && chapter.children.length > 0 && (
             <div className="child-chapters">
-              {chapter.children.map((childChapter, index) => (
-                    <Chapter 
-                      key={childChapter.id} 
-                      chapter={childChapter} 
-                      level={level + 1}
-                      chapterNumber={chapterNumber}
-                      subChapterNumber={index + 1}
-                      parentChapterId={chapter.id}
-                      onEdit={onEdit}
-                      onAddSubchapter={onAddSubchapter}
-                      onDelete={onDelete}
-                    />
-              ))}
+              <SortableSubchapters
+                items={chapter.children}
+                onReorder={async (orderedIds) => {
+                  // Persist subchapter order for this chapter
+                  try {
+                    const { reorderSubchapters } = await import('../services/firestore.js');
+                    await reorderSubchapters('primary', chapter.id, orderedIds);
+                  } catch {}
+                }}
+                renderRow={(childChapter, dragHandle, index) => (
+                  <Chapter
+                    key={childChapter.id}
+                    chapter={childChapter}
+                    level={level + 1}
+                    chapterNumber={chapterNumber}
+                    subChapterNumber={index + 1}
+                    parentChapterId={chapter.id}
+                    dragHandleProps={dragHandle}
+                    onEdit={onEdit}
+                    onAddSubchapter={onAddSubchapter}
+                    onDelete={onDelete}
+                  />
+                )}
+              />
             </div>
           )}
         </div>

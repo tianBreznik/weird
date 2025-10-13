@@ -5,6 +5,9 @@ import { EditorSetup } from './pages/EditorSetup';
 import { useEditorMode } from './hooks/useEditorMode';
 import { getChapters, getSubchapters, addChapter, addSubchapter, updateChapter, updateSubchapter, deleteChapter, deleteSubchapter } from './services/firestore';
 import './App.css';
+import { DndContext, closestCenter } from '@dnd-kit/core';
+import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { DraggableChapter } from './components/DraggableChapter';
 
 const BOOK_ID = 'primary';
 
@@ -77,22 +80,39 @@ function App() {
             {!loading && !loadError && chapters.length === 0 && (
               <p>No chapters yet (book: {BOOK_ID}).</p>
             )}
-            {chapters.map((chapter, index) => (
-              <Chapter 
-                key={chapter.id} 
-                chapter={chapter} 
-                chapterNumber={index + 1}
-                onEdit={setEditingChapter}
-                onAddSubchapter={(chapter) => setParentChapterForNewSub(chapter)}
-                onDelete={(chapterId, isSubchapter = false, parentChapterId = null) => {
-                  if (isSubchapter && parentChapterId) {
-                    deleteSubchapter(BOOK_ID, parentChapterId, chapterId).then(() => refresh());
-                  } else {
-                    deleteChapter(BOOK_ID, chapterId).then(() => refresh());
-                  }
-                }}
-              />
-            ))}
+            <DndContext 
+              collisionDetection={closestCenter}
+              onDragEnd={async (event) => {
+                const { active, over } = event;
+                if (!over || active.id === over.id) return;
+                const oldIndex = chapters.findIndex(c => c.id === active.id);
+                const newIndex = chapters.findIndex(c => c.id === over.id);
+                const reordered = arrayMove(chapters, oldIndex, newIndex);
+                setChapters(reordered);
+                // Persist order
+                const orderedIds = reordered.map(c => c.id);
+                try { await reorderChapters(BOOK_ID, orderedIds); } catch {}
+              }}
+            >
+              <SortableContext items={chapters.map(c => c.id)} strategy={verticalListSortingStrategy}>
+                {chapters.map((chapter, index) => (
+                  <DraggableChapter 
+                    key={chapter.id} 
+                    chapter={chapter} 
+                    chapterNumber={index + 1}
+                    onEdit={setEditingChapter}
+                    onAddSubchapter={(chapter) => setParentChapterForNewSub(chapter)}
+                    onDelete={(chapterId, isSubchapter = false, parentChapterId = null) => {
+                      if (isSubchapter && parentChapterId) {
+                        deleteSubchapter(BOOK_ID, parentChapterId, chapterId).then(() => refresh());
+                      } else {
+                        deleteChapter(BOOK_ID, chapterId).then(() => refresh());
+                      }
+                    }}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
           </div>
         </div>
       </main>
