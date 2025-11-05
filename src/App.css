@@ -96,7 +96,7 @@
 }
 
 .app.with-editor .bottom-actions {
-  right: calc(2rem + 620px); /* base 2rem + side panel width */
+  right: calc(1rem + 620px); /* base 1rem + side panel width */
 }
 
 .app-header {
@@ -155,10 +155,10 @@
 
 .bottom-actions {
   position: fixed;
-  bottom: 2rem;
-  right: 2rem;
+  bottom: 1rem;
+  right: 1rem;
   display: flex;
-  flex-direction: row;
+  flex-direction: row; /* place side by side */
   gap: 0.75rem;
   align-items: center;
 }

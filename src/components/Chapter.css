@@ -53,6 +53,7 @@
   display: inline-block; /* only wrap the text */
   text-shadow: 0 0 0.9px rgba(0,0,0,0.5), 0 0 1.4px rgba(0,0,0,0.18);
   -webkit-text-stroke: 0.2px rgba(0,0,0,0.22);
+  /* no reservation needed when actions are on the left */
 }
 
 /* Title/subtitle specific hover underline - more visible */
@@ -60,12 +61,17 @@
 .subchapter-title:hover { 
   text-decoration: underline;
   text-decoration-color: #000000;
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 2px;
+  /* text-decoration-thickness: 1.5px; */
+  /* text-underline-offset: 2px; */
 }
 
 /* Ensure the very first letter is uppercase while keeping the rest as typed */
 .chapter-header h3::first-letter { text-transform: uppercase; }
+
+.chapter[style*="margin-left: 1.5rem"] .chapter-header {
+  margin-left: -1.5rem; /* counteract parent shift to align with main chapters */
+  width: calc(100% + 1.5rem); /* extend width to account for the negative margin */
+}
 
 .chapter[style*="margin-left: 1.5rem"] .chapter-header h3 {
   font-size: 1.05rem; /* slightly reduced */
@@ -75,63 +81,59 @@
   font-family: 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif;
   text-align: center;
   -webkit-text-stroke: 0.2px rgba(0,0,0,0.22); /* match main title stroke */
+  /* no reservation needed when actions are on the left */
 }
 
 /* Hide numbering and toggle symbols */
 .chapter-number { display: none; }
 .toggle-icon { display: none; }
 
-/* Invisible drag handle area on the right edge (no icon shown) */
-.chapter-header [aria-label="Drag handle"] {
+/* Container for drag handle and buttons - positioned immediately to the left of the header block */
+.chapter-header .chapter-actions-container {
   position: absolute;
+  right: 100%; /* stick to the left edge of header */
   top: 0;
-  right: 0;
   bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px; /* spacing outside the text boundary */
+  z-index: 2;
+}
+
+/* Drag handle - positioned on left side of buttons */
+.chapter-header [aria-label="Drag handle"] {
+  position: relative;
   width: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #999;
+  cursor: grab;
 }
 
 .chapter-header [aria-label="Drag handle"]:hover {
   color: #999; /* no hover color change */
 }
 
-/* Inline action buttons (editor mode) */
+/* Inline action buttons - positioned to right of drag handle */
 .chapter-actions-inline {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding-left: 4px;
-  z-index: 2; /* sit above title text */
+  padding-right: 4px;
 }
 
-.chapter-actions-inline .btn-action {
-  padding: 2px 6px;
-  font-size: 11px;
-  border: 1px solid #cfcfcf;
-  background: #fff;
-  cursor: pointer;
-  border-radius: 4px;
-  font-family: 'Times New Roman', Times, serif;
-}
+/* Legacy .btn-action styles removed (using Shadow DOM IsolatedButton) */
 
-.chapter-actions-inline .btn-action:hover,
-.chapter-actions-inline .btn-action:focus,
-.chapter-actions-inline .btn-action:active,
-.chapter-actions-inline .btn-action:focus-visible {
-  background: #fff !important; /* no hover effect */
-  color: inherit !important;
-  outline: none !important;
-  box-shadow: none !important;
-}
-.chapter-actions-inline .btn-delete { color: #d33; border-color: #d9a1a1; }
-.chapter-actions-inline .btn-add-sub { color: #0066cc; border-color: #a7c7e9; }
+/* Nuke any text transformations on chapter action buttons, from any ancestor/state */
+/* Removed enforcement rules for legacy buttons */
+
+/* Removed hover overrides for legacy buttons */
+
+/* Lock colors for each action button even when ancestors are hovered */
+/* Removed color rules for legacy buttons */
 
 .chapter-number {
   font-weight: 600;
@@ -221,6 +223,9 @@
   font-family: 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif !important;
 }
 
+/* Colored text shadows are applied via JavaScript in Chapter.jsx */
+/* This ensures shadows match the text color for proper ink bleed effect */
+
 .chapter-content del,
 .chapter-content s {
   font-family: 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif !important; /* match header font */
@@ -290,51 +295,5 @@
   margin-top: 0.25rem;
 }
 
-.chapter-actions {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: 1rem;
-  padding-top: 1rem;
-}
-
-.chapter-actions button {
-  padding: 0.5rem 1rem;
-  border: 1px solid black;
-  background: white;
-  cursor: pointer;
-  font-family: 'Times New Roman', Times, serif;
-  font-size: 0.9rem;
-}
-
-.btn-edit {
-  background: white;
-  color: black;
-}
-
-.btn-edit:hover {
-  background: white; /* no hover effect */
-  color: black;
-}
-
-.btn-delete {
-  background: white;
-  color: #d33;
-  border-color: #d33;
-}
-
-.btn-delete:hover {
-  background: white; /* no hover effect */
-  color: #d33;
-}
-
-.btn-add-sub {
-  background: white;
-  color: #0066cc;
-  border-color: #0066cc;
-}
-
-.btn-add-sub:hover {
-  background: white; /* no hover effect */
-  color: #0066cc;
-}
+/* Removed legacy .chapter-actions and .btn-* rules no longer used */
 

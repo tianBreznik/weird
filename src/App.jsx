@@ -133,6 +133,9 @@ function App() {
       </main>
 
       <div className="bottom-actions">
+        <button className="setup-link" onClick={() => setShowSetup(true)}>
+          {isEditor ? '✓ Editor Mode' : '⚙ Setup'}
+        </button>
         {isEditor && (
           <button 
             className="add-chapter-btn"
@@ -141,9 +144,6 @@ function App() {
             + Add New Chapter
           </button>
         )}
-        <button className="setup-link" onClick={() => setShowSetup(true)}>
-          {isEditor ? '✓ Editor Mode' : '⚙ Setup'}
-        </button>
       </div>
 
       {showSetup && <EditorSetup onClose={() => setShowSetup(false)} />}
