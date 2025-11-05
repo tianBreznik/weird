@@ -10,7 +10,10 @@ export const IsolatedButton = ({ label, onClick, variant = 'default', title }) =
       shadowRef.current = hostRef.current.attachShadow({ mode: 'open' });
       const style = document.createElement('style');
       style.textContent = `
-        :host { display: inline-block; }
+        :host { 
+          display: inline-block !important;
+          cursor: pointer !important;
+        }
         button, button:*, button::* {
           all: initial;
           display: inline-block !important;
@@ -53,6 +56,7 @@ export const IsolatedButton = ({ label, onClick, variant = 'default', title }) =
           outline: none !important;
           border-radius: 4px !important;
           border-width: 1px !important;
+          cursor: pointer !important;
           font-family: Helvetica, Arial, sans-serif !important;
           font-size: 12px !important;
           font-weight: 400 !important;
@@ -118,6 +122,7 @@ export const IsolatedButton = ({ label, onClick, variant = 'default', title }) =
       btn.style.justifyContent = 'center';
       btn.style.padding = '2px 6px';
       btn.style.setProperty('min-width','44px','important');
+      btn.style.setProperty('cursor', 'pointer', 'important');
 
       // After mount, measure actual text width and size the svg precisely
       const sizeSvg = () => {
@@ -142,6 +147,7 @@ export const IsolatedButton = ({ label, onClick, variant = 'default', title }) =
       
       // Lock ALL font properties inline - prevent ANY changes
       const lockStyles = () => {
+        btn.style.setProperty('cursor', 'pointer', 'important');
         btn.style.setProperty('font-family', 'Helvetica, Arial, sans-serif', 'important');
         btn.style.setProperty('font-size', '12px', 'important');
         btn.style.setProperty('font-weight', '400', 'important');

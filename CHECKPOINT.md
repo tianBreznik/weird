@@ -1,5 +1,15 @@
 # Project Checkpoint - Current State
 
+## Session Snapshot (UI/UX + Editor fixes)
+
+- Chapter header actions reworked and positioned on the LEFT of titles, with layout order: Edit • Add • Del • Drag-handle. Titles remain centered and unaffected.
+- Action container anchors flush to the left of the header (`right: 100%` with a small gutter), so actions never overlap long titles.
+- Bottom-right global buttons now appear side by side (Editor Mode | + Add New Chapter) instead of stacked; still fixed to bottom-right.
+- Isolated inline chapter action buttons now render labels via SVG text to fully decouple font rendering and prevent hover-induced font changes. Width is computed from the actual text (getComputedTextLength) with padding so labels never clip. Size tuned to small/compact: ~13px text, 18px SVG height, minimal padding.
+- Subchapter header alignment preserved (counter-acts parent indent) so actions/titles line up consistently for chapters and subchapters.
+
+> Tip: If you want actions on the RIGHT again later, only the container alignment in `Chapter.css` and the JSX order in `Chapter.jsx` need flipping.
+
 ## ✅ Completed Features
 
 ### Core Functionality
