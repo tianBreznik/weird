@@ -210,12 +210,9 @@
   -webkit-text-stroke: 0.2px currentColor;
 }
 
-.chapter-content p,
-.chapter-content p *,
-.chapter-content del,
-.chapter-content del *,
-.chapter-content s,
-.chapter-content s * {
+/* Apply ink bleed to all textual descendants, whatever their tag */
+.chapter-content :where(p, span, strong, em, mark, del, ins, a, b, i, u, s),
+.chapter-content :where(p, span, strong, em, mark, del, ins, a, b, i, u, s) * {
   font-family: 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif !important;
   font-weight: 400 !important;
   text-shadow:
@@ -225,14 +222,14 @@
   -webkit-text-stroke: 0.2px currentColor;
 }
 
-/* Ensure all inline elements inside paragraphs also use Garamond */
-.chapter-content p *,
-.chapter-content p span,
-.chapter-content p strong,
-.chapter-content p em,
-.chapter-content p mark,
-.chapter-content p del {
-  font-family: 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif !important;
+/* Fallback for any other inline element directly under chapter-content */
+.chapter-content :where(div, section, article, aside, header, footer, figure, figcaption) span,
+.chapter-content :where(div, section, article, aside, header, footer, figure, figcaption) span * {
+  text-shadow:
+    0 0 0.8px currentColor,
+    0 0.25px 1px currentColor,
+   -0.25px 0 1px currentColor;
+  -webkit-text-stroke: 0.2px currentColor;
 }
 
 /* Colored text shadows are applied via JavaScript in Chapter.jsx */

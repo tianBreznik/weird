@@ -3,19 +3,32 @@ import {
   collection,
   doc,
   getDocs,
+  getDoc,
   addDoc,
-  updateDoc,
   deleteDoc,
   serverTimestamp,
   query,
   orderBy,
   writeBatch,
+  runTransaction,
 } from 'firebase/firestore';
 
 const chaptersCol = (bookId) => collection(db, `books/${bookId}/chapters`);
 const chapterDoc = (bookId, chapterId) => doc(db, `books/${bookId}/chapters/${chapterId}`);
 const subchaptersCol = (bookId, chapterId) => collection(db, `books/${bookId}/chapters/${chapterId}/subchapters`);
 const subchapterDoc = (bookId, chapterId, subId) => doc(db, `books/${bookId}/chapters/${chapterId}/subchapters/${subId}`);
+
+export async function getChapterById(bookId, chapterId) {
+  const snap = await getDoc(chapterDoc(bookId, chapterId));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...snap.data() };
+}
+
+export async function getSubchapterById(bookId, chapterId, subId) {
+  const snap = await getDoc(subchapterDoc(bookId, chapterId, subId));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...snap.data(), parentChapterId: chapterId };
+}
 
 export async function getChapters(bookId) {
   const q = query(chaptersCol(bookId), orderBy('order'));
@@ -45,14 +58,42 @@ export async function addChapter(bookId, { title, slug, contentHtml, order }) {
     isPublished: true,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+    version: 0,
   });
 }
 
-export async function updateChapter(bookId, chapterId, data) {
-  console.log('updateChapter called with:', data);
-  const updateData = { ...data, updatedAt: serverTimestamp() };
-  console.log('updateData being sent to Firestore:', updateData);
-  return updateDoc(chapterDoc(bookId, chapterId), updateData);
+export async function updateChapter(bookId, chapterId, data, expectedVersion = 0) {
+  return runTransaction(db, async (transaction) => {
+    const ref = chapterDoc(bookId, chapterId);
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists()) {
+      const err = new Error('Chapter not found');
+      err.code = 'not-found';
+      throw err;
+    }
+
+    const currentVersion = snapshot.data().version ?? 0;
+    if (currentVersion !== expectedVersion) {
+      const err = new Error('Chapter has been modified by another session.');
+      err.code = 'version-conflict';
+      err.details = { currentVersion };
+      throw err;
+    }
+
+    const nextVersion = currentVersion + 1;
+    const updateData = {
+      ...data,
+      version: nextVersion,
+      updatedAt: serverTimestamp(),
+    };
+    transaction.update(ref, updateData);
+    return {
+      id: chapterId,
+      ...snapshot.data(),
+      ...data,
+      version: nextVersion,
+    };
+  });
 }
 
 export async function deleteChapter(bookId, chapterId) {
@@ -79,11 +120,42 @@ export async function addSubchapter(bookId, chapterId, { title, slug, contentHtm
     isPublished: true,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+    version: 0,
   });
 }
 
-export async function updateSubchapter(bookId, chapterId, subId, data) {
-  return updateDoc(subchapterDoc(bookId, chapterId, subId), { ...data, updatedAt: serverTimestamp() });
+export async function updateSubchapter(bookId, chapterId, subId, data, expectedVersion = 0) {
+  return runTransaction(db, async (transaction) => {
+    const ref = subchapterDoc(bookId, chapterId, subId);
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists()) {
+      const err = new Error('Subchapter not found');
+      err.code = 'not-found';
+      throw err;
+    }
+
+    const currentVersion = snapshot.data().version ?? 0;
+    if (currentVersion !== expectedVersion) {
+      const err = new Error('Subchapter has been modified by another session.');
+      err.code = 'version-conflict';
+      err.details = { currentVersion };
+      throw err;
+    }
+
+    const nextVersion = currentVersion + 1;
+    transaction.update(ref, {
+      ...data,
+      version: nextVersion,
+      updatedAt: serverTimestamp(),
+    });
+    return {
+      id: subId,
+      parentChapterId: chapterId,
+      ...snapshot.data(),
+      ...data,
+      version: nextVersion,
+    };
+  });
 }
 
 export async function deleteSubchapter(bookId, chapterId, subId) {

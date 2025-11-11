@@ -11,6 +11,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   const [autosaveStatus, setAutosaveStatus] = useState('Ready');
   const [highlightColor, setHighlightColor] = useState('#ffeb3b');
   const [textColor, setTextColor] = useState('#000000');
+  const [entityVersion, setEntityVersion] = useState(chapter?.version ?? 0);
   const [activeFormats, setActiveFormats] = useState({
     bold: false,
     italic: false,
@@ -37,6 +38,16 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   const [pendingInsertTick, setPendingInsertTick] = useState(0);
 
   const pendingKaraokeHtmlRef = useRef(null);
+
+  const applyKaraokeEditorMarkers = () => {
+    if (!textareaRef.current) return;
+    const nodes = textareaRef.current.querySelectorAll('.karaoke-object');
+    nodes.forEach((node) => {
+      node.classList.add('karaoke-editor-marker');
+      node.setAttribute('contenteditable', 'false');
+      node.setAttribute('data-karaoke-block', 'true');
+    });
+  };
 
   // Extract color from HTML string (for initial load)
   // Finds colors in <p> and <span> elements and returns the LAST one found
@@ -258,11 +269,14 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   useEffect(() => {
     if (chapter) {
       setTitle(chapter.title);
+      setEntityVersion(chapter.version ?? 0);
       if (textareaRef.current) {
         // Get the HTML content from the chapter being edited
         // Check both contentHtml (from database) and content (mapped property)
-        const content = chapter.contentHtml || chapter.content || '';
-        textareaRef.current.innerHTML = content;
+        const chapterContent = chapter.contentHtml || chapter.content || '';
+        textareaRef.current.innerHTML = chapterContent;
+        applyKaraokeEditorMarkers();
+        setContent(chapterContent);
         
         // After DOM is ready, detect color from the actual DOM (same way refreshToolbarState does)
         // This is more reliable than HTML parsing because it uses the same logic as when cursor moves
@@ -306,11 +320,13 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       }
     } else if (parentChapter) {
       setTitle('');
+      setEntityVersion(0);
       if (textareaRef.current) {
         textareaRef.current.innerHTML = '';
       }
       // Reset to black for new chapter
       setTextColor('#000000');
+      setContent('');
     }
   }, [chapter, parentChapter]);
 
@@ -330,9 +346,49 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     }
   }, [textColor]);
 
+  // Rehydrate editor content after dialogs unmount (editor re-mounts)
+  useEffect(() => {
+    if (showKaraokeDialog || showVideoDialog) return;
+    const editor = textareaRef.current;
+    if (!editor) return;
+
+    const currentHtml = editor.innerHTML;
+    const domIsEmpty = !currentHtml || currentHtml === '<br>' || currentHtml.trim() === '';
+    if (!domIsEmpty) return;
+
+    if (content !== undefined && content !== null) {
+      editor.innerHTML = content || '';
+      applyKaraokeEditorMarkers();
+
+      // Attempt to restore caret at end
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch (err) {
+        console.warn('Failed to restore caret after dialog close:', err);
+      }
+    }
+  }, [showKaraokeDialog, showVideoDialog, content]);
+
   // Handle content changes from contentEditable for autosave
   const handleEditorInput = () => {
     if (!textareaRef.current) return;
+
+    const placeholders = textareaRef.current.querySelectorAll('[data-karaoke-placeholder]');
+    placeholders.forEach((node) => {
+      const text = node.textContent.replace(/\u00A0/g, '').trim();
+      if (text.length > 0) {
+        node.removeAttribute('data-karaoke-placeholder');
+        node.removeAttribute('data-placeholder-id');
+      } else if (!node.querySelector('br')) {
+        node.innerHTML = '<br />';
+      }
+    });
+
     const html = textareaRef.current.innerHTML;
     setContent(html);
   };
@@ -426,7 +482,20 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   const handleSave = async () => {
     setSaving(true);
     const currentContent = textareaRef.current ? textareaRef.current.innerHTML : '';
-    await onSave({ title, contentHtml: currentContent });
+    try {
+      await onSave({ title, contentHtml: currentContent, version: entityVersion });
+    } catch (err) {
+      if (err?.code === 'version-conflict') {
+        setAutosaveStatus('Chapter updated elsewhere. Reloaded latest content.');
+        alert('This chapter was updated in another session. The latest version has been loaded—please review and reapply your changes.');
+      } else {
+        console.error('Save failed', err);
+        setAutosaveStatus('Save failed.');
+        alert(err?.message || 'Failed to save changes. Please try again.');
+      }
+      setSaving(false);
+      return;
+    }
     setSaving(false);
   };
 
@@ -732,45 +801,231 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     }
   };
 
-  const insertHtmlIntoEditor = (html) => {
+  const insertHtmlIntoEditor = (payload) => {
     const editor = textareaRef.current;
     if (!editor) {
       return false;
     }
 
+    const normalizedPayload = typeof payload === 'string'
+      ? { html: payload, focusSelector: null }
+      : (payload || {});
+
+    const { html, focusSelector } = normalizedPayload;
+    if (!html) return false;
+
+    // instrumentation removed after debugging
+
     editor.focus();
+
+    let anchorNode = null;
+    let caretNode = null;
+    let inserted = false;
+    let emptyBlock = null;
+
+    const ensureSelectionWithinEditor = (selection) => {
+      if (
+        selection.rangeCount === 0 ||
+        !editor.contains(selection.anchorNode) ||
+        !editor.contains(selection.focusNode)
+      ) {
+        const fallbackRange = document.createRange();
+        fallbackRange.selectNodeContents(editor);
+        fallbackRange.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(fallbackRange);
+      }
+    };
+
+    const resolveClosestBlock = (node) => {
+      if (!node) return null;
+      let current = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+      while (current && current !== editor) {
+        if (current.nodeType === Node.ELEMENT_NODE) {
+          if (current.tagName === 'BR') return current;
+          const display = window.getComputedStyle(current).display;
+          if (display === 'block' || display === 'list-item' || current.tagName === 'P' || current.tagName === 'DIV') {
+            return current;
+          }
+        }
+        current = current.parentElement;
+      }
+      return null;
+    };
+
+    const isEmptyBlock = (node) => {
+      if (!node || node === editor) return false;
+      if (node.tagName === 'BR') return true;
+      const text = node.textContent.replace(/\u00A0/g, '').trim();
+      if (text.length > 0) return false;
+      if (node.querySelector && node.querySelector('.karaoke-object')) return false;
+      return true;
+    };
+
+    const ensureTrailingCaretNode = (referenceNode, replacedBlock) => {
+      if (!referenceNode || !referenceNode.parentNode) return null;
+      const parent = referenceNode.parentNode;
+
+      let next = referenceNode.nextSibling;
+      while (next && next.nodeType === Node.TEXT_NODE && next.textContent.trim() === '') {
+        const removeTarget = next;
+        next = next.nextSibling;
+        parent.removeChild(removeTarget);
+      }
+
+      if (
+        next &&
+        next.nodeType === Node.ELEMENT_NODE &&
+        next.getAttribute('data-karaoke-block') !== 'true'
+      ) {
+        const text = next.textContent.replace(/\u00A0/g, '').trim();
+        if (text.length === 0) {
+          if (!next.querySelector('br')) {
+            next.innerHTML = '<br />';
+          }
+          return next;
+        }
+      }
+
+      const tagName = (replacedBlock && replacedBlock.tagName && replacedBlock.tagName !== 'BR')
+        ? replacedBlock.tagName.toLowerCase()
+        : 'div';
+
+      const caretBlock = document.createElement(tagName === 'br' ? 'div' : tagName);
+      caretBlock.innerHTML = '<br />';
+      parent.insertBefore(caretBlock, referenceNode.nextSibling);
+      return caretBlock;
+    };
+
     try {
-      const selection = window.getSelection();
-      if (selection && selection.rangeCount > 0 && editor.contains(selection.anchorNode)) {
+      let selection = window.getSelection();
+      if (!selection) {
+        return false;
+      }
+
+      ensureSelectionWithinEditor(selection);
+
+      if (selection.rangeCount > 0) {
         const range = selection.getRangeAt(0);
-        range.deleteContents();
+
+        if (!editor.contains(range.commonAncestorContainer)) {
+          ensureSelectionWithinEditor(selection);
+        }
+
+        const activeRange = selection.getRangeAt(0);
+        if (!activeRange.collapsed) {
+          activeRange.deleteContents();
+        }
+
+        emptyBlock = resolveClosestBlock(activeRange.startContainer);
+        if (!isEmptyBlock(emptyBlock)) {
+          emptyBlock = null;
+        }
+
         const temp = document.createElement('div');
         temp.innerHTML = html;
         const frag = document.createDocumentFragment();
         let node;
-        let lastNode;
+        let lastNode = null;
         while ((node = temp.firstChild)) {
           lastNode = frag.appendChild(node);
         }
-        range.insertNode(frag);
-        if (lastNode) {
-          const after = document.createTextNode('\u00A0');
-          lastNode.parentNode.insertBefore(after, lastNode.nextSibling);
-          const newRange = document.createRange();
-          newRange.setStartAfter(after);
-          newRange.collapse(true);
-          selection.removeAllRanges();
-          selection.addRange(newRange);
+
+        if (emptyBlock && emptyBlock !== editor) {
+          emptyBlock.replaceWith(frag);
+          anchorNode = lastNode;
+        } else {
+          activeRange.insertNode(frag);
+          anchorNode = lastNode;
         }
+
+        inserted = true;
       } else {
         editor.insertAdjacentHTML('beforeend', html);
+        anchorNode = editor.lastElementChild;
+        inserted = true;
       }
     } catch (err) {
       console.error('Falling back to execCommand insertion due to error:', err);
       document.execCommand('insertHTML', false, html);
+      anchorNode = focusSelector ? editor.querySelector(focusSelector) : editor.lastElementChild;
+      inserted = true;
     }
 
+    if (!inserted) {
+      return false;
+    }
+
+    applyKaraokeEditorMarkers();
+
+    if (anchorNode) {
+      const removeEmptyBefore = (node) => {
+        if (!node || !node.parentNode) return;
+        let prev = node.previousSibling;
+
+        const isNodeEmpty = (candidate) => {
+          if (!candidate) return false;
+          if (candidate.nodeType === Node.TEXT_NODE) {
+            return candidate.textContent.replace(/\u00A0/g, '').trim().length === 0;
+          }
+          if (candidate.nodeType === Node.ELEMENT_NODE) {
+            if (candidate.getAttribute && candidate.getAttribute('data-karaoke-block') === 'true') {
+              return false;
+            }
+            const text = candidate.textContent.replace(/\u00A0/g, '').trim();
+            if (text.length > 0) return false;
+            if (candidate.querySelector && candidate.querySelector('.karaoke-object')) return false;
+            return true;
+          }
+          return false;
+        };
+
+        while (prev && isNodeEmpty(prev)) {
+          const toRemove = prev;
+          prev = prev.previousSibling;
+          toRemove.parentNode.removeChild(toRemove);
+        }
+      };
+
+      removeEmptyBefore(anchorNode);
+    }
+
+    if (!anchorNode && focusSelector) {
+      anchorNode = editor.querySelector(focusSelector);
+    }
+
+    if (anchorNode) {
+      caretNode = ensureTrailingCaretNode(anchorNode, emptyBlock);
+    }
+
+    const restoreCaret = () => {
+      const selection = window.getSelection();
+      if (!selection) return;
+
+      if (caretNode && editor.contains(caretNode)) {
+        const range = document.createRange();
+        range.selectNodeContents(caretNode);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return;
+      }
+
+      if (anchorNode && editor.contains(anchorNode)) {
+        const range = document.createRange();
+        range.setStartAfter(anchorNode);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    };
+
+    restoreCaret();
+    handleEditorInput();
     refreshToolbarState();
+
+    // instrumentation removed after debugging
+
     return true;
   };
 
@@ -874,14 +1129,19 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     const karaokeId = `karaoke-${Date.now()}`;
     const karaokePayload = encodeURIComponent(JSON.stringify(karaokeData));
     const container = document.createElement('div');
-    container.className = 'karaoke-object';
+    container.className = 'karaoke-object karaoke-editor-marker';
     container.dataset.karaoke = karaokePayload;
     container.dataset.karaokeId = karaokeId;
+    container.setAttribute('contenteditable', 'false');
+    container.setAttribute('data-karaoke-block', 'true');
     container.textContent = karaokeText.trim();
     const karaokeHtml = container.outerHTML;
     
     // Close dialog and reset form; insertion happens after editor re-mounts
-    pendingKaraokeHtmlRef.current = karaokeHtml;
+    pendingKaraokeHtmlRef.current = {
+      html: karaokeHtml,
+      focusSelector: `[data-karaoke-id="${karaokeId}"]`,
+    };
     setShowKaraokeDialog(false);
     setKaraokeText('');
     setKaraokeAudioFile(null);
@@ -1084,7 +1344,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                 onClick={handleSave}
                 disabled={!title.trim() || saving}
               >
-                {saving ? 'Publishing…' : 'Publish'}
+                {saving ? 'Publishing…' : 'Objavi'}
               </button>
             </div>
             {!showKaraokeDialog && !showVideoDialog && (
