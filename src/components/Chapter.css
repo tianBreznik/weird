@@ -15,7 +15,7 @@
 
 .chapter[style*="margin-left: 1.5rem"] .chapter-header,
 .chapter[style*="margin-left: 3rem"] .chapter-header {
-  margin-left: 0;
+  margin-left: -0.5rem;
   width: 100%;
 }
 
@@ -23,7 +23,7 @@
 .chapter[style*="margin-left: 3rem"] .chapter-body,
 .chapter[style*="margin-left: 1.5rem"] .chapter-content,
 .chapter[style*="margin-left: 3rem"] .chapter-content {
-  margin-left: 0;
+  margin-left: -0.5rem;
   padding-left: 2rem;
 }
 

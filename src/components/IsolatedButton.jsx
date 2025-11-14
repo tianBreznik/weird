@@ -35,8 +35,14 @@ export const IsolatedButton = ({ label, onClick, variant = 'default', title }) =
           box-shadow: none !important;
         }
         .button-inner {
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
           border-radius: 9px !important;
-          padding: 0.13em 0.6em !important;
+          padding: 0.35em 0.25em !important;
+          width: 32px !important;
+          min-width: 32px !important;
+          max-width: 32px !important;
           background-image: linear-gradient(135deg, rgba(240,240,242,1), rgba(210,210,214,1)) !important;
           box-shadow:
             inset -0.05em -0.05em 0.05em rgba(5,5,5,0.3),
@@ -57,29 +63,21 @@ export const IsolatedButton = ({ label, onClick, variant = 'default', title }) =
         button:active .button-inner {
           transform: scale(0.97) !important;
         }
-        .button-label {
-          display: inline-flex !important;
+        .button-label-svg {
+          display: block !important;
           position: relative !important;
           z-index: 2 !important;
-          font-family: Helvetica, Arial, sans-serif !important;
-          font-size: 10px !important;
-          font-weight: 600 !important;
-          letter-spacing: 0.012em !important;
-          color: rgba(30,30,36,0.96) !important;
-          text-shadow: 0 0 0.05em rgba(0,0,0,0.14) !important;
-          user-select: none !important;
-          align-items: center !important;
-          justify-content: center !important;
-          line-height: 1 !important;
+          width: 100% !important;
+          height: 12px !important;
+          pointer-events: none !important;
+          flex-shrink: 0 !important;
         }
-        button:hover .button-label,
-        button:focus-visible .button-label {
+        button:hover .button-label-svg,
+        button:focus-visible .button-label-svg {
           transform: scale(0.978) !important;
         }
         button.add .button-inner { background-image: linear-gradient(135deg, rgba(236,241,250,1), rgba(214,222,242,1)) !important; }
         button.del .button-inner { background-image: linear-gradient(135deg, rgba(253,244,245,1), rgba(242,215,218,1)) !important; }
-        button.add .button-label { color: rgba(48,84,156,0.9) !important; text-shadow: 0 0 0.04em rgba(48,84,156,0.2) !important; }
-        button.del .button-label { color: rgba(158,58,64,0.9) !important; text-shadow: 0 0 0.04em rgba(158,58,64,0.2) !important; }
       `;
       const btn = document.createElement('button');
       btn.className = variant === 'delete' ? 'del' : variant === 'add' ? 'add' : 'edit';
@@ -88,10 +86,30 @@ export const IsolatedButton = ({ label, onClick, variant = 'default', title }) =
       const inner = document.createElement('div');
       inner.className = 'button-inner';
 
-      const labelSpan = document.createElement('span');
-      labelSpan.className = 'button-label';
-      labelSpan.textContent = label;
-      inner.appendChild(labelSpan);
+      // Create SVG text element - fixed width for all buttons
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'button-label-svg');
+      const fixedWidth = 32; // Fixed width for all buttons
+      svg.setAttribute('width', `${fixedWidth}`);
+      svg.setAttribute('height', '12');
+      svg.setAttribute('viewBox', `0 0 ${fixedWidth} 12`);
+      svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      svg.style.display = 'block';
+      
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', String(fixedWidth / 2));
+      text.setAttribute('y', '9');
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('dominant-baseline', 'middle');
+      text.setAttribute('font-family', 'Helvetica, Arial, sans-serif');
+      text.setAttribute('font-size', '10');
+      text.setAttribute('font-weight', '600');
+      text.setAttribute('letter-spacing', '0.12');
+      text.setAttribute('fill', variant === 'delete' ? 'rgba(158,58,64,0.9)' : variant === 'add' ? 'rgba(48,84,156,0.9)' : 'rgba(30,30,36,0.96)');
+      text.textContent = label;
+      
+      svg.appendChild(text);
+      inner.appendChild(svg);
 
       btn.appendChild(inner);
       btn.style.setProperty('cursor', 'pointer', 'important');
@@ -125,9 +143,18 @@ export const IsolatedButton = ({ label, onClick, variant = 'default', title }) =
       if (btn) {
         btn.className = variant === 'delete' ? 'del' : variant === 'add' ? 'add' : 'edit';
         if (title) btn.title = title;
-        const labelSpan = btn.querySelector('.button-label');
-        if (labelSpan) {
-          labelSpan.textContent = label;
+        const svg = btn.querySelector('.button-label-svg');
+        if (svg) {
+          const text = svg.querySelector('text');
+          if (text) {
+            text.textContent = label;
+            text.setAttribute('fill', variant === 'delete' ? 'rgba(158,58,64,0.9)' : variant === 'add' ? 'rgba(48,84,156,0.9)' : 'rgba(30,30,36,0.96)');
+            // Fixed width for all buttons
+            const fixedWidth = 32;
+            svg.setAttribute('width', `${fixedWidth}`);
+            svg.setAttribute('viewBox', `0 0 ${fixedWidth} 12`);
+            text.setAttribute('x', String(fixedWidth / 2));
+          }
         }
       }
     }
