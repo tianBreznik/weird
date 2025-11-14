@@ -1,6 +1,6 @@
 .app {
   min-height: 100vh;
-  background: white;
+  background: transparent; /* allow body texture to show through */
   position: relative; /* anchor overlay */
 }
 
@@ -100,7 +100,7 @@
 }
 
 .app-header {
-  background: white;
+  background: transparent; /* allow body texture to show through */
   padding: 2rem 0;
 }
 

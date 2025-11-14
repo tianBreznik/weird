@@ -7,12 +7,41 @@
 body {
   margin: 0;
   font-family: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Palatino, 'Georgia', 'Times New Roman', Times, serif;
-  background: #ffffff; /* clean white */
+  background-color: #fdfdfb;
   color: #1e1a14; /* softer black */
   font-size: 16px;
   letter-spacing: 0.003em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  position: relative;
+}
+
+/* Texture layer - organic speckled paper effect */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: -1;
+  /* Fine-grained speckle pattern - smaller dots, more contrast, denser */
+  background-image: 
+    repeating-radial-gradient(circle at 0 0, rgba(0,0,0,0.12) 0.25px, transparent 0.25px, transparent 1.2px, rgba(0,0,0,0.1) 1.45px, transparent 1.45px, transparent 2.4px),
+    repeating-radial-gradient(circle at 1.5px 1.5px, rgba(0,0,0,0.11) 0.2px, transparent 0.2px, transparent 1.3px, rgba(0,0,0,0.09) 1.5px, transparent 1.5px, transparent 2.6px),
+    repeating-radial-gradient(circle at 0.8px 0.8px, rgba(0,0,0,0.1) 0.3px, transparent 0.3px, transparent 1.1px, rgba(0,0,0,0.08) 1.4px, transparent 1.4px, transparent 2.2px);
+  background-size: 
+    4px 4px,
+    4.5px 4.5px,
+    3.5px 3.5px;
+  background-position:
+    0 0,
+    1px 1px,
+    0.5px 0.5px;
+  opacity: 1;
 }
 
 #root {
