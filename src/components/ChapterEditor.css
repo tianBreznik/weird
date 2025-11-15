@@ -604,6 +604,29 @@
   align-items: center;
   justify-content: center;
   box-shadow: none; /* flatter, part of toolbar */
+  position: relative;
+  overflow: hidden;
+}
+
+.toolbar-btn-icon {
+  position: relative;
+  z-index: 2;
+}
+
+.toolbar-btn-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: var(--upload-progress, 0%);
+  height: 100%;
+  background: linear-gradient(to top, #e0e0e0, #d0d0d0);
+  transition: width 0.2s ease;
+  z-index: 1;
+  opacity: 0.6;
+}
+
+.toolbar-btn.uploading {
+  background: #f6f6f6;
 }
 
 .toolbar-sep {

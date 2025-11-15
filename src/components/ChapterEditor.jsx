@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { convertImageToBase64 } from '../services/storage';
+import { uploadImageToStorage, uploadVideoToStorage } from '../services/storage';
 import { generateWordTimingsWithDeepgram } from '../services/autoTiming';
 import './ChapterEditor.css';
 
@@ -22,12 +22,15 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   });
   const textareaRef = useRef(null);
   const imageInputRef = useRef(null);
+  const videoFileInputRef = useRef(null);
   const autosaveTimerRef = useRef(null);
   const colorInputRef = useRef(null);
   const userChangedColorRef = useRef(false); // Track when user manually changes color
   const dialogOpenRef = useRef(false); // Track if dialog is open to prevent editor interference
-  const [showVideoDialog, setShowVideoDialog] = useState(false);
-  const [videoUrl, setVideoUrl] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [imageUploadProgress, setImageUploadProgress] = useState(0);
+  const [videoUploadProgress, setVideoUploadProgress] = useState(0);
   const [showKaraokeDialog, setShowKaraokeDialog] = useState(false);
   const [karaokeText, setKaraokeText] = useState('');
   const [karaokeAudioFile, setKaraokeAudioFile] = useState(null);
@@ -411,7 +414,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   }, []);
 
   useEffect(() => {
-    if (showKaraokeDialog || showVideoDialog) return;
+    if (showKaraokeDialog) return;
     const editor = textareaRef.current;
     if (!editor) return;
 
@@ -435,7 +438,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
         console.warn('Failed to restore caret after dialog close:', err);
       }
     }
-  }, [showKaraokeDialog, showVideoDialog, content]);
+  }, [showKaraokeDialog, content]);
 
   // Handle content changes from contentEditable for autosave
   const handleEditorInput = () => {
@@ -493,9 +496,9 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
 
   // Update dialog ref when dialog state changes
   useEffect(() => {
-    dialogOpenRef.current = showKaraokeDialog || showVideoDialog;
+    dialogOpenRef.current = showKaraokeDialog;
     // Add/remove body class for CSS targeting
-    if (showKaraokeDialog || showVideoDialog) {
+    if (showKaraokeDialog) {
       document.body.classList.add('dialog-open');
     } else {
       document.body.classList.remove('dialog-open');
@@ -503,7 +506,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     return () => {
       document.body.classList.remove('dialog-open');
     };
-  }, [showKaraokeDialog, showVideoDialog]);
+  }, [showKaraokeDialog]);
 
   useEffect(() => {
     if (!showKaraokeDialog && pendingKaraokeHtmlRef.current) {
@@ -516,7 +519,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     const onKeyDown = (e) => {
       // Check if the event target is within a dialog - if so, let it through completely
       const target = e.target;
-      if (target && (target.closest('.karaoke-dialog') || target.closest('.video-dialog'))) {
+      if (target && target.closest('.karaoke-dialog')) {
         return; // Let the dialog handle it
       }
       
@@ -665,70 +668,64 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   };
 
   const handleVideoButtonClick = () => {
-    setShowVideoDialog(true);
-    setVideoUrl('');
+    if (videoFileInputRef.current) videoFileInputRef.current.click();
   };
 
-  const convertVideoUrlToEmbed = (url) => {
-    // YouTube - handles various formats, use nocookie domain to reduce branding
-    const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
-    const youtubeMatch = url.match(youtubeRegex);
-    if (youtubeMatch) {
-      return `<iframe width="560" height="315" src="https://www.youtube-nocookie.com/embed/${youtubeMatch[1]}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="max-width:100%;height:auto;display:block;margin:8px 0;"></iframe>`;
-    }
-
-    // Vimeo
-    const vimeoRegex = /(?:vimeo\.com\/)(?:channels\/|groups\/[^\/]*\/videos\/|album\/\d+\/video\/|video\/|)(\d+)/;
-    const vimeoMatch = url.match(vimeoRegex);
-    if (vimeoMatch) {
-      return `<iframe src="https://player.vimeo.com/video/${vimeoMatch[1]}" width="560" height="315" frameborder="0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen style="max-width:100%;height:auto;display:block;margin:8px 0;"></iframe>`;
-    }
-
-    // If no match, return as-is (user might paste custom embed code)
-    return url;
-  };
-
-  const handleInsertVideo = () => {
-    if (!videoUrl.trim()) return;
+  const handleVideoFileSelected = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
     
-    const editor = textareaRef.current;
-    if (!editor) return;
-
-    const embedHtml = convertVideoUrlToEmbed(videoUrl.trim());
+    setUploadingVideo(true);
+    setVideoUploadProgress(0);
     
-    editor.focus();
     try {
-      const selection = window.getSelection();
-      if (selection && selection.rangeCount > 0 && editor.contains(selection.anchorNode)) {
-        const range = selection.getRangeAt(0);
-        range.deleteContents();
-        const temp = document.createElement('div');
-        temp.innerHTML = embedHtml;
-        const frag = document.createDocumentFragment();
-        let node, lastNode;
-        while ((node = temp.firstChild)) {
-          lastNode = frag.appendChild(node);
+      const downloadURL = await uploadVideoToStorage(file, {
+        onProgress: (progress) => {
+          setVideoUploadProgress(progress);
         }
-        range.insertNode(frag);
-        if (lastNode) {
-          const after = document.createTextNode('\u00A0');
-          lastNode.parentNode.insertBefore(after, lastNode.nextSibling);
-          const newRange = document.createRange();
-          newRange.setStartAfter(after);
-          newRange.collapse(true);
-          selection.removeAllRanges();
-          selection.addRange(newRange);
+      });
+      
+      const editor = textareaRef.current;
+      if (!editor) return;
+      editor.focus();
+      const videoHtml = `<video src="${downloadURL}" controls style="max-width:100%;height:auto;display:block;margin:8px 0;"></video>`;
+      try {
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0 && editor.contains(selection.anchorNode)) {
+          const range = selection.getRangeAt(0);
+          range.deleteContents();
+          const temp = document.createElement('div');
+          temp.innerHTML = videoHtml;
+          const frag = document.createDocumentFragment();
+          let node, lastNode;
+          while ((node = temp.firstChild)) {
+            lastNode = frag.appendChild(node);
+          }
+          range.insertNode(frag);
+          if (lastNode) {
+            const after = document.createTextNode('\u00A0');
+            lastNode.parentNode.insertBefore(after, lastNode.nextSibling);
+            const newRange = document.createRange();
+            newRange.setStartAfter(after);
+            newRange.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(newRange);
+          }
+        } else {
+          editor.insertAdjacentHTML('beforeend', videoHtml);
         }
-      } else {
-        editor.insertAdjacentHTML('beforeend', embedHtml);
+      } catch {
+        document.execCommand('insertHTML', false, videoHtml);
       }
-    } catch {
-      document.execCommand('insertHTML', false, embedHtml);
+      refreshToolbarState();
+    } catch (err) {
+      console.error('Video upload failed', err);
+      alert(err.message || 'Video upload failed. Please try again.');
+    } finally {
+      setUploadingVideo(false);
+      setVideoUploadProgress(0);
+      if (videoFileInputRef.current) videoFileInputRef.current.value = '';
     }
-    
-    setShowVideoDialog(false);
-    setVideoUrl('');
-    refreshToolbarState();
   };
 
   // Parse SRT/VTT file to extract word timings
@@ -1217,12 +1214,19 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   const handleImageSelected = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setUploadingImage(true);
+    setImageUploadProgress(0);
     try {
-      const dataUri = await convertImageToBase64(file);
+      const downloadURL = await uploadImageToStorage(file, {
+        onProgress: (progress) => {
+          setImageUploadProgress(progress);
+        },
+        compress: true
+      });
       const editor = textareaRef.current;
       if (!editor) return;
       editor.focus();
-      const imgHtml = `<img src="${dataUri}" alt="" style="max-width:100%;height:auto;display:block;margin:8px 0;" />`;
+      const imgHtml = `<img src="${downloadURL}" alt="" style="max-width:100%;height:auto;display:block;margin:8px 0;" />`;
       try {
         // Prefer modern Selection/Range insertion
         const selection = window.getSelection();
@@ -1257,9 +1261,11 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       }
       refreshToolbarState();
     } catch (err) {
-      console.error('Image conversion failed', err);
-      alert(err.message || 'Image conversion failed. Please try a smaller image.');
+      console.error('Image upload failed', err);
+      alert(err.message || 'Image upload failed. Please try again.');
     } finally {
+      setUploadingImage(false);
+      setImageUploadProgress(0);
       // reset input so selecting the same file again still triggers change
       if (imageInputRef.current) imageInputRef.current.value = '';
     }
@@ -1324,19 +1330,30 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                 </button>
                 <button
                   onClick={handleImageButtonClick}
-                  className="toolbar-btn"
-                  title="Insert Image"
+                  className={`toolbar-btn ${uploadingImage ? 'uploading' : ''}`}
+                  title={uploadingImage ? "Uploading image..." : "Insert Image"}
+                  disabled={uploadingImage}
+                  style={uploadingImage ? {
+                    '--upload-progress': `${imageUploadProgress}%`
+                  } : {}}
                 >
-                  🖼
+                  <span className="toolbar-btn-icon">🖼</span>
+                  {uploadingImage && <div className="toolbar-btn-progress" />}
                 </button>
-                <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageSelected} style={{ display: 'none' }} />
+                <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageSelected} style={{ display: 'none' }} disabled={uploadingImage} />
                 <button
                   onClick={handleVideoButtonClick}
-                  className="toolbar-btn"
-                  title="Insert Video (YouTube/Vimeo)"
+                  className={`toolbar-btn ${uploadingVideo ? 'uploading' : ''}`}
+                  title={uploadingVideo ? "Uploading video..." : "Insert Video"}
+                  disabled={uploadingVideo}
+                  style={uploadingVideo ? {
+                    '--upload-progress': `${videoUploadProgress}%`
+                  } : {}}
                 >
-                  🎥
+                  <span className="toolbar-btn-icon">🎥</span>
+                  {uploadingVideo && <div className="toolbar-btn-progress" />}
                 </button>
+                <input ref={videoFileInputRef} type="file" accept="video/*" onChange={handleVideoFileSelected} style={{ display: 'none' }} disabled={uploadingVideo} />
                 <button
                   onClick={() => {
                     // Disable editor and blur it before opening dialog
@@ -1418,7 +1435,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                 ))}
               </div>
             </div>
-            {!showKaraokeDialog && !showVideoDialog && (
+            {!showKaraokeDialog && (
               <div 
                 className="content-editor page-area"
                 contentEditable="true"
@@ -1436,40 +1453,6 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
 
         {/* bottom actions removed in favor of floating save */}
       </div>
-
-      {/* Video embed dialog */}
-      {showVideoDialog && (
-        <div className="video-dialog-overlay" onClick={(e) => {
-          if (e.target === e.currentTarget) setShowVideoDialog(false);
-        }}>
-          <div className="video-dialog">
-            <h3>Insert Video</h3>
-            <p style={{ fontSize: '12px', color: '#666', marginBottom: '12px' }}>
-              Paste a YouTube or Vimeo URL, or embed code
-            </p>
-            <input
-              type="text"
-              value={videoUrl}
-              onChange={(e) => setVideoUrl(e.target.value)}
-              placeholder="https://www.youtube.com/watch?v=..."
-              className="video-url-input"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleInsertVideo();
-                if (e.key === 'Escape') setShowVideoDialog(false);
-              }}
-              autoFocus
-            />
-            <div className="video-dialog-actions">
-              <button onClick={() => setShowVideoDialog(false)} className="btn-cancel">
-                Cancel
-              </button>
-              <button onClick={handleInsertVideo} className="btn-save" disabled={!videoUrl.trim()}>
-                Insert
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Karaoke dialog - modal overlay, but editor is hidden from DOM */}
       {showKaraokeDialog && createPortal(
