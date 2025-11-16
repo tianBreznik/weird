@@ -247,3 +247,19 @@ body[style*="overflow: hidden"],
 html[style*="overflow: hidden"] {
   scrollbar-width: none;
 }
+
+/* On mobile, remove CSS text-shadow since JavaScript applies it via spans */
+/* The JavaScript wraps characters in spans and randomly applies data-ink="1" */
+@media (max-width: 768px) {
+  .book-concept,
+  .chapters-list .chapter-content,
+  .chapters-list .chapter-content p,
+  .chapters-list .chapter-content li,
+  .chapters-list .chapter-header h3 {
+    /* Remove CSS text-shadow - JavaScript handles it via .ink-char-mobile spans */
+    text-shadow: none !important;
+    -webkit-text-stroke: none !important;
+    -webkit-text-stroke-width: 0 !important;
+    -webkit-text-stroke-color: transparent !important;
+  }
+}

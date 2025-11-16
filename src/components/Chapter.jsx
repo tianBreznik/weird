@@ -14,6 +14,88 @@ const NORMALIZE_REGEX = /[^a-z0-9']+/g;
 const isWhitespace = (char) => /\s/.test(char);
 const isPunctuation = (char) => /[\p{P}\u2019\u2018]/u.test(char);
 
+// Apply ink effect to text on mobile by wrapping characters in spans
+// This is needed because mobile Safari doesn't render subpixel effects like desktop
+export const applyInkEffectToTextMobile = (element, options = {}) => {
+  if (!element) return;
+  
+  // Only run on mobile devices
+  if (window.innerWidth > 768) return;
+  
+  // Skip karaoke players - they handle their own ink effect
+  if (element.closest('.karaoke-player')) return;
+  
+  // Determine probability of applying ink based on context
+  // Default: 0.15 (titles, book-concept, etc.)
+  // Chapter content: lower density for a subtler look
+  const isChapterContent =
+    element.classList?.contains('chapter-content') ||
+    !!element.closest?.('.chapter-content');
+  const probability =
+    typeof options.probability === 'number'
+      ? options.probability
+      : (isChapterContent ? 0.25 : 0.15);
+  
+  const walker = document.createTreeWalker(
+    element,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode: (node) => {
+        const parent = node.parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        if (parent.tagName === 'SCRIPT' || parent.tagName === 'STYLE') {
+          return NodeFilter.FILTER_REJECT;
+        }
+        // Skip if already processed
+        if (parent.classList.contains('ink-processed-mobile')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        // Skip karaoke players
+        if (parent.closest('.karaoke-player')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        // Skip empty text nodes
+        if (node.textContent.trim().length === 0) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    }
+  );
+
+  const textNodes = [];
+  let node;
+  while ((node = walker.nextNode())) {
+    textNodes.push(node);
+  }
+
+  textNodes.forEach((textNode) => {
+    const parent = textNode.parentElement;
+    if (!parent || parent.classList.contains('ink-processed-mobile')) return;
+    // Skip if inside karaoke player
+    if (parent.closest('.karaoke-player')) return;
+
+    const text = textNode.textContent;
+    const fragment = document.createDocumentFragment();
+
+    Array.from(text).forEach((char) => {
+      const span = document.createElement('span');
+      span.className = 'ink-char-mobile';
+      span.textContent = char;
+
+      // Randomly apply ink effect to ~15% of non-whitespace, non-punctuation characters
+      if (!isWhitespace(char) && !isPunctuation(char) && Math.random() < probability) {
+        span.dataset.ink = '1';
+      }
+
+      fragment.appendChild(span);
+    });
+
+    parent.replaceChild(fragment, textNode);
+    parent.classList.add('ink-processed-mobile');
+  });
+};
+
 const normalizeWord = (value) => {
   if (!value) return '';
   return value
@@ -299,6 +381,7 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
   const [isExpanded, setIsExpanded] = useState(chapter.id === defaultExpandedChapterId);
   const { isEditor } = useEditorMode();
   const contentRef = useRef(null);
+  const headerRef = useRef(null);
 
   // Generate formal numbering (no "Chapter" label)
   const getFormalNumber = () => {
@@ -321,10 +404,21 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
     return t.replace(/[A-Za-zÀ-ÖØ-öø-ÿ]/, (m) => m.toUpperCase());
   };
 
-  // Apply matching ink bleed shadows to colored text
+  // Apply ink effect to headers on mobile
+  useEffect(() => {
+    if (headerRef.current) {
+      applyInkEffectToTextMobile(headerRef.current);
+    }
+  }, [chapter.title]);
+
+  // Apply ink effect to content and initialize karaoke players
   useEffect(() => {
     if (!isExpanded || !contentRef.current) return;
     
+    // Apply ink effect to regular text content on mobile
+    applyInkEffectToTextMobile(contentRef.current);
+    
+    // Initialize karaoke players
     const karaokeElements = contentRef.current.querySelectorAll('.karaoke-object');
     if (karaokeElements.length === 0) return;
 
@@ -373,7 +467,7 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
         }}
       >
         {/** Title element with class per level for precise styling/hover */}
-        <h3 className={level === 0 ? 'chapter-title' : 'subchapter-title'}>
+        <h3 ref={headerRef} className={level === 0 ? 'chapter-title' : 'subchapter-title'}>
           <span className="chapter-number">{getFormalNumber()}</span> {formatTitle(chapter.title)}
         </h3>
         {isEditor && (

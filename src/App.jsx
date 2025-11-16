@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Chapter } from './components/Chapter';
+import { useEffect, useState, useRef } from 'react';
+import { Chapter, applyInkEffectToTextMobile } from './components/Chapter';
 import { ChapterEditor } from './components/ChapterEditor';
 import { EditorSetup } from './pages/EditorSetup';
 import { useEditorMode } from './hooks/useEditorMode';
@@ -22,6 +22,7 @@ function App() {
   const [defaultExpandedChapterId, setDefaultExpandedChapterId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const bookConceptRef = useRef(null);
 
   const load = async () => {
     try {
@@ -119,11 +120,18 @@ function App() {
     }
   };
 
+  // Apply ink effect to book-concept on mobile
+  useEffect(() => {
+    if (bookConceptRef.current) {
+      applyInkEffectToTextMobile(bookConceptRef.current);
+    }
+  }, []);
+
   return (
     <div className={`app eink ${editingChapter || showNewChapterEditor || parentChapterForNewSub ? 'with-editor' : ''}`}>
       <header className="app-header">
         <div className="header-content">
-          <p className="book-concept">
+          <p ref={bookConceptRef} className="book-concept">
             This research examines the complex relationship between gothic ruins and contemporary architectural theory, 
             positioning these decayed structures not as failed architecture but as post-architectural entities that 
             challenge traditional notions of temporality, materiality, and spatial organization. Through an interdisciplinary 
