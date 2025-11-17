@@ -217,9 +217,36 @@
     -webkit-text-stroke: none !important;
   }
   
+  /* Tighter, mobile-friendly rhythm */
+  .chapter { margin-bottom: 0.9rem; }
+  .chapter-header { padding: 0.25rem 0; }
+  .chapter-header h3 {
+    font-size: 1.25rem;
+    letter-spacing: 0.01em;
+    line-height: 1.25;
+  }
+  .chapter-body {
+    padding-left: 1rem; /* less inset on small screens */
+    text-align: left;   /* easier reading on mobile */
+  }
+  .chapter[style*="margin-left: 1.5rem"] .chapter-body,
+  .chapter[style*="margin-left: 1.5rem"] .chapter-content {
+    padding-left: calc(1rem - 1.5rem);
+  }
+  .chapter-content {
+    font-size: 0.98rem;
+    line-height: 1.7;
+    letter-spacing: 0.003em;
+  }
+  .chapter-content p { margin: 0 0 0.7rem 0; }
+  .chapter-header [aria-label="Drag handle"],
+  .chapter-header .chapter-actions-inline { display: none; }
+  
   .chapter-header h3 {
     text-shadow: none !important;
     -webkit-text-stroke: none !important;
+    position: relative;
+    z-index: 2;
   }
   
   /* Remove text-shadow from all descendants - JavaScript handles it */
@@ -237,10 +264,65 @@
   .chapter-content .ink-char-mobile[data-ink="1"],
   .chapter-content * .ink-char-mobile[data-ink="1"] {
     text-shadow:
-      0 0 0.25px currentColor,
-      0 0.08px 0.35px currentColor,
-     -0.08px 0 0.35px currentColor !important;
-    -webkit-text-stroke: 0.08px currentColor !important;
+      0 0 0.15px currentColor,
+      0 0.04px 0.20px currentColor,
+     -0.04px 0 0.20px currentColor !important;
+    -webkit-text-stroke: 0.05px currentColor !important;
+  }
+}
+
+.chapter-mobile-text-actions {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .chapter-mobile-text-actions {
+    display: flex;
+    justify-content: center;
+    gap: 0.1rem;
+    margin: -0.15rem auto 0;
+    padding: 0.18rem 0.25rem 0.35rem;
+    background: transparent;
+    width: 45%;
+    position: relative;
+    top: -0.05rem;
+    z-index: 1;
+    border: none;
+    border-bottom: 5px solid;
+    border-image: url('../assets/blacklacelarge.png') 15 round;
+  }
+
+  .chapter-mobile-text-actions button {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-family: 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif;
+    color: #111;
+  }
+
+  .chapter-mobile-text-actions button.edit {
+    color: #0066cc;
+  }
+
+  .chapter-mobile-text-actions button.add {
+    color: #228b22;
+  }
+
+  .chapter-mobile-text-actions button.danger {
+    color: #b21f13;
+  }
+
+  .chapter-mobile-text-actions .separator {
+    color: #999;
+    margin: 0 0.2rem;
+    font-size: 0.75rem;
+  }
+
+  .chapter-mobile-text-actions button:active {
+    opacity: 0.6;
   }
 }
 

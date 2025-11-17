@@ -382,6 +382,9 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
   const { isEditor } = useEditorMode();
   const contentRef = useRef(null);
   const headerRef = useRef(null);
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== 'undefined' ? window.innerWidth <= 768 : false
+  );
 
   // Generate formal numbering (no "Chapter" label)
   const getFormalNumber = () => {
@@ -403,6 +406,15 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
     // Capitalize the first alphabetical character only
     return t.replace(/[A-Za-zÀ-ÖØ-öø-ÿ]/, (m) => m.toUpperCase());
   };
+
+  // Track viewport width for mobile detection
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = () => setIsMobile(window.innerWidth <= 768);
+    handler();
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
 
   // Apply ink effect to headers on mobile
   useEffect(() => {
@@ -489,6 +501,31 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
           </div>
         )}
       </div>
+      {isEditor && isMobile && isExpanded && (
+        <div className="chapter-mobile-text-actions" onClick={(e) => e.stopPropagation()}>
+          <button type="button" className="edit" onClick={() => onEdit(chapter)}>
+            Edit
+          </button>
+          <span className="separator">|</span>
+          {level === 0 && (
+            <>
+              <button type="button" className="add" onClick={() => onAddSubchapter(chapter)}>
+                Add
+              </button>
+              <span className="separator">|</span>
+            </>
+          )}
+          <button
+            type="button"
+            className="danger"
+            onClick={() =>
+              onDelete(chapter.id, level > 0, level > 0 ? parentChapterId : null)
+            }
+          >
+            Delete
+          </button>
+        </div>
+      )}
 
       {isExpanded && (
         <div className="chapter-body">

@@ -27,6 +27,12 @@ const EDITOR_DEVICE_WHITELIST = [
   // Add device IDs here
   // Example: 'abc123-xyz789',
   'mgjxds3q-1rekdb1eb7y',
+  'mi1jtuuj-9x6z4uj4kh',
+  'mi37kcqh-j4cmiln4r1l',
+  'mi38utyt-9colfarywk7',
+  'mi3iteoy-2j8voox4ec6',
+  'mi3jjwma-qsglzpy5daa',
+  'mi3lpncq-ioxx55731f',
 ];
 
 // Check if current device is authorized as editor
