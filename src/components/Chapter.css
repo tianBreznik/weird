@@ -269,6 +269,12 @@
      -0.04px 0 0.20px currentColor !important;
     -webkit-text-stroke: 0.05px currentColor !important;
   }
+  
+  /* Override font-weight for bold tags created by editor toolbar on mobile */
+  .chapter-content strong,
+  .chapter-content b {
+    font-weight: 700 !important;
+  }
 }
 
 .chapter-mobile-text-actions {
@@ -331,6 +337,12 @@
 .chapter-content :where(p, span, strong, em, mark, del, ins, a, b, i, u, s) * {
   font-family: 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif !important;
   font-weight: 400 !important;
+}
+
+/* Override font-weight for bold tags created by editor toolbar */
+.chapter-content strong,
+.chapter-content b {
+  font-weight: 700 !important;
 }
 
 /* Fallback for any other inline element directly under chapter-content */

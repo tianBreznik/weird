@@ -32,14 +32,14 @@
 .chapters-list .chapter-content li {
   color: #0c0c0c; /* match header color */
   text-shadow:
-    0 0 0.8px rgba(0,0,0,0.5),
-    0 0.25px 1px rgba(0,0,0,0.22),
-   -0.25px 0 1px rgba(0,0,0,0.18);
+    0 0 0.4px currentColor,
+    0 0.15px 0.6px currentColor,
+   -0.15px 0 0.6px currentColor;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   font-kerning: normal;
   font-variant-ligatures: common-ligatures;
-  -webkit-text-stroke: 0.2px rgba(0,0,0,0.22); /* same as header */
+  -webkit-text-stroke: 0.1px currentColor; /* same as header */
 }
 
 .chapters-list .chapter-header h3 {
@@ -337,5 +337,69 @@ html[style*="overflow: hidden"] {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    transition: transform 150ms ease, background 150ms ease, border-color 150ms ease !important;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  
+  .mode-toggle:active,
+  .setup-link:active,
+  .add-chapter-btn:active {
+    transition: transform 50ms ease, background 50ms ease, border-color 50ms ease !important;
+  }
+  
+  /* Force buttons to return to normal state immediately after touch ends */
+  .mode-toggle,
+  .setup-link,
+  .add-chapter-btn {
+    /* Reset to normal state by default */
+    transform: scale(1) !important;
+    background: linear-gradient(180deg, #fdfdfd 0%, #f3f4f6 100%) !important;
+    border-color: #e3e5ea !important;
+  }
+  
+  /* Only apply active state when actually being touched */
+  .mode-toggle:active,
+  .setup-link:active,
+  .add-chapter-btn:active {
+    transform: scale(0.97) !important;
+    background: linear-gradient(180deg, #eef0f4 0%, #e0e1e6 100%) !important;
+    border-color: #d4d6dc !important;
+  }
+  
+  /* Reset ::before pseudo-element when not active (base state) */
+  .mode-toggle:not(:active)::before,
+  .setup-link:not(:active)::before,
+  .add-chapter-btn:not(:active)::before {
+    box-shadow:
+      inset -0.02em -0.02em 0.02em rgba(5,5,5,0.15),
+      inset 0 0 0.02em 0.1em rgba(255,255,255,0.15),
+      inset 0.01em 0.02em 0.04em rgba(255,255,255,0.5),
+      inset 0.05em 0.05em 0.05em rgba(255,255,255,0.15),
+      inset -0.03em -0.08em 0.08em 0.04em rgba(5,5,5,0.12) !important;
+  }
+  
+  /* Prevent focus from keeping button in active-like state */
+  .mode-toggle:focus,
+  .setup-link:focus,
+  .add-chapter-btn:focus {
+    outline: none !important;
+    transform: scale(1) !important;
+    background: linear-gradient(180deg, #fdfdfd 0%, #f3f4f6 100%) !important;
+    border-color: #e3e5ea !important;
+  }
+  
+  /* Reset ::before on focus (base state) */
+  .mode-toggle:focus::before,
+  .setup-link:focus::before,
+  .add-chapter-btn:focus::before {
+    box-shadow:
+      inset -0.02em -0.02em 0.02em rgba(5,5,5,0.15),
+      inset 0 0 0.02em 0.1em rgba(255,255,255,0.15),
+      inset 0.01em 0.02em 0.04em rgba(255,255,255,0.5),
+      inset 0.05em 0.05em 0.05em rgba(255,255,255,0.15),
+      inset -0.03em -0.08em 0.08em 0.04em rgba(5,5,5,0.12) !important;
   }
 }

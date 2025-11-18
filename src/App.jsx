@@ -195,17 +195,26 @@ function App() {
 
       <div className="bottom-actions">
         {canToggleEditorMode && (
-          <button className="mode-toggle" onClick={togglePreviewMode}>
-            {previewingAsReader ? 'Return to Editor Mode' : 'Knjižni vpogled'}
+          <button 
+            className="mode-toggle" 
+            onClick={togglePreviewMode}
+            tabIndex={window.innerWidth <= 768 ? -1 : 0}
+          >
+            {previewingAsReader ? 'Nazaj urejat' : 'Knjižni vpogled'}
           </button>
         )}
-        <button className="setup-link" onClick={() => setShowSetup(true)}>
+        <button 
+          className="setup-link" 
+          onClick={() => setShowSetup(true)}
+          tabIndex={window.innerWidth <= 768 ? -1 : 0}
+        >
           ⚙ Nastavitve
         </button>
         {isEditor && (
           <button 
             className="add-chapter-btn"
             onClick={() => setShowNewChapterEditor(true)}
+            tabIndex={window.innerWidth <= 768 ? -1 : 0}
           >
             + Dodaj poglavje
           </button>
