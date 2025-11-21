@@ -58,8 +58,10 @@
   user-select: none;
   background: transparent;
   width: 100%;
-  position: relative; /* anchor invisible drag handle */
+  max-width: 100%; /* Prevent overflow */
+  position: relative; /* anchor action buttons */
   z-index: 1;
+  overflow: visible; /* Allow buttons to be visible outside container */
 }
 
 /* Do not underline when header is hovered unless the h3 itself is hovered */
@@ -67,7 +69,7 @@
 
 .chapter-header h3 {
   margin: 0;
-  font-size: 1.55rem; /* slightly reduced for better print-like bleed */
+  font-size: 1.35rem; /* reduced from 1.55rem */
   color: #0c0c0c;
   font-weight: 520; /* test non-bold for better ink look */
   font-family: 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif;
@@ -108,7 +110,7 @@
 .chapter-number { display: none; }
 .toggle-icon { display: none; }
 
-/* Container for drag handle and buttons - positioned immediately to the left of the header block */
+/* Container for drag handle and buttons - positioned to the left of the header */
 .chapter-header .chapter-actions-container {
   position: absolute;
   right: 100%; /* stick to the left edge of header */
@@ -219,24 +221,35 @@
   
   /* Tighter, mobile-friendly rhythm */
   .chapter { margin-bottom: 0.9rem; }
-  .chapter-header { padding: 0.25rem 0; }
+  .chapter-header { 
+    padding: 0.25rem 0; 
+  }
   .chapter-header h3 {
     font-size: 1.25rem;
     letter-spacing: 0.01em;
     line-height: 1.25;
   }
   .chapter-body {
-    padding-left: 1rem; /* less inset on small screens */
+    padding-left: 1rem; /* Original padding */
     text-align: left;   /* easier reading on mobile */
+  }
+  /* Adjust subchapter headers */
+  .chapter[style*="margin-left: 1.5rem"] .chapter-header {
+    margin-left: -1.5rem !important; /* Override desktop margin */
   }
   .chapter[style*="margin-left: 1.5rem"] .chapter-body,
   .chapter[style*="margin-left: 1.5rem"] .chapter-content {
-    padding-left: 0.5rem; /* slightly indented to align with main content column */
+    padding-left: 0.5rem; /* Original padding */
+  }
+
+  .chapter[style*="margin-left: 1.5rem"]  {
+    padding-left: 0;
   }
   .chapter-content {
     font-size: 0.98rem;
     line-height: 1.7;
     letter-spacing: 0.003em;
+    margin-left: 0;
   }
   .chapter-content p { margin: 0 0 0.7rem 0; }
   .chapter-header [aria-label="Drag handle"],
@@ -284,18 +297,36 @@
 @media (max-width: 768px) {
   .chapter-mobile-text-actions {
     display: flex;
-    justify-content: center;
+    justify-content: flex-end;
     gap: 0.1rem;
-    margin: -0.15rem auto 0;
-    padding: 0.18rem 0.25rem 0.35rem;
+    margin: 0;
+    padding: 0;
+    padding-left: 8px; /* spacing from title text */
     background: transparent;
-    width: 45%;
-    position: relative;
-    top: -0.05rem;
-    z-index: 1;
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
     border: none;
-    border-bottom: 5px solid;
-    border-image: url('../assets/blacklacelarge.png') 15 round;
+  }
+
+  /* Subchapter edit/delete buttons and containers */
+  .chapter[style*="margin-left: 1.5rem"] .chapter-mobile-text-actions,
+  .chapter[style*="margin-left: 3rem"]   .chapter-mobile-text-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.1rem;
+    margin: 0;
+    padding: 0;
+    padding-left: 8px; /* spacing from title text */
+    background: transparent;
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    border: none;
   }
 
   .chapter-mobile-text-actions button {
@@ -401,6 +432,27 @@
   height: auto;
   display: block;
   margin: 1rem 0;
+  cursor: pointer;
+}
+
+.image-expansion-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: transparent;
+  z-index: 10000;
+}
+
+.image-expansion-clone {
+  position: fixed;
+  margin: 0;
+  pointer-events: none;
+  transform-origin: top left;
+  will-change: transform;
+  object-fit: cover;
+  z-index: 10001;
 }
 
 .chapter-content iframe {

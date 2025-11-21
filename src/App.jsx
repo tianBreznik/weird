@@ -24,6 +24,19 @@ function App() {
   const [loadError, setLoadError] = useState('');
   const bookConceptRef = useRef(null);
 
+  // Add/remove body class when editor opens/closes to hide flower image
+  useEffect(() => {
+    const hasEditor = editingChapter || showNewChapterEditor || parentChapterForNewSub;
+    if (hasEditor) {
+      document.body.classList.add('editor-open');
+    } else {
+      document.body.classList.remove('editor-open');
+    }
+    return () => {
+      document.body.classList.remove('editor-open');
+    };
+  }, [editingChapter, showNewChapterEditor, parentChapterForNewSub]);
+
   const load = async () => {
     try {
       console.log('[Firestore] Loading chapters for book:', BOOK_ID);
@@ -132,14 +145,24 @@ function App() {
       <header className="app-header">
         <div className="header-content">
           <p ref={bookConceptRef} className="book-concept">
-            This research examines the complex relationship between gothic ruins and contemporary architectural theory, 
-            positioning these decayed structures not as failed architecture but as post-architectural entities that 
-            challenge traditional notions of temporality, materiality, and spatial organization. Through an interdisciplinary 
-            approach combining architectural history, material studies, and post-humanist theory, this work investigates 
-            how ruins function as sites of entanglement where multiple temporal registers, material memories, and 
-            spatial configurations intersect and interact. The study argues that gothic ruins, in their state of 
-            perpetual decay and transformation, offer a unique lens through which to understand the dynamic relationships 
-            between built environments and their ongoing processes of becoming, dissolution, and reconstitution.
+          Welcome. You are now entering Dwellings in machinic passage[1] s, a short journey conceived 
+          by Ema Maznik and Maks Bricelj for the 5th Industrial Art Biennial. If you’re already near 
+          the Prvomajska building in Raša today , you’re free to roam, explore, and listen. But you can 
+          also experience these recordings independently, wherever you are; just remember that some of 
+          what you’ll hear refers to the specific architecture and atmosphere of Prvomajska.
+          <br /><br />
+          <b>A few hints before you begin:</b>
+          <ul>
+            <li>Download the files in advance or make sure you have a stable connection —
+            concrete walls might prevent you from downloading.</li>
+            <li>Every chapter corresponds to a marked spot. When you reach a mark, open the file
+            with the same name and press play.</li>
+            <li>Use headphones if you can; they keep the sound clear and let the factory’s
+            acoustics work with you.</li>
+            <li>Be aware of where you step and your surroundings in general: the factory is a 
+              pretty safe environment, but it’s still a ruin. Be careful with uneven ground and 
+              dripping water.</li>
+          </ul>
           </p>
         </div>
       </header>

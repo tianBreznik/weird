@@ -99,11 +99,14 @@
   display: none !important;
 }
 
-.app.with-editor .app-main,
-.app.with-editor .app-header,
-.app.with-editor .chapters-list {
-  visibility: hidden !important;
-  opacity: 0 !important;
+/* Only hide content on mobile where editor is fullscreen */
+@media (max-width: 768px) {
+  .app.with-editor .app-main,
+  .app.with-editor .app-header,
+  .app.with-editor .chapters-list {
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
 }
 
 .app-header {
@@ -204,6 +207,19 @@
   border-color: #d4d6dc;
 }
 
+/* Desktop: Hide divider and center content */
+@media (min-width: 769px) {
+  /* Hide floral divider on desktop */
+  body::after {
+    display: none !important;
+  }
+
+  /* Ensure body background and texture are visible */
+  body {
+    background-color: #fdfdfb !important;
+  }
+}
+
 .app-main {
   padding: 2rem 2rem;
 }
@@ -258,6 +274,48 @@ html[style*="overflow: hidden"] {
 /* On mobile, remove CSS text-shadow since JavaScript applies it via spans */
 /* The JavaScript wraps characters in spans and randomly applies data-ink="1" */
 @media (max-width: 768px) {
+  /* Flower image along left border - scrolling with page */
+  body::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 20px; /* Medium size */
+    background-image: url('./assets/floral.png');
+    background-repeat: repeat-y;
+    background-size: 20px 250px; /* Width 20px, height 250px with overlap */
+    background-position: 0px -10px; /* Align to left edge, negative Y creates overlap */
+    z-index: 1;
+    pointer-events: none;
+    filter: grayscale(100%) brightness(1.2) contrast(0.8); /* Convert to white/beige tone */
+    opacity: 0.4; /* Subtle appearance */
+  }
+
+  /* Flower image along right border - scrolling with page */
+  /* Use #root::after since body::before is used for texture and body::after is used for left border */
+  #root::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 20px; /* Medium size */
+    background-image: url('./assets/floral.png');
+    background-repeat: repeat-y;
+    background-size: 20px 250px; /* Width 20px, height 250px with overlap */
+    background-position: 0 -10px; /* Align to left edge of element (right edge of page), negative Y creates overlap */
+    z-index: 1;
+    pointer-events: none;
+    filter: grayscale(100%) brightness(1.2) contrast(0.8); /* Convert to white/beige tone */
+    opacity: 0.4; /* Subtle appearance */
+  }
+
+  /* Hide flower images when editor is open */
+  body.editor-open::after,
+  body.editor-open #root::after {
+    display: none !important;
+  }
   .book-concept,
   .chapters-list .chapter-content,
   .chapters-list .chapter-content p,
@@ -271,8 +329,14 @@ html[style*="overflow: hidden"] {
   }
 
   /* Layout and readability adjustments for mobile */
-  .app-header { padding: 1.2rem 0; }
-  .header-content { max-width: 92vw; padding: 0 1rem; }
+  .app-header { 
+    padding: 1.2rem 0; 
+  }
+  .header-content { 
+    max-width: 92vw; 
+    padding: 0 1rem; 
+    margin: 0 auto; /* Center the content */
+  }
   .book-concept {
     font-size: 0.98rem;
     line-height: 1.7;
@@ -285,7 +349,7 @@ html[style*="overflow: hidden"] {
     position: relative;
   }
   
-  .app-main::after {
+  .app-main::before {
     content: '';
     position: fixed;
     bottom: 0;
@@ -297,8 +361,15 @@ html[style*="overflow: hidden"] {
     z-index: 999;
   }
   
-  .container { max-width: 92vw; }
-  .chapters-list { max-width: 92vw; padding: 0 0.25rem; }
+  .container { 
+    max-width: 92vw; 
+    margin: 0 auto; /* Center the content */
+  }
+  .chapters-list { 
+    max-width: 92vw; 
+    padding: 0 0.25rem; 
+    margin: 0 auto; /* Center the content */
+  }
   
   /* Ensure no parent transforms interfere with fixed positioning */
   .app,

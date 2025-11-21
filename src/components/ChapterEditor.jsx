@@ -22,6 +22,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     textColor: false
   });
   const textareaRef = useRef(null);
+  const titleInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const videoFileInputRef = useRef(null);
   const autosaveTimerRef = useRef(null);
@@ -1321,11 +1322,17 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   };
 
   useEffect(() => {
+    // Only auto-focus content editor on initial mount, and only if title input is not being focused
     const timer = setTimeout(() => {
-      if (textareaRef.current) {
+      const activeElement = document.activeElement;
+      // Don't auto-focus if title input is focused or if content editor is already focused
+      if (textareaRef.current && 
+          activeElement !== titleInputRef.current && 
+          activeElement !== textareaRef.current &&
+          !titleInputRef.current?.matches(':focus')) {
         textareaRef.current.focus({ preventScroll: true });
       }
-    }, 100);
+    }, 300); // Longer delay to allow user to click title first
     return () => clearTimeout(timer);
   }, []);
 
@@ -1337,6 +1344,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
         <div className="editor-content">
           <div className="title-row">
             <input
+              ref={titleInputRef}
               id="chapter-title"
               type="text"
               value={title}

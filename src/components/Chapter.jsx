@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useEditorMode } from '../hooks/useEditorMode';
 import { renderMarkdownWithParagraphs } from '../utils/markdown';
 import './Chapter.css';
@@ -385,6 +385,33 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
   const [isMobile, setIsMobile] = useState(
     typeof window !== 'undefined' ? window.innerWidth <= 768 : false
   );
+  const overlayStateRef = useRef(null);
+  const preloadedImagesRef = useRef(new Set());
+
+  const renderedHtml = useMemo(
+    () => renderMarkdownWithParagraphs(chapter.content || ''),
+    [chapter.content]
+  );
+
+  const preparedHtml = useMemo(() => {
+    if (typeof window === 'undefined') return renderedHtml;
+    const container = document.createElement('div');
+    container.innerHTML = renderedHtml;
+    const supportsFetchPriority = 'fetchPriority' in document.createElement('img');
+    container.querySelectorAll('img').forEach((img) => {
+      const dataSrc = img.getAttribute('data-src');
+      if (dataSrc) {
+        img.setAttribute('src', dataSrc);
+        img.removeAttribute('data-src');
+      }
+      img.setAttribute('loading', 'eager');
+      img.setAttribute('decoding', 'sync');
+      if (supportsFetchPriority) {
+        img.setAttribute('fetchpriority', 'high');
+      }
+    });
+    return container.innerHTML;
+  }, [renderedHtml]);
 
   // Generate formal numbering (no "Chapter" label)
   const getFormalNumber = () => {
@@ -464,6 +491,230 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
     };
   }, [isExpanded, chapter.content]);
 
+  // Preload chapter images as soon as content is available so they appear instantly when expanded
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!preparedHtml) return;
+
+    const tempContainer = document.createElement('div');
+    tempContainer.innerHTML = preparedHtml;
+    const imgs = tempContainer.querySelectorAll('img');
+    if (!imgs.length) return;
+
+    const abortFns = [];
+
+    imgs.forEach((node) => {
+      const srcAttr = node.getAttribute('src');
+      const dataSrcAttr = node.getAttribute('data-src');
+      const src = srcAttr || dataSrcAttr;
+      if (!src || preloadedImagesRef.current.has(src)) return;
+      const image = new window.Image();
+      image.decoding = 'async';
+      image.loading = 'eager';
+      image.src = src;
+      preloadedImagesRef.current.add(src);
+      abortFns.push(() => {
+        image.src = '';
+      });
+    });
+
+    return () => {
+      abortFns.forEach((abort) => abort());
+    };
+  }, [chapter.content]);
+
+  const cleanupOverlay = useCallback(() => {
+    const state = overlayStateRef.current;
+    if (!state) return;
+    state.overlay.remove();
+    overlayStateRef.current = null;
+    document.body.style.overflow = '';
+  }, []);
+
+  const collapseOverlay = useCallback(
+    () =>
+      new Promise((resolve) => {
+        const state = overlayStateRef.current;
+        if (!state) {
+          resolve();
+          return;
+        }
+
+        const { clone, originalRect, viewportRect } = state;
+
+        const finish = () => {
+          cleanupOverlay();
+          resolve();
+        };
+
+        const reverse = clone.animate(
+          [
+            {
+              top: `${viewportRect.top}px`,
+              left: `${viewportRect.left}px`,
+              width: `${viewportRect.width}px`,
+              height: `${viewportRect.height}px`,
+            },
+            {
+              top: `${originalRect.top}px`,
+              left: `${originalRect.left}px`,
+              width: `${originalRect.width}px`,
+              height: `${originalRect.height}px`,
+            },
+          ],
+          {
+            duration: 2200,
+            easing: 'cubic-bezier(0.7, 0, 0.3, 1)',
+            fill: 'forwards',
+          }
+        );
+
+        reverse.addEventListener('finish', finish, { once: true });
+        reverse.addEventListener('cancel', finish, { once: true });
+      }),
+    [cleanupOverlay]
+  );
+
+  const removeImageOverlay = useCallback(() => {
+    collapseOverlay();
+  }, [collapseOverlay]);
+
+  const showImageOverlay = useCallback(
+    (img) => {
+      if (!img) return;
+
+      cleanupOverlay();
+
+      const rect = img.getBoundingClientRect();
+      const originalWidth = rect.width;
+      const originalHeight = rect.height;
+      const originalLeft = rect.left;
+      const originalTop = rect.top;
+
+      const overlay = document.createElement('div');
+      overlay.className = 'image-expansion-overlay';
+
+      const clone = img.cloneNode(true);
+      clone.className = 'image-expansion-clone';
+      clone.style.top = `${originalTop}px`;
+      clone.style.left = `${originalLeft}px`;
+      clone.style.width = `${originalWidth}px`;
+      clone.style.height = `${originalHeight}px`;
+      clone.style.margin = '0';
+
+      overlay.appendChild(clone);
+      document.body.appendChild(overlay);
+      overlayStateRef.current = {
+        overlay,
+        clone,
+        originalRect: {
+          top: originalTop,
+          left: originalLeft,
+          width: originalWidth,
+          height: originalHeight,
+        },
+        viewportRect: null, // will assign after computing offsets
+      };
+      document.body.style.overflow = 'hidden';
+
+      const viewport = window.visualViewport;
+      const viewportWidth = viewport ? viewport.width : window.innerWidth;
+      const viewportHeight = viewport ? viewport.height : window.innerHeight;
+      const viewportOffsetTop =
+        viewport ? viewport.offsetTop : window.scrollY || document.documentElement.scrollTop || 0;
+      const viewportOffsetLeft =
+        viewport ? viewport.offsetLeft : window.scrollX || document.documentElement.scrollLeft || 0;
+
+      overlayStateRef.current.viewportRect = {
+        top: viewportOffsetTop,
+        left: viewportOffsetLeft,
+        width: viewportWidth,
+        height: viewportHeight,
+      };
+
+      const animation = clone.animate(
+        [
+          {
+            top: `${originalTop}px`,
+            left: `${originalLeft}px`,
+            width: `${originalWidth}px`,
+            height: `${originalHeight}px`,
+          },
+          {
+            top: `${viewportOffsetTop}px`,
+            left: `${viewportOffsetLeft}px`,
+            width: `${viewportWidth}px`,
+            height: `${viewportHeight}px`,
+          },
+        ],
+        {
+          duration: 2500,
+          easing: 'cubic-bezier(0.7, 0, 0.3, 1)',
+          fill: 'forwards',
+        }
+      );
+
+      const applyFinalStyles = () => {
+        clone.style.top = `${viewportOffsetTop}px`;
+        clone.style.left = `${viewportOffsetLeft}px`;
+        clone.style.width = `${viewportWidth}px`;
+        clone.style.height = `${viewportHeight}px`;
+      };
+
+      animation.addEventListener('finish', applyFinalStyles, { once: true });
+      animation.addEventListener('cancel', applyFinalStyles, { once: true });
+
+      const handleOverlayClick = () => removeImageOverlay();
+      overlay.addEventListener('click', handleOverlayClick, { once: true });
+    },
+    [cleanupOverlay, removeImageOverlay]
+  );
+
+  useEffect(() => () => cleanupOverlay(), [cleanupOverlay]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        removeImageOverlay();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [removeImageOverlay]);
+
+  // Step 1: attach click handlers to chapter images and capture their dimensions
+  useEffect(() => {
+    if (!isExpanded || !contentRef.current) return;
+
+    const contentEl = contentRef.current;
+    const images = contentEl.querySelectorAll('img');
+    if (images.length === 0) return;
+
+    const clickHandlers = [];
+
+    images.forEach((img) => {
+      if (img.dataset.hasExpansionHandler) return;
+      const handleClick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        console.log('Image expansion data:', img.currentSrc || img.src);
+        showImageOverlay(img);
+      };
+
+      img.dataset.hasExpansionHandler = 'true';
+      img.addEventListener('click', handleClick);
+      clickHandlers.push({ img, handleClick });
+    });
+
+    return () => {
+      clickHandlers.forEach(({ img, handleClick }) => {
+        img.removeEventListener('click', handleClick);
+        delete img.dataset.hasExpansionHandler;
+      });
+    };
+  }, [isExpanded, chapter.content, showImageOverlay]);
+
   return (
     <div
       id={`chapter-${chapter.id}`}
@@ -482,7 +733,7 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
         <h3 ref={headerRef} className={level === 0 ? 'chapter-title' : 'subchapter-title'}>
           <span className="chapter-number">{getFormalNumber()}</span> {formatTitle(chapter.title)}
         </h3>
-        {isEditor && (
+        {isEditor && !isMobile && (
           <div className="chapter-actions-container" onClick={(e) => e.stopPropagation()}>
             <div className="chapter-actions-inline">
               <IsolatedButton label="Edit" variant="edit" onClick={() => onEdit(chapter)} />
@@ -500,32 +751,32 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
             </span>
           </div>
         )}
+        {isEditor && isMobile && (
+          <div className="chapter-mobile-text-actions" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="edit" onClick={() => onEdit(chapter)}>
+              Edit
+            </button>
+            <span className="separator">|</span>
+            {level === 0 && (
+              <>
+                <button type="button" className="add" onClick={() => onAddSubchapter(chapter)}>
+                  Add
+                </button>
+                <span className="separator">|</span>
+              </>
+            )}
+            <button
+              type="button"
+              className="danger"
+              onClick={() =>
+                onDelete(chapter.id, level > 0, level > 0 ? parentChapterId : null)
+              }
+            >
+              Delete
+            </button>
+          </div>
+        )}
       </div>
-      {isEditor && isMobile && isExpanded && (
-        <div className="chapter-mobile-text-actions" onClick={(e) => e.stopPropagation()}>
-          <button type="button" className="edit" onClick={() => onEdit(chapter)}>
-            Edit
-          </button>
-          <span className="separator">|</span>
-          {level === 0 && (
-            <>
-              <button type="button" className="add" onClick={() => onAddSubchapter(chapter)}>
-                Add
-              </button>
-              <span className="separator">|</span>
-            </>
-          )}
-          <button
-            type="button"
-            className="danger"
-            onClick={() =>
-              onDelete(chapter.id, level > 0, level > 0 ? parentChapterId : null)
-            }
-          >
-            Delete
-          </button>
-        </div>
-      )}
 
       {isExpanded && (
         <div className="chapter-body">
@@ -534,7 +785,7 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
             <div
               ref={contentRef}
               className="chapter-content"
-              dangerouslySetInnerHTML={{ __html: renderMarkdownWithParagraphs(chapter.content) }}
+              dangerouslySetInnerHTML={{ __html: preparedHtml }}
             />
           )}
 

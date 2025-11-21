@@ -14,6 +14,17 @@
   display: flex;
   justify-content: flex-end;
   background: transparent;
+  pointer-events: none; /* Allow clicks through transparent area on desktop */
+}
+
+.editor-overlay.side-panel > .editor-modal,
+.editor-overlay.side-panel > .side-panel-modal {
+  pointer-events: auto; /* Re-enable pointer events on the modal itself */
+}
+
+/* Ensure all interactive elements inside the modal work */
+.side-panel-modal * {
+  pointer-events: auto;
 }
 
 @media (max-width: 768px) {
@@ -39,6 +50,7 @@
     background: #ffffff !important;
     justify-content: center;
     align-items: center;
+    pointer-events: auto !important; /* Re-enable on mobile */
   }
 }
 
@@ -72,6 +84,7 @@
   position: absolute;
   top: 16px;
   right: 16px;
+  z-index: 100;
 }
 
 .editor-header h2 {
