@@ -37,6 +37,11 @@
   touch-action: none;
 }
 
+/* Remove padding for video pages */
+.page-container:has(.video-page) {
+  padding: 0;
+}
+
 .page-sheet {
   width: min(640px, 94vw);
   height: 100%;
@@ -307,29 +312,136 @@
   text-align: right;
 }
 
-/* Video page styling */
+/* Video page styling - break out of container to cover full screen */
+.video-page {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  align-items: stretch;
+  z-index: 1;
+}
+
 .video-page .page-body {
   padding: 0;
   overflow: hidden;
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  flex: 1;
+  min-height: 0;
 }
 
 .video-content {
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
   position: relative;
   padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  margin: 0;
+  flex: 1;
+  min-height: 0;
 }
 
 .fullscreen-video {
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
   object-fit: cover;
   position: absolute;
   top: 0;
   left: 0;
+  z-index: 0;
+}
+
+/* Video play button - glowing text with floating animation */
+.video-play-button {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%);
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 1.5rem;
+  font-weight: 300;
+  letter-spacing: 0.1em;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 9999 !important;
+  transition: all 0.3s ease;
+  padding: 0;
+  opacity: 0.9;
+  text-shadow: 
+    0 0 10px rgba(255, 255, 255, 0.8),
+    0 0 20px rgba(255, 255, 255, 0.6),
+    0 0 30px rgba(255, 255, 255, 0.4);
+  animation: float 3s ease-in-out infinite;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  pointer-events: auto !important;
+  visibility: visible !important;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translate(-50%, -50%) translateY(0px);
+  }
+  50% {
+    transform: translate(-50%, -50%) translateY(-8px);
+  }
+}
+
+.video-play-button:hover {
+  opacity: 1;
+  text-shadow: 
+    0 0 15px rgba(255, 255, 255, 1),
+    0 0 25px rgba(255, 255, 255, 0.8),
+    0 0 35px rgba(255, 255, 255, 0.6);
+}
+
+.video-play-button:active {
+  transform: translate(-50%, -50%) translateY(-4px) scale(0.95);
+}
+
+/* Background video page styling */
+.background-video-page .page-body {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+.background-video {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  z-index: 0;
+}
+
+.background-video-text {
+  position: relative;
+  z-index: 1;
+  color: #ffffff;
+}
+
+.background-video-text * {
+  color: #ffffff !important;
+}
+
+.background-video-text p,
+.background-video-text h3,
+.background-video-text h4,
+.background-video-text h5,
+.background-video-text h6 {
+  color: #ffffff !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
 .page-content div.poetry {

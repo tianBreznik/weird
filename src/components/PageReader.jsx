@@ -33,13 +33,13 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
     const sliceStart = startChar;
     const sliceEnd = typeof endChar === 'number' ? endChar : sliceStart + text.length;
 
-    console.log('[[INIT]] Initializing slice with word-level highlighting', {
-      karaokeId,
-      sliceStart,
-      sliceEnd,
-      textLength: text.length,
-      wordCount: wordMetadata.length,
-    });
+// console.log('[[INIT]] Initializing slice with word-level highlighting', {
+//       karaokeId,
+//       sliceStart,
+//       sliceEnd,
+//       textLength: text.length,
+//       wordCount: wordMetadata.length,
+//     });
 
     let localCursor = 0;
     wordMetadata.forEach((word, wordIndex) => {
@@ -116,7 +116,7 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
 
     sliceElement.innerHTML = '';
     sliceElement.appendChild(fragment);
-    console.log('[[INIT]] Slice initialized successfully with words');
+// console.log('[[INIT]] Slice initialized successfully with words');
     return true;
   };
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -262,6 +262,9 @@ export const PageReader = ({
   const karaokeControllersRef = useRef(new Map()); // karaokeId -> controller
   const audioUnlockedRef = useRef(false);
   const currentKaraokeSliceRef = useRef(null); // { karaokeId, sliceElement, startChar, endChar }
+  const backgroundVideoRef = useRef(null);
+  const blankPageVideoRef = useRef(null);
+  const [videoUnmuted, setVideoUnmuted] = useState(false);
 
   // Calculate pages for all chapters based on actual content height
   // Includes subchapters in the flow
@@ -349,7 +352,7 @@ export const PageReader = ({
             // When no footnotes, use the bottom margin for consistent spacing
             const reservedSpace = footnotesHeight > 0 ? footnotesHeight : BOTTOM_MARGIN_NO_FOOTNOTES;
             const availableHeight = Math.max(0, height - reservedSpace);
-            console.log('[getAvailableHeight] Returning:', availableHeight, '(full height:', height, '- reserved space:', reservedSpace, footnotesHeight > 0 ? '(footnotes)' : '(bottom margin)', ')');
+// console.log('[getAvailableHeight] Returning:', availableHeight, '(full height:', height, '- reserved space:', reservedSpace, footnotesHeight > 0 ? '(footnotes)' : '(bottom margin)', ')');
             return availableHeight;
           },
         };
@@ -431,6 +434,7 @@ export const PageReader = ({
         let currentPageElements = [];
         let pageHasHeading = false;
         let currentPageFootnotes = new Set(); // Track footnote numbers on current page
+        let currentBlockBackgroundVideo = null; // Track background video for current block
 
         const startNewPage = (initialHeading = false) => {
           currentPageElements = [];
@@ -598,14 +602,14 @@ export const PageReader = ({
         const tryFillRemainingSpace_DEPRECATED = (currentElementIndex, elementsArray) => {
           // This function is no longer used - kept for reference only
           return false;
-          console.log('[tryFillRemainingSpace] Called with elementIndex:', currentElementIndex, 'elementsArray length:', elementsArray?.length);
+// console.log('[tryFillRemainingSpace] Called with elementIndex:', currentElementIndex, 'elementsArray length:', elementsArray?.length);
           
           if (!elementsArray || !Array.isArray(elementsArray)) {
-            console.log('[tryFillRemainingSpace] Invalid elementsArray, returning false');
+// console.log('[tryFillRemainingSpace] Invalid elementsArray, returning false');
             return false;
           }
           if (currentElementIndex + 1 >= elementsArray.length) {
-            console.log('[tryFillRemainingSpace] No more elements ahead, returning false');
+// console.log('[tryFillRemainingSpace] No more elements ahead, returning false');
             return false; // No more elements
           }
           
@@ -638,53 +642,53 @@ export const PageReader = ({
           // So remainingSpace = baseAvailableHeight - currentHeight
           const remainingSpace = baseAvailableHeight - currentHeight;
           
-          console.log('[tryFillRemainingSpace] Measurement:', {
-            currentHeight,
-            footnotesHeight,
-            totalUsed: currentHeight + footnotesHeight,
-            baseAvailableHeight,
-            remainingSpace,
-            currentPageElementsCount: currentPageElements.length,
-            currentPageFootnotesCount: currentPageFootnotes.size,
-            viewportHeight: window.innerHeight,
-            measureBodyHeight: measure.body.offsetHeight,
-            measureBodyScrollHeight: measure.body.scrollHeight
-          });
+// console.log('[tryFillRemainingSpace] Measurement:', {
+//            currentHeight,
+//            footnotesHeight,
+//            totalUsed: currentHeight + footnotesHeight,
+//            baseAvailableHeight,
+//            remainingSpace,
+//            currentPageElementsCount: currentPageElements.length,
+//            currentPageFootnotesCount: currentPageFootnotes.size,
+//            viewportHeight: window.innerHeight,
+//            measureBodyHeight: measure.body.offsetHeight,
+//            measureBodyScrollHeight: measure.body.scrollHeight
+//          });
           
           // Clean up temp container
           measure.body.removeChild(tempContainer);
           
           // Try to fill any gap, no matter how small
           if (remainingSpace <= 0) {
-            console.log('[tryFillRemainingSpace] No remaining space (remainingSpace <= 0). Details:', {
-              currentHeight,
-              footnotesHeight,
-              totalUsed: currentHeight + footnotesHeight,
-              baseAvailableHeight,
-              difference: baseAvailableHeight - currentHeight - footnotesHeight,
-              'NOTE': 'If difference is negative, content is overflowing. If positive but small, might be measurement issue.'
-            });
+// console.log('[tryFillRemainingSpace] No remaining space (remainingSpace <= 0). Details:', {
+//              currentHeight,
+//              footnotesHeight,
+//              totalUsed: currentHeight + footnotesHeight,
+//              baseAvailableHeight,
+//              difference: baseAvailableHeight - currentHeight - footnotesHeight,
+//              'NOTE': 'If difference is negative, content is overflowing. If positive but small, might be measurement issue.'
+//            });
             return false;
           }
           
-          console.log('[tryFillRemainingSpace] ✅ GAP DETECTED! Remaining space:', remainingSpace, 'px');
-          console.log('[tryFillRemainingSpace] 📊 Page A Summary:', {
-            baseAvailableHeight,
-            currentHeight,
-            footnotesHeight,
-            remainingSpace,
-            note: 'This is the gap we need to fill'
-          });
+// console.log('[tryFillRemainingSpace] ✅ GAP DETECTED! Remaining space:', remainingSpace, 'px');
+// console.log('[tryFillRemainingSpace] 📊 Page A Summary:', {
+//            baseAvailableHeight,
+//            currentHeight,
+//            footnotesHeight,
+//            remainingSpace,
+//            note: 'This is the gap we need to fill'
+//          });
           
           let filledAny = false;
           let lookAheadIndex = currentElementIndex + 1;
           
-          console.log('[tryFillRemainingSpace] Starting to look ahead from index:', lookAheadIndex);
+// console.log('[tryFillRemainingSpace] Starting to look ahead from index:', lookAheadIndex);
           
           // Keep looking ahead until we can't fit any more
           while (lookAheadIndex < elementsArray.length) {
             const nextElement = elementsArray[lookAheadIndex];
-            console.log('[tryFillRemainingSpace] Checking element at index:', lookAheadIndex, 'tagName:', nextElement?.tagName, 'isAtomic:', isAtomicElement(nextElement));
+// console.log('[tryFillRemainingSpace] Checking element at index:', lookAheadIndex, 'tagName:', nextElement?.tagName, 'isAtomic:', isAtomicElement(nextElement));
             
             // Recalculate remaining space after each addition
             const tempContainer2 = document.createElement('div');
@@ -719,20 +723,20 @@ export const PageReader = ({
             const nextElementHeight = nextElementTemp.offsetHeight;
             measure.body.removeChild(nextElementTemp);
             
-            console.log('[tryFillRemainingSpace] 📏 Next Element (Page B) Size:', {
-              elementIndex: lookAheadIndex,
-              elementHeight: nextElementHeight,
-              remainingSpaceOnPageA: remainingSpaceBefore,
-              canFit: nextElementHeight <= remainingSpaceBefore,
-              textPreview: nextElement.textContent?.substring(0, 100)
-            });
+// console.log('[tryFillRemainingSpace] 📏 Next Element (Page B) Size:', {
+//              elementIndex: lookAheadIndex,
+//              elementHeight: nextElementHeight,
+//              remainingSpaceOnPageA: remainingSpaceBefore,
+//              canFit: nextElementHeight <= remainingSpaceBefore,
+//              textPreview: nextElement.textContent?.substring(0, 100)
+//            });
             
             // Try to fill any gap, no matter how small
             if (remainingSpaceBefore <= 0) break;
             
             // Try atomic elements first
             if (isAtomicElement(nextElement)) {
-              console.log('[tryFillRemainingSpace] Trying atomic element');
+// console.log('[tryFillRemainingSpace] Trying atomic element');
               const nextElementFootnotes = extractFootnotesFromContent(nextElement.outerHTML);
               const testFootnotesWithNext = new Set([...currentPageFootnotes, ...nextElementFootnotes]);
               
@@ -764,10 +768,10 @@ export const PageReader = ({
                 totalHeight: contentHeightAtomic + testFootnotesHeightForAtomic
               };
               
-              console.log('[tryFillRemainingSpace] Atomic element fit check:', nextFitCheck);
+// console.log('[tryFillRemainingSpace] Atomic element fit check:', nextFitCheck);
               
               if (nextFitCheck.fits) {
-                console.log('[tryFillRemainingSpace] Atomic element FITS! Adding to current page');
+// console.log('[tryFillRemainingSpace] Atomic element FITS! Adding to current page');
                 // Add the entire atomic element
                 nextElementFootnotes.forEach(num => currentPageFootnotes.add(num));
                 currentPageElements.push(nextElement.outerHTML);
@@ -776,11 +780,11 @@ export const PageReader = ({
                 continue;
               }
               // Atomic element doesn't fit, stop
-              console.log('[tryFillRemainingSpace] Atomic element does NOT fit, stopping');
+// console.log('[tryFillRemainingSpace] Atomic element does NOT fit, stopping');
               break;
             } else {
               // Splittable element: try entire first, then split
-              console.log('[tryFillRemainingSpace] Trying splittable element, text preview:', nextElement.textContent?.substring(0, 50));
+// console.log('[tryFillRemainingSpace] Trying splittable element, text preview:', nextElement.textContent?.substring(0, 50));
               const nextElementFootnotes = extractFootnotesFromContent(nextElement.outerHTML);
               const testFootnotesWithNext = new Set([...currentPageFootnotes, ...nextElementFootnotes]);
               
@@ -813,10 +817,10 @@ export const PageReader = ({
                 totalHeight: contentHeightAtomic + testFootnotesHeightForAtomic
               };
               
-              console.log('[tryFillRemainingSpace] Entire element fit check:', nextFitCheck);
+// console.log('[tryFillRemainingSpace] Entire element fit check:', nextFitCheck);
               
               if (nextFitCheck.fits) {
-                console.log('[tryFillRemainingSpace] Entire element FITS! Adding to current page');
+// console.log('[tryFillRemainingSpace] Entire element FITS! Adding to current page');
                 // Add entire element
                 nextElementFootnotes.forEach(num => currentPageFootnotes.add(num));
                 currentPageElements.push(nextElement.outerHTML);
@@ -833,43 +837,47 @@ export const PageReader = ({
               const baseAvailableHeightForSplit = measure.getAvailableHeight(footnotesHeightBefore);
               const remainingContentHeight = Math.max(0, baseAvailableHeightForSplit - currentHeightBefore);
               
-              console.log('[tryFillRemainingSpace] Entire element does NOT fit. Trying to split.', {
-                baseAvailableHeight: baseAvailableHeightForSplit,
-                currentHeightBefore,
-                footnotesHeightBefore,
-                remainingContentHeight,
-                'NOTE': 'This is the space we have to fit a split portion'
-              });
+// console.log('[tryFillRemainingSpace] Entire element does NOT fit. Trying to split.', {
+//                baseAvailableHeight: baseAvailableHeightForSplit,
+//                currentHeightBefore,
+//                footnotesHeightBefore,
+//                remainingContentHeight,
+//                baseAvailableHeight: baseAvailableHeightForSplit,
+//                currentHeightBefore,
+//                footnotesHeightBefore,
+//                remainingContentHeight,
+//                'NOTE': 'This is the space we have to fit a split portion'
+//              });
               
               // Try to split even for very small spaces (5px minimum)
               if (remainingContentHeight >= 5) {
-                console.log('[tryFillRemainingSpace] Attempting to split element with', remainingContentHeight, 'px available');
+// console.log('[tryFillRemainingSpace] Attempting to split element with', remainingContentHeight, 'px available');
                 // Try sentence-level splitting
                 let splitResult = splitTextAtSentenceBoundary(nextElement, remainingContentHeight);
-                console.log('[tryFillRemainingSpace] Sentence split result:', {
-                  hasFirst: !!splitResult.first,
-                  hasSecond: !!splitResult.second,
-                  firstPreview: splitResult.first?.substring(0, 50),
-                  secondPreview: splitResult.second?.substring(0, 50)
-                });
+// console.log('[tryFillRemainingSpace] Sentence split result:', {
+//                  hasFirst: !!splitResult.first,
+//                  hasSecond: !!splitResult.second,
+//                  firstPreview: splitResult.first?.substring(0, 50),
+//                  secondPreview: splitResult.second?.substring(0, 50)
+//                });
                 
                 if (!splitResult.first && !splitResult.second) {
-                  console.log('[tryFillRemainingSpace] Sentence split failed, trying word boundary');
+// console.log('[tryFillRemainingSpace] Sentence split failed, trying word boundary');
                   splitResult = splitTextAtWordBoundary(nextElement, remainingContentHeight);
-                  console.log('[tryFillRemainingSpace] Word split result:', {
-                    hasFirst: !!splitResult.first,
-                    hasSecond: !!splitResult.second,
-                    firstPreview: splitResult.first?.substring(0, 50),
-                    secondPreview: splitResult.second?.substring(0, 50)
-                  });
+// console.log('[tryFillRemainingSpace] Word split result:', {
+//                    hasFirst: !!splitResult.first,
+//                    hasSecond: !!splitResult.second,
+//                    firstPreview: splitResult.first?.substring(0, 50),
+//                    secondPreview: splitResult.second?.substring(0, 50)
+//                  });
                 }
                 
-                console.log('[tryFillRemainingSpace] Final split result:', {
-                  hasFirst: !!splitResult.first,
-                  hasSecond: !!splitResult.second,
-                  firstPreview: splitResult.first?.substring(0, 50),
-                  secondPreview: splitResult.second?.substring(0, 50)
-                });
+// console.log('[tryFillRemainingSpace] Final split result:', {
+//                  hasFirst: !!splitResult.first,
+//                  hasSecond: !!splitResult.second,
+//                  firstPreview: splitResult.first?.substring(0, 50),
+//                  secondPreview: splitResult.second?.substring(0, 50)
+//                });
                 
                 if (splitResult.first) {
                   const firstPartFootnotes = extractFootnotesFromContent(splitResult.first);
@@ -899,10 +907,10 @@ export const PageReader = ({
                     totalHeight: firstPartContentHeight + firstPartFootnotesHeight
                   };
                   
-                  console.log('[tryFillRemainingSpace] First part fit check:', firstPartFitCheck);
+// console.log('[tryFillRemainingSpace] First part fit check:', firstPartFitCheck);
                   
                   if (firstPartFitCheck.fits) {
-                    console.log('[tryFillRemainingSpace] First part FITS! Adding to current page');
+// console.log('[tryFillRemainingSpace] First part FITS! Adding to current page');
                     // Add first part
                     firstPartFootnotes.forEach(num => currentPageFootnotes.add(num));
                     currentPageElements.push(splitResult.first);
@@ -918,19 +926,19 @@ export const PageReader = ({
                     filledAny = true;
                     break; // Stop after splitting, continue with next iteration
                   } else {
-                    console.log('[tryFillRemainingSpace] First part does NOT fit');
+// console.log('[tryFillRemainingSpace] First part does NOT fit');
                   }
                 }
               } else {
-                console.log('[tryFillRemainingSpace] remainingContentHeight too small (< 5px), not attempting split');
+// console.log('[tryFillRemainingSpace] remainingContentHeight too small (< 5px), not attempting split');
               }
               // Can't fit any part, stop looking ahead
-              console.log('[tryFillRemainingSpace] Cannot fit any part of element, stopping');
+// console.log('[tryFillRemainingSpace] Cannot fit any part of element, stopping');
               break;
             }
           }
           
-          console.log('[tryFillRemainingSpace] Finished. filledAny:', filledAny);
+// console.log('[tryFillRemainingSpace] Finished. filledAny:', filledAny);
           return filledAny;
         };
 
@@ -1003,8 +1011,15 @@ export const PageReader = ({
             hasHeading: pageHasHeading,
             content: contentWrapper,
             footnotes: pageFootnotes, // Store footnotes for this page
+            backgroundVideo: currentBlockBackgroundVideo ? currentBlockBackgroundVideo.src : null,
           });
           chapterPageIndex += 1;
+          
+          // Clear background video after using it (so it only applies to one page)
+          if (currentBlockBackgroundVideo) {
+            currentBlockBackgroundVideo = null;
+          }
+          
           startNewPage(false);
         };
 
@@ -1597,22 +1612,37 @@ export const PageReader = ({
           
           let htmlContent = block.content;
           
-          // Extract videos from content before processing
+          // Extract blank-page videos from content before processing (remove them)
+          // Background videos stay in content so we can track their position
           const videoElements = [];
           const videoRegex = /<video[^>]*>[\s\S]*?<\/video>/gi;
           let videoMatch;
+          const videosToRemove = [];
           while ((videoMatch = videoRegex.exec(htmlContent)) !== null) {
             const videoHtml = videoMatch[0];
             const videoSrcMatch = videoHtml.match(/src=["']([^"']+)["']/i);
+            const videoModeMatch = videoHtml.match(/data-video-mode=["']([^"']+)["']/i);
+            const mode = videoModeMatch ? videoModeMatch[1] : 'blank-page';
+            
             if (videoSrcMatch) {
-              videoElements.push({
+              const videoData = {
                 src: videoSrcMatch[1],
                 html: videoHtml,
-              });
+                mode: mode,
+              };
+              
+              if (mode === 'blank-page') {
+                // Remove blank-page videos from content (they'll be on separate pages)
+                videoElements.push(videoData);
+                videosToRemove.push(videoMatch[0]);
+              }
+              // Background videos stay in content - we'll handle them during pagination
             }
-            // Remove video from content (we'll render it separately)
-            htmlContent = htmlContent.replace(videoMatch[0], '');
           }
+          // Remove only blank-page videos from content
+          videosToRemove.forEach(videoHtml => {
+            htmlContent = htmlContent.replace(videoHtml, '');
+          });
           
           // Replace long dashes with short hyphens
           // Replace em dash (—) and en dash (–) with regular hyphen (-)
@@ -1677,6 +1707,21 @@ export const PageReader = ({
               measure.setHeading(true);
               // Force a reflow to ensure CSS changes take effect before measurement
               measure.body.offsetHeight;
+            }
+
+            // Handle background video elements - mark current page with background video
+            if (element.tagName === 'VIDEO') {
+              const videoMode = element.getAttribute('data-video-mode') || 'blank-page';
+              if (videoMode === 'background') {
+                const videoSrc = element.getAttribute('src');
+                if (videoSrc) {
+                  // Mark that the current page (or next page if we need to start a new one) should have this background video
+                  // We'll set this when we push the page
+                  currentBlockBackgroundVideo = { src: videoSrc, mode: 'background' };
+                  // Skip this element - don't add it to page content, just use it for background
+                  continue;
+                }
+              }
             }
 
             // Handle karaoke elements (they manage their own pagination)
@@ -1757,28 +1802,28 @@ export const PageReader = ({
             
             // Debug: log the calculation to see why remainingContentHeight might be wrong
             if (currentPageElements.length > 0) {
-              console.log('[Pagination] Remaining height calculation:', {
-                contentAvailableHeight,
-                currentPageContentHeight,
-                remainingContentHeight,
-                currentPageElementsCount: currentPageElements.length,
-                lastElementPreview: currentPageElements[currentPageElements.length - 1]?.substring(0, 100)
-              });
+// console.log('[Pagination] Remaining height calculation:', {
+//                contentAvailableHeight,
+//                currentPageContentHeight,
+//                remainingContentHeight,
+//                currentPageElementsCount: currentPageElements.length,
+//                lastElementPreview: currentPageElements[currentPageElements.length - 1]?.substring(0, 100)
+//              });
             }
             
             // STEP 4: Handle element based on whether it fits and if it can be split
             // Log every element to see which ones are being processed
             const elementText = element.textContent?.substring(0, 100) || '';
-            console.log('[Pagination] Processing element:', {
-              tagName: element.tagName,
-              className: element.className,
-              textPreview: elementText + (element.textContent?.length > 100 ? '...' : ''),
-              textLength: element.textContent?.length,
-              elementFits,
-              remainingContentHeight,
-              isAtomic: isAtomicElement(element),
-              currentPageElementsCount: currentPageElements.length
-            });
+// console.log('[Pagination] Processing element:', {
+//              tagName: element.tagName,
+//              className: element.className,
+//              textPreview: elementText + (element.textContent?.length > 100 ? '...' : ''),
+//              textLength: element.textContent?.length,
+//              elementFits,
+//              remainingContentHeight,
+//              isAtomic: isAtomicElement(element),
+//              currentPageElementsCount: currentPageElements.length
+//            });
             
             if (isAtomicElement(element)) {
               // Atomic elements (images, videos, headings, karaoke): cannot be split
@@ -1854,14 +1899,14 @@ export const PageReader = ({
                                                         elementTextLength > 100; // Element is long enough that split would likely be awkward
                 
                 if ((overflowAmount >= 20 || shouldTrySplitDueToSmallSpace) && finalTotalHeight > baseAvailableHeight && !allowSmallOverflow && !shouldSkipSplitDueToSmallSpace) {
-                  console.log('[Pagination] Attempting split:', {
-                    reason: overflowAmount >= 20 ? 'overflows with padding' : 'small remaining space',
-                    finalTotalHeight,
-                    baseAvailableHeight,
-                    overflowAmount,
-                    remainingContentHeight,
-                    elementText: element.textContent?.substring(0, 100)
-                  });
+// console.log('[Pagination] Attempting split:', {
+//                    reason: overflowAmount >= 20 ? 'overflows with padding' : 'small remaining space',
+//                    finalTotalHeight,
+//                    baseAvailableHeight,
+//                    overflowAmount,
+//                    remainingContentHeight,
+//                    elementText: element.textContent?.substring(0, 100)
+//                  });
                   
                   // Content doesn't actually fit with padding OR there's very little space left - try to split it
                   // Use remainingContentHeight for splitting (space left on current page)
@@ -1878,16 +1923,16 @@ export const PageReader = ({
                     const firstPartWordCount2 = firstPartText2.split(/\s+/).filter(w => w.length > 0).length;
                     const isFirstPartTooShort2 = firstPartWordCount2 < 8; // Less than 8 words is too short
                     
-                    console.log('[Pagination] Split result check (elementFits=false):', {
-                      firstPartText: firstPartText2.substring(0, 100),
-                      firstPartWordCount: firstPartWordCount2,
-                      isFirstPartTooShort: isFirstPartTooShort2,
+// console.log('[Pagination] Split result check (elementFits=false):', {
+//                      firstPartText: firstPartText2.substring(0, 100),
+//                      firstPartWordCount: firstPartWordCount2,
+//                      isFirstPartTooShort: isFirstPartTooShort2,
                       remainingContentHeight
-                    });
+//                    });
                     
                     // If first part is too short, push whole element to next page immediately
                     if (isFirstPartTooShort2) {
-                      console.log('[Pagination] First part too short, pushing whole element to next page (elementFits=false)');
+// console.log('[Pagination] First part too short, pushing whole element to next page (elementFits=false)');
                       // Push whole element to next page - avoid split that would leave very short first part
                       if (currentPageElements.length > 0) {
                         pushPage(block);
@@ -1902,16 +1947,19 @@ export const PageReader = ({
                     const firstPartWordCount = firstPartText.split(/\s+/).filter(w => w.length > 0).length;
                     const isFirstPartTooShort = firstPartWordCount < 8; // Less than 8 words is too short
                     
-                    console.log('[Pagination] Split result check:', {
-                      firstPartText: firstPartText.substring(0, 100),
-                      firstPartWordCount,
-                      isFirstPartTooShort,
+// console.log('[Pagination] Split result check:', {
+//                      firstPartText: firstPartText.substring(0, 100),
+//                      firstPartWordCount,
+//                      isFirstPartTooShort,
+//                      firstPartText: firstPartText.substring(0, 100),
+//                      firstPartWordCount,
+//                      isFirstPartTooShort,
                       remainingContentHeight
-                    });
+//                    });
                     
                     // If first part is too short, push whole element to next page immediately (before measuring)
                     if (isFirstPartTooShort) {
-                      console.log('[Pagination] First part too short, pushing whole element to next page');
+// console.log('[Pagination] First part too short, pushing whole element to next page');
                       // Push whole element to next page - avoid split that would leave very short first part
                       if (currentPageElements.length > 0) {
                         pushPage(block);
@@ -1997,12 +2045,12 @@ export const PageReader = ({
               } else {
                 // Element doesn't fit - check if we should even attempt to split
                 // If remaining space is very small and element is long, pushing whole element might be better
-                console.log('[Pagination] Element does not fit - checking if we can split:', {
-                  remainingContentHeight,
-                  elementText: element.textContent?.substring(0, 100),
-                  elementFits,
-                  currentPageElementsCount: currentPageElements.length
-                });
+// console.log('[Pagination] Element does not fit - checking if we can split:', {
+//                  remainingContentHeight,
+//                  elementText: element.textContent?.substring(0, 100),
+//                  elementFits,
+//                  currentPageElementsCount: currentPageElements.length
+//                });
                 
                 // Check if we should skip splitting and push whole element instead
                 // Conditions: very small remaining space (< 50px) AND element is long enough that split would be awkward
@@ -2012,7 +2060,7 @@ export const PageReader = ({
                                         elementTextLength > 100; // Element is long enough that split would likely be awkward
                 
                 if (shouldSkipSplit) {
-                  console.log('[Pagination] Skipping split - remaining space too small, pushing whole element to next page');
+// console.log('[Pagination] Skipping split - remaining space too small, pushing whole element to next page');
                   // Push whole element to next page instead of attempting split
                   if (currentPageElements.length > 0) {
                     pushPage(block);
@@ -2025,35 +2073,35 @@ export const PageReader = ({
                 
                 if (remainingContentHeight > 0) {
                   // Debug: log element structure to understand why splitting might fail
-                  console.log('[Pagination] Attempting to split element:', {
-                    tagName: element.tagName,
-                    className: element.className,
-                    textLength: element.textContent?.length,
-                    htmlPreview: element.outerHTML.substring(0, 200),
-                    remainingContentHeight,
-                    isParagraph: element.tagName === 'P',
-                    hasBrTags: element.querySelectorAll('br').length,
-                    childCount: element.childNodes.length
-                  });
+// console.log('[Pagination] Attempting to split element:', {
+//                    tagName: element.tagName,
+//                    className: element.className,
+//                    textLength: element.textContent?.length,
+//                    htmlPreview: element.outerHTML.substring(0, 200),
+//                    remainingContentHeight,
+//                    isParagraph: element.tagName === 'P',
+//                    hasBrTags: element.querySelectorAll('br').length,
+//                    childCount: element.childNodes.length
+//                  });
                   
                   // Try sentence-level splitting first, then word boundary
                   let splitResult = splitTextAtSentenceBoundary(element, remainingContentHeight);
-                  console.log('[Pagination] Sentence split result:', {
-                    hasFirst: !!splitResult.first,
-                    hasSecond: !!splitResult.second,
-                    firstPreview: splitResult.first?.substring(0, 100),
-                    secondPreview: splitResult.second?.substring(0, 100)
-                  });
+// console.log('[Pagination] Sentence split result:', {
+//                    hasFirst: !!splitResult.first,
+//                    hasSecond: !!splitResult.second,
+//                    firstPreview: splitResult.first?.substring(0, 100),
+//                    secondPreview: splitResult.second?.substring(0, 100)
+//                  });
                   
                   if (!splitResult.first && !splitResult.second) {
-                    console.log('[Pagination] Sentence split failed, trying word boundary');
+// console.log('[Pagination] Sentence split failed, trying word boundary');
                     splitResult = splitTextAtWordBoundary(element, remainingContentHeight);
-                    console.log('[Pagination] Word boundary split result:', {
-                      hasFirst: !!splitResult.first,
-                      hasSecond: !!splitResult.second,
-                      firstPreview: splitResult.first?.substring(0, 100),
-                      secondPreview: splitResult.second?.substring(0, 100)
-                    });
+// console.log('[Pagination] Word boundary split result:', {
+//                      hasFirst: !!splitResult.first,
+//                      hasSecond: !!splitResult.second,
+//                      firstPreview: splitResult.first?.substring(0, 100),
+//                      secondPreview: splitResult.second?.substring(0, 100)
+//                    });
                   }
                   
                   const { first, second } = splitResult;
@@ -2068,14 +2116,14 @@ export const PageReader = ({
                     if (second) tempDiv2.innerHTML = second;
                     const secondText = tempDiv2.textContent || '';
                     
-                    console.log('[Pagination] Split text content:', {
-                      firstText: firstText.substring(0, 200) + (firstText.length > 200 ? '...' : ''),
-                      secondText: secondText.substring(0, 200) + (secondText.length > 200 ? '...' : ''),
-                      firstTextLength: firstText.length,
-                      secondTextLength: secondText.length,
-                      splitPoint: firstText.length,
-                      originalTextLength: element.textContent?.length
-                    });
+// console.log('[Pagination] Split text content:', {
+//                      firstText: firstText.substring(0, 200) + (firstText.length > 200 ? '...' : ''),
+//                      secondText: secondText.substring(0, 200) + (secondText.length > 200 ? '...' : ''),
+//                      firstTextLength: firstText.length,
+//                      secondTextLength: secondText.length,
+//                      splitPoint: firstText.length,
+//                      originalTextLength: element.textContent?.length
+//                    });
                   }
                   
                   if (first) {
@@ -2113,15 +2161,15 @@ export const PageReader = ({
                     // Check if first part fits in the remaining space
                     const firstPartFits = firstPartHeight <= remainingContentHeight;
                     
-                    console.log('[Pagination] First part fit check:', {
-                      firstPartHeight,
-                      remainingContentHeight,
-                      firstPartFits,
-                      difference: remainingContentHeight - firstPartHeight,
-                      currentPageElementsCount: currentPageElements.length,
-                      firstPartHTML: first.substring(0, 150),
-                      note: 'first is the HTML string of the first portion of the split paragraph'
-                    });
+// console.log('[Pagination] First part fit check:', {
+//                      firstPartHeight,
+//                      remainingContentHeight,
+//                      firstPartFits,
+//                      difference: remainingContentHeight - firstPartHeight,
+//                      currentPageElementsCount: currentPageElements.length,
+//                      firstPartHTML: first.substring(0, 150),
+//                      note: 'first is the HTML string of the first portion of the split paragraph'
+//                    });
                     
                     if (firstPartFits) {
                       // First part fits - add it to current page
@@ -2260,11 +2308,11 @@ export const PageReader = ({
   // Unlock audio context on first user interaction
   const unlockAudioContext = useCallback(async () => {
     if (audioUnlockedRef.current) {
-      console.log('Audio already unlocked');
+// console.log('Audio already unlocked');
       return;
     }
     
-    console.log('Unlocking audio context...');
+// console.log('Unlocking audio context...');
     
     // Try multiple methods to unlock audio
     let unlocked = false;
@@ -2276,7 +2324,7 @@ export const PageReader = ({
       dummyAudio.volume = 0;
       dummyAudio.preload = 'auto';
       
-      console.log('Attempting to play dummy audio...');
+// console.log('Attempting to play dummy audio...');
       const playPromise = dummyAudio.play();
       if (playPromise !== undefined) {
         // Add timeout to prevent hanging
@@ -2286,7 +2334,7 @@ export const PageReader = ({
         
         try {
           await Promise.race([playPromise, timeoutPromise]);
-          console.log('Dummy audio played successfully');
+// console.log('Dummy audio played successfully');
           dummyAudio.pause();
           dummyAudio.currentTime = 0;
           unlocked = true;
@@ -2298,7 +2346,7 @@ export const PageReader = ({
           } catch {}
         }
       } else {
-        console.log('play() returned undefined, assuming success');
+// console.log('play() returned undefined, assuming success');
         unlocked = true;
       }
     } catch (err) {
@@ -2313,7 +2361,7 @@ export const PageReader = ({
           const ctx = new AudioContext();
           if (ctx.state === 'suspended') {
             await ctx.resume();
-            console.log('AudioContext resumed');
+// console.log('AudioContext resumed');
           }
           unlocked = true;
         }
@@ -2325,9 +2373,9 @@ export const PageReader = ({
     // Always mark as unlocked after user gesture - the actual audio.play() will handle any restrictions
     // The user gesture (swipe) is the key requirement, not the dummy audio
     audioUnlockedRef.current = true;
-    console.log('Audio marked as unlocked (user gesture detected)');
+// console.log('Audio marked as unlocked (user gesture detected)');
     window.dispatchEvent(new CustomEvent('audioUnlocked'));
-    console.log('audioUnlocked event dispatched');
+// console.log('audioUnlocked event dispatched');
   }, []);
 
   // Get or create karaoke controller for a given karaokeId
@@ -2399,15 +2447,15 @@ export const PageReader = ({
       currentSlice._stepCount++;
       
       if (currentSlice._stepCount <= 3 || currentSlice._stepCount % 60 === 0) {
-        console.log('Step function running (word-level)', { 
-          stepCount: currentSlice._stepCount,
-          wordSpanCount: wordSpans.length, 
-          startChar, 
-          endChar, 
-          currentTime: current,
-          audioPlaying: !audio.paused,
-          audioReadyState: audio.readyState
-        });
+// console.log('Step function running (word-level)', { 
+//          stepCount: currentSlice._stepCount,
+//          wordSpanCount: wordSpans.length, 
+//          startChar, 
+//          endChar, 
+//          currentTime: current,
+//          audioPlaying: !audio.paused,
+//          audioReadyState: audio.readyState
+//        });
       }
       
       if (wordSpans.length === 0) {
@@ -2425,7 +2473,7 @@ export const PageReader = ({
           // Try to initialize the slice one more time
           const wasInitialized = ensureWordSliceInitialized(karaokeSourcesRef, karaokeId, sliceElement, startChar, endChar);
           if (wasInitialized) {
-            console.log('[[STEP]] Re-initialized slice on frame', currentSlice._stepCount);
+// console.log('[[STEP]] Re-initialized slice on frame', currentSlice._stepCount);
             // Re-query spans after initialization
             const newSpans = sliceElement.querySelectorAll('.karaoke-word');
             if (newSpans.length > 0) {
@@ -2492,11 +2540,11 @@ export const PageReader = ({
           controller.waitingForNextPage = false;
           controller.resumeWordIndex = null;
           controller.resumeTime = null;
-          console.log('[[RESUME]] Cleared waitingForNextPage - passed resume point', {
-            resumeWordIndex: currentSlice.resumeWordIndex,
-            currentTime: current,
-            resumeWordStart: resumeWord.start,
-          });
+// console.log('[[RESUME]] Cleared waitingForNextPage - passed resume point', {
+//            resumeWordIndex: currentSlice.resumeWordIndex,
+//            currentTime: current,
+//            resumeWordStart: resumeWord.start,
+//          });
         }
       }
 
@@ -2528,16 +2576,16 @@ export const PageReader = ({
               ? nextWord.start
               : lastWord.end + 0.01;
             controller.waitingForNextPage = true;
-            console.log('[[PAGE END]] Karaoke slice reached page end, pausing for next page', {
-              karaokeId,
-              sliceStartChar: startChar,
-              sliceEndChar: endChar,
-              lastWordIndex,
-              nextWordIndex: nextWord ? nextWord.wordIndex : null,
-              resumeWordIndex: controller.resumeWordIndex,
-              resumeTime: controller.resumeTime,
-              currentTime: current,
-            });
+// console.log('[[PAGE END]] Karaoke slice reached page end, pausing for next page', {
+//              karaokeId,
+//              sliceStartChar: startChar,
+//              sliceEndChar: endChar,
+//              lastWordIndex,
+//              nextWordIndex: nextWord ? nextWord.wordIndex : null,
+//              resumeWordIndex: controller.resumeWordIndex,
+//              resumeTime: controller.resumeTime,
+//              currentTime: current,
+//            });
             audio.pause();
             cancelAnimation();
             return;
@@ -2573,7 +2621,7 @@ export const PageReader = ({
 
     // Handle audio ended event - reset highlighting and clear resume state
     audio.addEventListener('ended', () => {
-      console.log('[[ENDED]] Audio finished, resetting highlighting and state', { karaokeId });
+// console.log('[[ENDED]] Audio finished, resetting highlighting and state', { karaokeId });
       resetHighlighting();
       cancelAnimation();
       currentSlice = null;
@@ -2595,17 +2643,17 @@ export const PageReader = ({
       waitingForNextPage: false,
 
       playSlice: async (sliceElement, startChar, endChar, options = {}) => {
-        console.log('[[PLAY]] playSlice called', {
-          karaokeId,
-          startChar,
-          endChar,
-          resumeWordIndex: options.resumeWordIndex,
-          resumeTime: options.resumeTime,
-          audioUnlocked: audioUnlockedRef.current,
-        });
+// console.log('[[PLAY]] playSlice called', {
+//          karaokeId,
+//          startChar,
+//          endChar,
+//          resumeWordIndex: options.resumeWordIndex,
+//          resumeTime: options.resumeTime,
+//          audioUnlocked: audioUnlockedRef.current,
+//        });
         const source = karaokeSourcesRef.current[karaokeId];
         if (!source) {
-          console.log('No source found for karaokeId', karaokeId);
+// console.log('No source found for karaokeId', karaokeId);
           return;
         }
 
@@ -2628,7 +2676,7 @@ export const PageReader = ({
             return;
           }
         } else {
-          console.log('[[PLAY]] Slice already initialized, skipping initialization');
+// console.log('[[PLAY]] Slice already initialized, skipping initialization');
         }
 
         // Stop current playback
@@ -2638,7 +2686,7 @@ export const PageReader = ({
         // If we're starting from the beginning (not resuming), reset highlighting for all slices
         const isResuming = typeof options.resumeWordIndex === 'number' || typeof options.resumeTime === 'number';
         if (!isResuming) {
-          console.log('[[PLAY]] Starting from beginning, resetting highlighting for all slices');
+// console.log('[[PLAY]] Starting from beginning, resetting highlighting for all slices');
           resetHighlighting(); // Reset all slices, not just this one
           controller.resumeWordIndex = null;
           controller.resumeTime = null;
@@ -2663,7 +2711,7 @@ export const PageReader = ({
           startTime = startTiming ? startTiming.start : 0;
         }
 
-        console.log('[[PLAY]] Starting playback at time', startTime);
+// console.log('[[PLAY]] Starting playback at time', startTime);
 
         currentSlice = {
           sliceElement,
@@ -2679,9 +2727,9 @@ export const PageReader = ({
 
         try {
           audio.currentTime = startTime;
-          console.log('[[PLAY]] Calling audio.play() at time', startTime);
+// console.log('[[PLAY]] Calling audio.play() at time', startTime);
           await audio.play();
-          console.log('[[PLAY]] Audio playing successfully, starting animation loop');
+// console.log('[[PLAY]] Audio playing successfully, starting animation loop');
           
           // Clear processing flag now that playback has started
           sliceElement.dataset.processing = 'false';
@@ -2693,7 +2741,7 @@ export const PageReader = ({
           // Start animation loop - it will handle missing spans gracefully
           cancelAnimation();
           rafId = requestAnimationFrame(step);
-          console.log('Animation loop started, rafId:', rafId, 'wordSpans:', sliceElement.querySelectorAll('.karaoke-word').length);
+// console.log('Animation loop started, rafId:', rafId, 'wordSpans:', sliceElement.querySelectorAll('.karaoke-word').length);
         } catch (err) {
           console.error('Karaoke playback failed', err);
           // Remove playing attribute if playback failed so breathing animation resumes
@@ -2737,18 +2785,18 @@ export const PageReader = ({
     if (!pageContentElement) return;
 
     const slices = pageContentElement.querySelectorAll('.karaoke-slice');
-    console.log('[[INIT]] initializeKaraokeSlices called', {
-      totalSlices: slices.length,
-      elementConnected: pageContentElement.isConnected,
-    });
+// console.log('[[INIT]] initializeKaraokeSlices called', {
+//      totalSlices: slices.length,
+//      elementConnected: pageContentElement.isConnected,
+//    });
     
     slices.forEach((slice) => {
       // Only process slices that are actually connected to the DOM
       if (!slice.isConnected) {
-        console.log('[[INIT]] Skipping disconnected slice', {
-          startChar: slice.getAttribute('data-karaoke-start'),
-          endChar: slice.getAttribute('data-karaoke-end'),
-        });
+// console.log('[[INIT]] Skipping disconnected slice', {
+//          startChar: slice.getAttribute('data-karaoke-start'),
+//          endChar: slice.getAttribute('data-karaoke-end'),
+//        });
         return;
       }
 
@@ -2766,10 +2814,10 @@ export const PageReader = ({
           return;
         }
       } else {
-        console.log('[[INIT]] Skipping already-initialized slice', {
-          startChar: slice.getAttribute('data-karaoke-start'),
-          endChar: slice.getAttribute('data-karaoke-end'),
-        });
+// console.log('[[INIT]] Skipping already-initialized slice', {
+//          startChar: slice.getAttribute('data-karaoke-start'),
+//          endChar: slice.getAttribute('data-karaoke-end'),
+//        });
       }
 
       // Add touch/click handler to start playback on tap (always, even if already initialized)
@@ -2785,11 +2833,11 @@ export const PageReader = ({
           const startChar = parseInt(slice.getAttribute('data-karaoke-start') || '0', 10);
           const endChar = parseInt(slice.getAttribute('data-karaoke-end') || '0', 10);
           
-          console.log('Karaoke slice clicked', { karaokeId, startChar, endChar });
+// console.log('Karaoke slice clicked', { karaokeId, startChar, endChar });
           
           // Prevent multiple simultaneous clicks
           if (slice.dataset.processing === 'true') {
-            console.log('Already processing click, ignoring');
+// console.log('Already processing click, ignoring');
             return;
           }
           slice.dataset.processing = 'true';
@@ -2802,7 +2850,7 @@ export const PageReader = ({
           if (karaokeId) {
             // Ensure slice is initialized BEFORE doing anything else
             if (slice.querySelectorAll('.karaoke-word').length === 0) {
-              console.log('Slice not initialized in click handler, initializing now...');
+// console.log('Slice not initialized in click handler, initializing now...');
               const initialized = ensureWordSliceInitialized(karaokeSourcesRef, karaokeId, slice, startChar, endChar);
               if (!initialized) {
                 console.error('Failed to initialize slice in click handler');
@@ -2814,12 +2862,12 @@ export const PageReader = ({
             if (controller && controller.audio) {
               // Unlock audio by playing the actual karaoke audio (best gesture context)
               if (!audioUnlockedRef.current) {
-                console.log('Unlocking audio via karaoke click...');
+// console.log('Unlocking audio via karaoke click...');
                 controller.audio.play().then(() => {
                   controller.audio.pause();
                   controller.audio.currentTime = 0;
                   audioUnlockedRef.current = true;
-                  console.log('Audio unlocked via karaoke click');
+// console.log('Audio unlocked via karaoke click');
                   window.dispatchEvent(new CustomEvent('audioUnlocked'));
                   // Now start playback from this slice, clearing any pending resume
                   karaokeControllersRef.current.forEach((ctrl, id) => {
@@ -2850,7 +2898,7 @@ export const PageReader = ({
                 });
               } else {
                 // Already unlocked, just play
-                console.log('Audio already unlocked, starting playback');
+// console.log('Audio already unlocked, starting playback');
                 karaokeControllersRef.current.forEach((ctrl, id) => {
                   if (id !== karaokeId) {
                     ctrl.pause();
@@ -2876,23 +2924,23 @@ export const PageReader = ({
 
   // Start playback for visible karaoke slice
   const startVisibleKaraoke = useCallback(() => {
-    console.log('startVisibleKaraoke called', { 
-      isTransitioning: isTransitioningRef.current, 
-      audioUnlocked: audioUnlockedRef.current 
-    });
+// console.log('startVisibleKaraoke called', { 
+//      isTransitioning: isTransitioningRef.current, 
+//      audioUnlocked: audioUnlockedRef.current 
+//    });
     // Use ref instead of state to avoid stale closures
     if (isTransitioningRef.current) {
-      console.log('Skipping - transitioning');
+// console.log('Skipping - transitioning');
       return;
     }
     if (!audioUnlockedRef.current) {
-      console.log('Skipping - audio not unlocked');
+// console.log('Skipping - audio not unlocked');
       return; // Don't try if audio isn't unlocked yet
     }
     
     const node = pageContentRef.current;
     if (!node || !node.isConnected) {
-      console.log('Skipping - no node or not connected');
+// console.log('Skipping - no node or not connected');
       return;
     }
 
@@ -2909,11 +2957,11 @@ export const PageReader = ({
         resumeController = getKaraokeController(firstKaraokeId);
         if (resumeController && typeof resumeController.resumeWordIndex === 'number' && resumeController.resumeTime !== null) {
           hasResumeState = true;
-          console.log('[[RESUME]] Resume state found BEFORE initialization', {
-            karaokeId: firstKaraokeId,
-            resumeWordIndex: resumeController.resumeWordIndex,
-            resumeTime: resumeController.resumeTime,
-          });
+// console.log('[[RESUME]] Resume state found BEFORE initialization', {
+//            karaokeId: firstKaraokeId,
+//            resumeWordIndex: resumeController.resumeWordIndex,
+//            resumeTime: resumeController.resumeTime,
+//          });
         }
       }
     }
@@ -2922,10 +2970,10 @@ export const PageReader = ({
     initializeKaraokeSlices(node);
 
     const slices = node.querySelectorAll('.karaoke-slice');
-    console.log('Found karaoke slices', slices.length);
+// console.log('Found karaoke slices', slices.length);
     if (slices.length === 0) return;
 
-    console.log('[[PAGE ENTER]] startVisibleKaraoke invoked');
+// console.log('[[PAGE ENTER]] startVisibleKaraoke invoked');
 
     // Determine which slice to start from
     let targetSlice = slices[0];
@@ -2940,14 +2988,14 @@ export const PageReader = ({
       return;
     }
     const controller = resumeController || getKaraokeController(firstKaraokeId);
-    console.log('[[PAGE ENTER]] Controller lookup', {
-      karaokeId: firstKaraokeId,
-      found: !!controller,
-      waitingForNextPage: controller?.waitingForNextPage,
-      resumeWordIndex: controller?.resumeWordIndex,
-      resumeTime: controller?.resumeTime,
-      hadResumeStateBeforeInit: hasResumeState,
-    });
+// console.log('[[PAGE ENTER]] Controller lookup', {
+//      karaokeId: firstKaraokeId,
+//      found: !!controller,
+//      waitingForNextPage: controller?.waitingForNextPage,
+//      resumeWordIndex: controller?.resumeWordIndex,
+//      resumeTime: controller?.resumeTime,
+//      hadResumeStateBeforeInit: hasResumeState,
+//    });
     if (!controller) return;
 
     // Check for resume state - even if waitingForNextPage was cleared, we might still have resume info
@@ -2957,23 +3005,23 @@ export const PageReader = ({
       const sourceForResume = karaokeSourcesRef.current[firstKaraokeId];
       const resumeWordMeta = sourceForResume?.wordCharRanges?.[resumeIndex];
       const resumeCharPosition = resumeWordMeta ? resumeWordMeta.charStart : null;
-      console.log('[[RESUME]] Resume state detected', {
-        resumeWordIndex: resumeIndex,
-        resumeCharPosition,
-        resumeTime: controller.resumeTime,
-        waitingForNextPage: controller.waitingForNextPage,
-        note: 'Checking for resume even if waitingForNextPage is false',
-      });
+// console.log('[[RESUME]] Resume state detected', {
+//        resumeWordIndex: resumeIndex,
+//        resumeCharPosition,
+//        resumeTime: controller.resumeTime,
+//        waitingForNextPage: controller.waitingForNextPage,
+//        note: 'Checking for resume even if waitingForNextPage is false',
+//      });
 
       if (typeof resumeCharPosition === 'number') {
         for (const slice of slices) {
           const sStart = parseInt(slice.getAttribute('data-karaoke-start') || '0', 10);
           const sEnd = parseInt(slice.getAttribute('data-karaoke-end') || '0', 10);
-          console.log('[[RESUME]] Checking slice for resume', {
-            sStart,
-            sEnd,
-            resumeCharPosition,
-          });
+// console.log('[[RESUME]] Checking slice for resume', {
+//            sStart,
+//            sEnd,
+//            resumeCharPosition,
+//          });
           if (resumeCharPosition >= sStart && resumeCharPosition < sEnd) {
             targetSlice = slice;
             targetStartChar = sStart;
@@ -2997,21 +3045,21 @@ export const PageReader = ({
     }
 
     const karaokeId = targetSlice.getAttribute('data-karaoke-id');
-    console.log('[[PAGE ENTER]] Karaoke slice info', {
-      karaokeId,
-      targetStartChar,
-      targetEndChar,
-      resumeWordIndex,
-      resumeTime: controller.resumeTime,
-    });
+// console.log('[[PAGE ENTER]] Karaoke slice info', {
+//      karaokeId,
+//      targetStartChar,
+//      targetEndChar,
+//      resumeWordIndex,
+//      resumeTime: controller.resumeTime,
+//    });
     if (!karaokeId) return;
 
     // Check if slice has been initialized (has karaoke-word spans)
     const hasWords = targetSlice.querySelectorAll('.karaoke-word').length > 0;
-    console.log('[[PAGE ENTER]] Slice has words', hasWords);
+// console.log('[[PAGE ENTER]] Slice has words', hasWords);
     if (!hasWords) {
       // Slice not initialized yet, try again after a short delay
-      console.log('Retrying - slice not initialized');
+// console.log('Retrying - slice not initialized');
       setTimeout(() => {
         startVisibleKaraoke();
       }, 100);
@@ -3021,7 +3069,7 @@ export const PageReader = ({
     // Check if slice is actually visible
     const rect = targetSlice.getBoundingClientRect();
     const isVisible = rect.top < window.innerHeight && rect.bottom > 0;
-    console.log('[[PAGE ENTER]] Slice visibility', { isVisible, rect });
+// console.log('[[PAGE ENTER]] Slice visibility', { isVisible, rect });
     if (!isVisible) return;
 
     // Pause any other karaoke that might be playing
@@ -3036,12 +3084,12 @@ export const PageReader = ({
     const finalResumeTime = controller.resumeTime !== null ? controller.resumeTime : null;
     
     // Start playback – if we have a resumeWordIndex, use it to start mid-slice
-    console.log('[[PLAY]] Starting karaoke playback', { 
-      resumeWordIndex: finalResumeWordIndex, 
-      resumeTime: finalResumeTime,
-      fromController: typeof controller.resumeWordIndex === 'number',
-      localResumeWordIndex: resumeWordIndex,
-    });
+// console.log('[[PLAY]] Starting karaoke playback', { 
+//      resumeWordIndex: finalResumeWordIndex, 
+//      resumeTime: finalResumeTime,
+//      fromController: typeof controller.resumeWordIndex === 'number',
+//      localResumeWordIndex: resumeWordIndex,
+//    });
     const playOptions =
       typeof finalResumeWordIndex === 'number' && finalResumeTime !== null
         ? { resumeWordIndex: finalResumeWordIndex, resumeTime: finalResumeTime }
@@ -3455,7 +3503,7 @@ export const PageReader = ({
       ) {
         // Unlock audio if not already unlocked - use AudioContext for reliable unlock
         if (!audioUnlockedRef.current) {
-          console.log('Swipe detected - unlocking audio via AudioContext...');
+// console.log('Swipe detected - unlocking audio via AudioContext...');
           try {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             if (AudioContext) {
@@ -3463,7 +3511,7 @@ export const PageReader = ({
               const ctx = new AudioContext();
               if (ctx.state === 'suspended') {
                 ctx.resume().then(() => {
-                  console.log('AudioContext resumed - audio unlocked');
+// console.log('AudioContext resumed - audio unlocked');
                   audioUnlockedRef.current = true;
                   window.dispatchEvent(new CustomEvent('audioUnlocked'));
                   // Close the temporary context
@@ -3482,7 +3530,7 @@ export const PageReader = ({
               }
             } else {
               // Fallback: just mark as unlocked
-              console.log('AudioContext not available, marking as unlocked');
+// console.log('AudioContext not available, marking as unlocked');
               audioUnlockedRef.current = true;
               window.dispatchEvent(new CustomEvent('audioUnlocked'));
             }
@@ -3598,19 +3646,88 @@ export const PageReader = ({
     }
   }, [isTransitioning]);
 
+  // Autoplay videos when page becomes visible, pause when leaving
+  useEffect(() => {
+    if (!pageToDisplay) return;
+    
+    // Autoplay videos muted so they're visible and preload them
+    if (blankPageVideoRef.current && pageToDisplay?.isVideo) {
+      blankPageVideoRef.current.muted = true;
+      blankPageVideoRef.current.load(); // Force load the video
+      blankPageVideoRef.current.play().catch(err => {
+        // console.log('Video autoplay failed:', err);
+      });
+      setVideoUnmuted(false); // Show unmute button
+    }
+    
+    if (backgroundVideoRef.current && pageToDisplay?.backgroundVideo) {
+      backgroundVideoRef.current.muted = true;
+      backgroundVideoRef.current.load(); // Force load the video
+      backgroundVideoRef.current.play().catch(err => {
+        // console.log('Background video autoplay failed:', err);
+      });
+      setVideoUnmuted(false); // Show unmute button
+    }
+    
+    // Reset when leaving video pages
+    if (backgroundVideoRef.current && !pageToDisplay?.backgroundVideo) {
+      backgroundVideoRef.current.pause();
+      setVideoUnmuted(false);
+    }
+    if (blankPageVideoRef.current && !pageToDisplay?.isVideo) {
+      blankPageVideoRef.current.pause();
+      setVideoUnmuted(false);
+    }
+  }, [pageToDisplay?.chapterIndex, pageToDisplay?.pageIndex, pageToDisplay?.backgroundVideo, pageToDisplay?.isVideo]);
+
+  // Track when video is unmuted
+  useEffect(() => {
+    const blankVideo = blankPageVideoRef.current;
+    const bgVideo = backgroundVideoRef.current;
+    
+    const checkMuted = () => {
+      if (blankVideo && pageToDisplay?.isVideo) {
+        setVideoUnmuted(!blankVideo.muted);
+      }
+      if (bgVideo && pageToDisplay?.backgroundVideo) {
+        setVideoUnmuted(!bgVideo.muted);
+      }
+    };
+    
+    // Check initially
+    checkMuted();
+    
+    // Check on volume change
+    if (blankVideo) {
+      blankVideo.addEventListener('volumechange', checkMuted);
+    }
+    if (bgVideo) {
+      bgVideo.addEventListener('volumechange', checkMuted);
+    }
+    
+    return () => {
+      if (blankVideo) {
+        blankVideo.removeEventListener('volumechange', checkMuted);
+      }
+      if (bgVideo) {
+        bgVideo.removeEventListener('volumechange', checkMuted);
+      }
+    };
+  }, [pageToDisplay?.isVideo, pageToDisplay?.backgroundVideo]);
+
   // Listen for audio unlock and start playback
   useEffect(() => {
     const handleAudioUnlocked = () => {
-      console.log('audioUnlocked event received', { isTransitioning });
+// console.log('audioUnlocked event received', { isTransitioning });
       // If we're transitioning, the transition-end effect will handle starting karaoke
       // Otherwise, start immediately
       if (!isTransitioning) {
-        console.log('Starting karaoke immediately (not transitioning)');
+// console.log('Starting karaoke immediately (not transitioning)');
         setTimeout(() => {
           startVisibleKaraoke();
         }, 100);
       } else {
-        console.log('Will start karaoke after transition ends');
+// console.log('Will start karaoke after transition ends');
       }
     };
 
@@ -3636,16 +3753,16 @@ export const PageReader = ({
         
         // Check if audio is unlocked, if not wait for it
         if (audioUnlockedRef.current) {
-          console.log('Transition ended, audio unlocked, starting karaoke');
+// console.log('Transition ended, audio unlocked, starting karaoke');
           // Give a bit more time for initialization
           setTimeout(() => {
             startVisibleKaraoke();
           }, 200);
         } else {
-          console.log('Transition ended, audio not unlocked yet, waiting...');
+// console.log('Transition ended, audio not unlocked yet, waiting...');
           // Wait for audio unlock event
           const handleUnlock = () => {
-            console.log('Audio unlocked after transition, starting karaoke');
+// console.log('Audio unlocked after transition, starting karaoke');
             setTimeout(() => {
               const node = pageContentRef.current;
               if (node && node.isConnected) {
@@ -4027,7 +4144,7 @@ export const PageReader = ({
       (p) => p.chapterIndex === pageToDisplay.chapterIndex && p.pageIndex === pageToDisplay.pageIndex
     ) + 1;
   const totalPages = pages.length;
-  const shouldShowTopBar = !pageToDisplay.hasHeading;
+  const shouldShowTopBar = !pageToDisplay.hasHeading && !pageToDisplay.isEpigraph;
 
   return (
     <div
@@ -4041,8 +4158,35 @@ export const PageReader = ({
         ref={pageContainerRef}
         className={`page-container ${isTransitioning ? 'transitioning' : ''}`}
       >
-        <article className={`page-sheet content-page ${pageToDisplay.isEpigraph ? 'epigraph-page' : ''} ${pageToDisplay.isVideo ? 'video-page' : ''}`}>
+        <article className={`page-sheet content-page ${pageToDisplay.isEpigraph ? 'epigraph-page' : ''} ${pageToDisplay.isVideo ? 'video-page' : ''} ${pageToDisplay.backgroundVideo ? 'background-video-page' : ''}`}>
           <section className="page-body content-body">
+            {pageToDisplay.backgroundVideo && (
+              <>
+                <video
+                  ref={backgroundVideoRef}
+                  src={pageToDisplay.backgroundVideo}
+                  loop
+                  muted
+                  playsInline
+                  preload="auto"
+                  className="background-video"
+                />
+                {!videoUnmuted && (
+                  <button
+                    onClick={() => {
+                      if (backgroundVideoRef.current) {
+                        backgroundVideoRef.current.muted = false;
+                        setVideoUnmuted(true);
+                      }
+                    }}
+                    className="video-play-button"
+                    aria-label="Unmute video"
+                  >
+                    UNMUTE
+                  </button>
+                )}
+              </>
+            )}
             {pageToDisplay.isEpigraph ? (
               <div 
                 key={pageKey}
@@ -4059,23 +4203,37 @@ export const PageReader = ({
             ) : pageToDisplay.isVideo ? (
               <div 
                 key={pageKey}
-                ref={pageContentRefCallback} 
                 className="page-content video-content"
               >
                 <video
+                  ref={blankPageVideoRef}
                   src={pageToDisplay.videoSrc}
-                  autoPlay
                   loop
                   muted
                   playsInline
+                  preload="auto"
                   className="fullscreen-video"
                 />
+                {!videoUnmuted && (
+                  <button
+                    onClick={() => {
+                      if (blankPageVideoRef.current) {
+                        blankPageVideoRef.current.muted = false;
+                        setVideoUnmuted(true);
+                      }
+                    }}
+                    className="video-play-button"
+                    aria-label="Unmute video"
+                  >
+                    UNMUTE
+                  </button>
+                )}
               </div>
             ) : (
               <div 
                 key={pageKey}
                 ref={pageContentRefCallback} 
-                className="page-content" 
+                className={`page-content ${pageToDisplay.backgroundVideo ? 'background-video-text' : ''}`}
                 dangerouslySetInnerHTML={{ __html: pageToDisplay.content }} 
               />
             )}

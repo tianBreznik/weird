@@ -49,7 +49,8 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   const autosaveTimerRef = useRef(null);
   const colorInputRef = useRef(null);
   const highlightInputRef = useRef(null);
-  const userChangedColorRef = useRef(false); // Track when user manually changes color
+  const userChangedColorRef = useRef(false); // Track when user manually changes text color
+  const userChangedHighlightRef = useRef(false); // Track when user manually changes highlight color
   const dialogOpenRef = useRef(false); // Track if dialog is open to prevent editor interference
   const lastSelectionRef = useRef({ from: null, to: null }); // Track last selection for polling
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -75,7 +76,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   const isSettingContentRef = useRef(false);
   const lastSetContentRef = useRef('');
   
-  // TipTap editor instance
+  // TipTap editor instance - Adding extensions back systematically to find the issue
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -93,17 +94,22 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       Subscript,
       Superscript,
       Indent,
-      KaraokeBlock,
-      Poetry,
-      Video,
-      InlineImage, // Must come BEFORE CustomImage so inline images are parsed correctly
-      CustomImage,
-      Dinkus,
+      // Adding back basic formatting extensions first
       Highlight,
       TextColor,
       Underline,
+      // Adding back media extensions
+      InlineImage, // Must come BEFORE CustomImage so inline images are parsed correctly
+      CustomImage,
+      Video,
+      // Adding back content extensions
+      Dinkus,
+      Poetry,
+      // Footnote extensions - InputRule disabled as it interferes with typing
       FootnoteRef,
-      FootnotePlugin, // TipTap footnote extension: converts ^[content] into structured footnoteRef nodes
+      // FootnotePlugin, // DISABLED: InputRule interferes with typing - using manual conversion instead
+      // Adding back KaraokeBlock
+      KaraokeBlock,
     ],
     content: '',
     editable: true, // Explicitly enable editing
@@ -415,6 +421,25 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
         alignJustify: editor.isActive({ textAlign: 'justify' }),
         // Check if image is selected and its alignment
         // For atom nodes like images, check nodeBefore, nodeAfter, and nodeAt positions
+        // Check if video is selected and its mode
+        videoSelected: (() => {
+          try {
+            const { selection } = editor.state;
+            const { $from } = selection;
+            // Check multiple positions for atom nodes
+            let videoNode = $from.nodeBefore || $from.nodeAfter;
+            if (!videoNode || videoNode.type.name !== 'video') {
+              // Also check the node at the current position
+              const nodeAt = $from.parent.child($from.index());
+              if (nodeAt && nodeAt.type.name === 'video') {
+                videoNode = nodeAt;
+              }
+            }
+            return videoNode && videoNode.type.name === 'video' ? videoNode : null;
+          } catch {
+            return null;
+          }
+        })(),
         imageAlignLeft: (() => {
           try {
             const { selection } = editor.state;
@@ -486,6 +511,9 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
           colorInputRef.current.value = currentColor;
         }
       }
+      
+      // Always update highlight color - it should reflect the current selection's highlight
+      // regardless of whether user changed text color
 
       // Keep dropdown in sync with our simple fontSize state for now.
       // (Font-size is a future polish feature; currently we don't modify the document.)
@@ -494,20 +522,25 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
         setFontSize(currentFontSize);
       }
 
-      let currentHighlight = '#ffffff';
-      try {
-        currentHighlight = getCurrentHighlightFromState();
-      } catch (e) {
-        currentHighlight = '#ffffff';
-      }
+      // Update highlight color based on current selection/caret position
+      // But don't override if user just manually changed it
+      if (!userChangedHighlightRef.current) {
+        let currentHighlight = '#ffffff';
+        try {
+          currentHighlight = getCurrentHighlightFromState();
+        } catch (e) {
+          currentHighlight = '#ffffff';
+        }
 
-      setHighlightColor(currentHighlight);
-      if (highlightInputRef.current) {
-        highlightInputRef.current.value = currentHighlight;
+        setHighlightColor(currentHighlight);
+        if (highlightInputRef.current) {
+          highlightInputRef.current.value = currentHighlight;
+        }
       }
     } catch {}
   };
 
+  // Content loading effect - RE-ENABLED for testing
   useEffect(() => {
     if (!editor) return;
     
@@ -836,9 +869,9 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
 
         if (from !== last.from || to !== last.to) {
           lastSelectionRef.current = { from, to };
-          if (!userChangedColorRef.current) {
-            refreshToolbarState();
-          }
+          // Always refresh toolbar state when selection changes
+          // userChangedColorRef only prevents text color updates, not highlight color
+          refreshToolbarState();
         }
       } catch (e) {}
       rafId = window.requestAnimationFrame(pollSelection);
@@ -872,6 +905,8 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
 
   // Keyboard shortcuts
   useEffect(() => {
+    if (!editor) return; // Don't set up shortcuts if editor isn't ready
+    
     const onKeyDown = (e) => {
       // Check if the event target is within a dialog - if so, let it through completely
       const target = e.target;
@@ -884,11 +919,32 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
         return; // Dialog is open but event not from dialog - ignore completely
       }
       
-      // Check if editor is focused
+      // Check if editor is focused - CRITICAL: only handle shortcuts when editor is focused
       if (!editor || !editor.isFocused) return;
       
+      // Check for footnote conversion: typing ] after ^[content]
+      if (e.key === ']' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        // Check if we just typed ] after a ^[...] pattern
+        const { state } = editor;
+        const { $from } = state.selection;
+        const textBefore = state.doc.textBetween(Math.max(0, $from.pos - 100), $from.pos);
+        const footnotePattern = /\^\[([^\]]+)$/;
+        const match = textBefore.match(footnotePattern);
+        
+        if (match) {
+          // We're closing a footnote pattern - convert it
+          e.preventDefault();
+          setTimeout(() => {
+            convertTextToFootnote();
+          }, 0);
+          return;
+        }
+      }
+      
+      // CRITICAL: Only handle meta/ctrl shortcuts, let all other keys through to editor
       const meta = e.metaKey || e.ctrlKey;
-      if (!meta) return;
+      if (!meta) return; // Let normal typing pass through
+      
       switch (e.key.toLowerCase()) {
         case 'b': 
           e.preventDefault(); 
@@ -920,12 +976,17 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
           editor.chain().focus().setTextAlign('right').run(); 
           refreshToolbarState(); 
           break;
+        case 'enter':
+          // Cmd+Enter: Convert ^[...] pattern to footnote
+          e.preventDefault();
+          convertTextToFootnote();
+          break;
         default: break;
       }
     };
     document.addEventListener('keydown', onKeyDown, false); // Use bubbling phase, not capture
     return () => document.removeEventListener('keydown', onKeyDown, false);
-  }, []);
+  }, [editor, refreshToolbarState]); // FIXED: Add dependencies to prevent stale closures
 
   const handleSave = async () => {
     setSaving(true);
@@ -1360,7 +1421,18 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
 
   const handleHighlightColorChange = (e) => {
     const value = e.target.value;
+    
+    // Mark that user is manually changing the highlight color
+    userChangedHighlightRef.current = true;
+    
+    // Update state immediately so tooltip reflects the change
     setHighlightColor(value);
+    
+    // Force immediate visual update of the color picker
+    if (highlightInputRef.current) {
+      highlightInputRef.current.value = value;
+    }
+    
     // Immediately apply new highlight color to selection/caret via TipTap
     if (!editor) return;
     editor
@@ -1368,7 +1440,13 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       .focus()
       .setMark('highlight', { color: value })
       .run();
-    refreshToolbarState();
+    
+    // Reset flag after a delay to allow toolbar to sync naturally
+    setTimeout(() => {
+      userChangedHighlightRef.current = false;
+    }, 500);
+    
+    // Don't call refreshToolbarState here - it would override our manual change
   };
 
   const handleApplyHighlightClick = (e) => {
@@ -1391,6 +1469,111 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
 
   const handleVideoButtonClick = () => {
     if (videoFileInputRef.current) videoFileInputRef.current.click();
+  };
+
+  const handleInsertFootnote = () => {
+    if (!editor) {
+      console.warn('Editor not available');
+      return;
+    }
+    
+    try {
+      // Ensure editor is focused first
+      if (!editor.isFocused) {
+        editor.commands.focus();
+      }
+      
+      // Get current cursor position before insertion
+      const { state: beforeState } = editor;
+      const beforePos = beforeState.selection.$from.pos;
+      
+      // Insert inline placeholder: ^[ ]
+      editor.chain()
+        .focus()
+        .insertContent('^[ ]')
+        .run();
+      
+      // Move cursor between the brackets after insertion
+      requestAnimationFrame(() => {
+        if (editor) {
+          const { state } = editor;
+          // The cursor should now be after the inserted text
+          // We inserted '^[ ]' which is 4 characters, so cursor is at beforePos + 4
+          // We want cursor at beforePos + 2 (right after '^[')
+          const targetPos = beforePos + 2;
+          
+          // Set cursor position and delete the space
+          editor.chain()
+            .setTextSelection(targetPos)
+            .deleteSelection() // Delete the space between brackets
+            .focus()
+            .run();
+        }
+      });
+      
+      refreshToolbarState();
+    } catch (error) {
+      console.error('Error inserting footnote:', error);
+    }
+  };
+
+  // Convert ^[content] text pattern to footnote node
+  const convertTextToFootnote = () => {
+    if (!editor) return;
+    
+    try {
+      const { state } = editor;
+      const { selection } = state;
+      const { from, to } = selection;
+      
+      // Get text around cursor/selection
+      const textBefore = state.doc.textBetween(Math.max(0, from - 50), from);
+      const textAfter = state.doc.textBetween(to, Math.min(state.doc.content.size, to + 10));
+      
+      // Look for ^[...] pattern before cursor
+      const pattern = /\^\[([^\]]+)\]$/;
+      const match = (textBefore + textAfter).match(pattern);
+      
+      if (match) {
+        const content = match[1].trim();
+        if (!content) return;
+        
+        // Find the position of the pattern
+        const patternStart = textBefore.lastIndexOf('^[');
+        if (patternStart === -1) return;
+        
+        const actualStart = from - (textBefore.length - patternStart);
+        const actualEnd = actualStart + match[0].length;
+        
+        // Find highest footnote number
+        let maxNumber = 0;
+        state.doc.descendants((node) => {
+          if (node.type.name === 'footnoteRef' && node.attrs.number) {
+            maxNumber = Math.max(maxNumber, node.attrs.number);
+          }
+        });
+        
+        const number = maxNumber + 1;
+        const id = `fn-${number}`;
+        
+        // Replace text with footnote node
+        editor.chain()
+          .setTextSelection({ from: actualStart, to: actualEnd })
+          .insertContent({
+            type: 'footnoteRef',
+            attrs: {
+              id,
+              number,
+              content: content,
+            },
+          })
+          .run();
+        
+        refreshToolbarState();
+      }
+    } catch (error) {
+      console.error('Error converting text to footnote:', error);
+    }
   };
 
   const handleVideoFileSelected = async (e) => {
@@ -1416,10 +1599,37 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
           src: downloadURL,
           controls: true,
           style: 'max-width:100%;height:auto;display:block;margin:8px 0;',
+          mode: 'blank-page', // Default to blank page mode
         },
       }).run();
       
-      refreshToolbarState();
+      // Select the video node so the mode toggle button appears
+      // Use setTimeout to allow the editor state to settle after insertion
+      setTimeout(() => {
+        if (!editor) return;
+        
+        // Get fresh state inside setTimeout to avoid stale position issues
+        const { state } = editor;
+        const { doc } = state;
+        
+        // Search for the video node we just inserted by its src attribute
+        let videoPos = null;
+        doc.descendants((node, pos) => {
+          if (node.type.name === 'video' && node.attrs.src === downloadURL) {
+            videoPos = pos;
+            return false; // Stop searching
+          }
+        });
+        
+        // If we found the video node, select it
+        if (videoPos !== null) {
+          // Resolve the position against the current state
+          const resolvedPos = doc.resolve(videoPos);
+          editor.commands.setTextSelection(resolvedPos);
+        }
+        
+        refreshToolbarState();
+      }, 100);
     } catch (err) {
       console.error('Video upload failed', err);
       alert(err.message || 'Video upload failed. Please try again.');
@@ -1427,6 +1637,38 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       setUploadingVideo(false);
       setVideoUploadProgress(0);
       if (videoFileInputRef.current) videoFileInputRef.current.value = '';
+    }
+  };
+
+  const handleToggleVideoMode = () => {
+    if (!editor) return;
+    
+    try {
+      const { selection } = editor.state;
+      const { $from } = selection;
+      
+      // Find the video node
+      let videoNode = $from.nodeBefore || $from.nodeAfter;
+      if (!videoNode || videoNode.type.name !== 'video') {
+        const nodeAt = $from.parent.child($from.index());
+        if (nodeAt && nodeAt.type.name === 'video') {
+          videoNode = nodeAt;
+        }
+      }
+      
+      if (videoNode && videoNode.type.name === 'video') {
+        const currentMode = videoNode.attrs.mode || 'blank-page';
+        const newMode = currentMode === 'blank-page' ? 'background' : 'blank-page';
+        
+        // Update the video node's mode attribute
+        editor.chain().focus().updateAttributes('video', {
+          mode: newMode,
+        }).run();
+        
+        refreshToolbarState();
+      }
+    } catch (error) {
+      console.error('Error toggling video mode:', error);
     }
   };
 
@@ -1824,6 +2066,31 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   {uploadingVideo && <div className="toolbar-btn-progress" />}
                 </button>
                 <input ref={videoFileInputRef} type="file" accept="video/*" onChange={handleVideoFileSelected} style={{ display: 'none' }} disabled={uploadingVideo} />
+                {/* Video mode toggle disabled for now - focusing on blank-page mode only */}
+                {/* {activeFormats.videoSelected && (
+                  <button
+                    onClick={handleToggleVideoMode}
+                    className="toolbar-btn"
+                    title={activeFormats.videoSelected.attrs.mode === 'background' 
+                      ? "Video Mode: Background (Click to switch to Blank Page)" 
+                      : "Video Mode: Blank Page (Click to switch to Background)"}
+                    style={{
+                      backgroundColor: activeFormats.videoSelected.attrs.mode === 'background' 
+                        ? 'rgba(59, 130, 246, 0.15)' 
+                        : 'rgba(107, 114, 128, 0.15)',
+                      border: `1px solid ${activeFormats.videoSelected.attrs.mode === 'background' 
+                        ? 'rgba(59, 130, 246, 0.3)' 
+                        : 'rgba(107, 114, 128, 0.3)'}`
+                    }}
+                  >
+                    <span className="toolbar-btn-icon">
+                      {activeFormats.videoSelected.attrs.mode === 'background' ? '🎬' : '📄'}
+                    </span>
+                    <span style={{ fontSize: '0.7rem', marginLeft: '4px', fontWeight: 500 }}>
+                      {activeFormats.videoSelected.attrs.mode === 'background' ? 'BG' : 'Page'}
+                    </span>
+                  </button>
+                )} */}
                 <button
                   onClick={() => {
                     // Disable editor and blur it before opening dialog
@@ -1843,16 +2110,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   🎤
                 </button>
                 <button
-                  onClick={() => {
-                    if (!editor) return;
-                    editor.commands.focus();
-                    // Insert markdown-style footnote starter ^[ ] at cursor position.
-                    // The TipTap FootnotePlugin watches for ^[content] and converts it
-                    // into a structured footnoteRef node with auto-numbering, and the
-                    // reader still understands both the node HTML and raw ^[...] syntax.
-                    editor.commands.insertContent('^[ ]');
-                    refreshToolbarState();
-                  }}
+                  onClick={handleInsertFootnote}
                   className="toolbar-btn"
                   title="Insert Footnote"
                 >

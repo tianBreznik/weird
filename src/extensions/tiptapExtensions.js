@@ -542,6 +542,18 @@ export const Video = Node.create({
       style: {
         default: 'max-width:100%;height:auto;display:block;margin:8px 0;',
       },
+      mode: {
+        default: 'blank-page', // 'blank-page' or 'background'
+        parseHTML: (element) => element.getAttribute('data-video-mode') || 'blank-page',
+        renderHTML: (attributes) => {
+          if (!attributes.mode || attributes.mode === 'blank-page') {
+            return {};
+          }
+          return {
+            'data-video-mode': attributes.mode,
+          };
+        },
+      },
     };
   },
 
@@ -553,20 +565,115 @@ export const Video = Node.create({
           src: node.getAttribute('src'),
           controls: node.hasAttribute('controls'),
           style: node.getAttribute('style') || 'max-width:100%;height:auto;display:block;margin:8px 0;',
+          mode: node.getAttribute('data-video-mode') || 'blank-page',
         }),
       },
     ];
   },
 
+  addNodeView() {
+    return ({ node, HTMLAttributes, getPos, editor }) => {
+      const container = document.createElement('div');
+      container.className = 'video-container';
+      container.style.position = 'relative';
+      container.style.display = 'block';
+      container.style.margin = '8px 0';
+      
+      const video = document.createElement('video');
+      video.src = HTMLAttributes.src || node.attrs.src;
+      video.controls = HTMLAttributes.controls !== false;
+      video.style.width = '100%';
+      video.style.height = 'auto';
+      video.style.display = 'block';
+      
+      // Add data-video-mode attribute if mode is set and not 'blank-page'
+      const mode = HTMLAttributes.mode || node.attrs.mode || 'blank-page';
+      if (mode !== 'blank-page') {
+        video.setAttribute('data-video-mode', mode);
+      }
+      
+      // Add mode badge
+      const badge = document.createElement('div');
+      badge.className = 'video-mode-badge';
+      badge.textContent = mode === 'background' ? '🎬 BG' : '📄 Page';
+      badge.style.position = 'absolute';
+      badge.style.top = '8px';
+      badge.style.right = '8px';
+      badge.style.backgroundColor = mode === 'background' 
+        ? 'rgba(59, 130, 246, 0.9)' 
+        : 'rgba(107, 114, 128, 0.9)';
+      badge.style.color = 'white';
+      badge.style.padding = '4px 8px';
+      badge.style.borderRadius = '4px';
+      badge.style.fontSize = '0.75rem';
+      badge.style.fontWeight = '500';
+      badge.style.pointerEvents = 'none';
+      badge.style.zIndex = '10';
+      badge.style.userSelect = 'none';
+      
+      container.appendChild(video);
+      container.appendChild(badge);
+      
+      // Handle click to select video (desktop only - mobile uses native video controls)
+      // REMOVED: All touch event handlers to prevent interference with mobile typing
+      const handleSelect = () => {
+        if (typeof getPos === 'function') {
+          const pos = getPos();
+          if (pos !== null && pos !== undefined) {
+            editor.commands.setTextSelection(pos);
+            editor.commands.focus();
+          }
+        }
+      };
+      
+      // Desktop click handler only - no touch handlers to avoid breaking mobile typing
+      container.addEventListener('click', (e) => {
+        // Only handle clicks on container/badge, not video itself
+        if (e.target === container || e.target === badge) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleSelect();
+        }
+        // If clicking on video, let it through to video controls
+      });
+      
+      return {
+        dom: container,
+        contentDOM: null, // Video is an atom node, no content
+        update: (updatedNode) => {
+          // Update badge when mode changes
+          const updatedMode = updatedNode.attrs.mode || 'blank-page';
+          badge.textContent = updatedMode === 'background' ? '🎬 BG' : '📄 Page';
+          badge.style.backgroundColor = updatedMode === 'background' 
+            ? 'rgba(59, 130, 246, 0.9)' 
+            : 'rgba(107, 114, 128, 0.9)';
+          
+          // Update video data attribute
+          if (updatedMode !== 'blank-page') {
+            video.setAttribute('data-video-mode', updatedMode);
+          } else {
+            video.removeAttribute('data-video-mode');
+          }
+          
+          return true;
+        },
+      };
+    };
+  },
+
   renderHTML({ HTMLAttributes }) {
-    return [
-      'video',
-      {
-        src: HTMLAttributes.src,
-        controls: HTMLAttributes.controls !== false,
-        style: HTMLAttributes.style || 'max-width:100%;height:auto;display:block;margin:8px 0;',
-      },
-    ];
+    const attrs = {
+      src: HTMLAttributes.src,
+      controls: HTMLAttributes.controls !== false,
+      style: HTMLAttributes.style || 'max-width:100%;height:auto;display:block;margin:8px 0;',
+    };
+    
+    // Add data-video-mode attribute if mode is set and not 'blank-page'
+    if (HTMLAttributes.mode && HTMLAttributes.mode !== 'blank-page') {
+      attrs['data-video-mode'] = HTMLAttributes.mode;
+    }
+    
+    return ['video', attrs];
   },
 });
 
