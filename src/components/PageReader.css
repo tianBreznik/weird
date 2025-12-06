@@ -148,12 +148,12 @@
 }
 
 .content-page.page-with-heading .page-body {
-  padding-top: calc(2.8rem + env(safe-area-inset-top));
+  padding-top: calc(3.5rem + env(safe-area-inset-top)); /* Increased to account for top bar when title wraps */
   padding-bottom: env(safe-area-inset-bottom);
 }
 
 .content-page.page-without-heading .page-body {
-  padding-top: calc(1.15rem + env(safe-area-inset-top));
+  padding-top: calc(3.5rem + env(safe-area-inset-top)); /* Increased to account for top bar when title wraps */
   padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -162,6 +162,7 @@
 }
 
 .page-content {
+  overflow-x: hidden; /* Prevent horizontal overflow from tex-linebreak */
   width: 100%;
   font-family: 'Times New Roman', 'Times', 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif;
   font-size: 1.18rem; /* Fixed font size - never dynamic */
@@ -197,13 +198,13 @@
 }
 
 .ink-char-mobile[data-ink="1"] {
-  /* Slightly more intense; use currentColor so shadow matches text color */
+  /* Very subtle, blurred ink bleed effect - more frequent but gentler */
   /* Use !important to ensure shadows persist during transitions and overlays */
   text-shadow:
-    0 0 0.2px currentColor,
-    0 0.06px 0.28px currentColor,
-   -0.06px 0 0.28px currentColor !important;
-  -webkit-text-stroke: 0.06px currentColor !important;
+    0 0 0.3px currentColor,
+    0 0.08px 0.4px rgba(0, 0, 0, 0.15),
+   -0.08px 0 0.4px rgba(0, 0, 0, 0.15) !important;
+  -webkit-text-stroke: 0.04px currentColor !important;
   /* Force hardware acceleration and preserve rendering */
   transform: translateZ(0);
   -webkit-transform: translateZ(0);
@@ -228,6 +229,8 @@
 .page-content-main {
   width: 100%;
   padding-bottom: 0; /* Will be set dynamically via inline style */
+  overflow-x: hidden; /* Prevent horizontal overflow from tex-linebreak adjustments */
+  box-sizing: border-box;
 }
 
 /* Link styling - standard web link appearance */
@@ -262,12 +265,45 @@
    - Compact vertical rhythm between paragraphs
 */
 .page-content p {
-  font-size: 1.125rem;         /* ~18px at 16px root */
+  font-size: 1.2rem;           /* ~19.2px at 16px root - slightly larger */
   line-height: 1.2;
   margin: 0.45rem 0;           /* slightly tighter than before for a more compact, typeset feel */
-  text-align: left;            /* Left-align paragraphs like in the reference image */
-  word-spacing: normal;
+  text-align: justify;          /* Justified text by default for book-like appearance */
+  text-align-last: left;        /* Last line left-aligned (professional typesetting standard) */
+  text-justify: inter-word;     /* Use inter-word justification */
+  word-spacing: -0.08em;        /* Slight negative word spacing to reduce gaps */
+  letter-spacing: 0.01em;       /* Slight letter spacing to help distribute space */
+  hyphens: auto;                /* Enable hyphenation to reduce gaps */
+  -webkit-hyphens: auto;
+  overflow-wrap: break-word;    /* Allow breaking long words */
+  word-wrap: break-word;        /* Legacy support for word breaking */
+  max-width: 100%;              /* Ensure paragraphs don't overflow container */
+  box-sizing: border-box;       /* Include padding in width calculation */
   font-family: 'Times New Roman', 'Times', 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif !important; /* Explicit font for paragraphs */
+  /* Subtle text shadow for grainy/furry typewriter aesthetic - mobile only */
+}
+
+@media (max-width: 768px) {
+  .page-content p {
+    text-shadow: 0 0.6px 1.2px rgba(0, 0, 0, 0.15), 0 0.4px 0.8px rgba(0, 0, 0, 0.12);
+  }
+  
+  /* Apply shadow to other content elements but exclude subchapter titles */
+  .page-content h1,
+  .page-content h2,
+  .page-content h3:not(.chapter-header-title),
+  .page-content h5,
+  .page-content h6,
+  .page-content li,
+  .page-content blockquote,
+  .page-content span:not(.ink-char-mobile) {
+    text-shadow: 0 0.6px 1.2px rgba(0, 0, 0, 0.15), 0 0.4px 0.8px rgba(0, 0, 0, 0.12);
+  }
+  
+  /* Explicitly exclude subchapter titles (h4) from shadow */
+  .page-content h4.chapter-header-title {
+    text-shadow: none !important;
+  }
 }
 
 .page-content p.para-intro {
@@ -806,6 +842,13 @@
   font-family: 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif;
   color: #0a0a0a;
   font-size: 1rem;
+}
+
+.loading-gif {
+  max-width: 200px;
+  max-height: 200px;
+  width: auto;
+  height: auto;
 }
 
 /* Page number in bottom right corner */

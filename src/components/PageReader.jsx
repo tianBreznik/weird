@@ -5,6 +5,23 @@ import {
   renderFootnotesSection,
   generateAcknowledgementsContent 
 } from '../utils/footnotes';
+import { hyphenateSync } from 'hyphen/en';
+
+// Apply hyphenation to HTML content - the hyphen library automatically skips HTML tags
+const applyHyphenationToHTML = (html) => {
+  if (!html) return html;
+  try {
+    const hyphenated = hyphenateSync(html);
+    // Debug: check if hyphenation actually changed the content
+    if (hyphenated !== html && hyphenated.includes('\u00AD')) {
+      console.log('[Hyphenation] Applied successfully, soft hyphens inserted');
+    }
+    return hyphenated;
+  } catch (error) {
+    console.warn('[Hyphenation] Error applying hyphenation:', error);
+    return html;
+  }
+};
 
 const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, startChar, endChar) => {
     if (!sliceElement || !sliceElement.isConnected) {
@@ -383,7 +400,7 @@ export const PageReader = ({
         const paragraphs = container.querySelectorAll('p');
         paragraphs.forEach(p => {
           // Only apply if not already set (preserve inline styles from TipTap)
-          if (!p.style.fontSize) p.style.fontSize = '1.125rem';
+          if (!p.style.fontSize) p.style.fontSize = '1.2rem';
           if (!p.style.lineHeight) p.style.lineHeight = '1.2';
           if (!p.style.margin) p.style.margin = '0.45rem 0';
           if (!p.style.fontFamily) p.style.fontFamily = "'Times New Roman', 'Times', 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif";
@@ -593,7 +610,7 @@ export const PageReader = ({
           tempContainer.style.width = measure.body.clientWidth + 'px';
           // Apply the same font/line-height/margin rules that .page-content p uses
           tempContainer.style.fontFamily = "'Times New Roman', 'Times', 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif";
-          tempContainer.style.fontSize = '1.18rem';
+          tempContainer.style.fontSize = '1.2rem';
           tempContainer.style.lineHeight = '1.62';
           measure.body.appendChild(tempContainer);
           
@@ -1025,6 +1042,9 @@ export const PageReader = ({
           pageFootnotes.sort((a, b) => a.globalNumber - b.globalNumber);
           
           // Add footnotes section at the bottom if there are any
+          // Apply hyphenation to content for better justified text
+          processedContent = applyHyphenationToHTML(processedContent);
+          
           // Wrap content in a container and position footnotes absolutely at bottom
           let footnotesHtml = '';
           if (pageFootnotes.length > 0) {
@@ -1662,7 +1682,7 @@ export const PageReader = ({
           const contentDiv = document.createElement('div');
           contentDiv.className = 'chapter-content';
           contentDiv.style.fontFamily = "'Times New Roman', 'Times', 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif";
-          contentDiv.style.fontSize = '1.18rem'; // Match .page-body font-size
+          contentDiv.style.fontSize = '1.2rem'; // Match .page-content p font-size
           contentDiv.style.lineHeight = '1.62'; // Match .page-body line-height
           contentDiv.style.color = '#0a0a0a';
           
@@ -4285,11 +4305,19 @@ export const PageReader = ({
   }
 
   if (pages.length === 0 || isInitializing) {
-    return <div className="page-reader-loading">Loading pages...</div>;
+    return (
+      <div className="page-reader-loading">
+        <img src="/pigeondove.gif" alt="Loading..." className="loading-gif" />
+      </div>
+    );
   }
 
   if (!pageToDisplay) {
-    return <div className="page-reader-loading">Loading...</div>;
+    return (
+      <div className="page-reader-loading">
+        <img src="/pigeondove.gif" alt="Loading..." className="loading-gif" />
+      </div>
+    );
   }
 
   // Calculate current page number (1-indexed, excluding cover page)

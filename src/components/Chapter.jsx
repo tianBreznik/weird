@@ -34,7 +34,7 @@ export const applyInkEffectToTextMobile = (element, options = {}) => {
   const probability =
     typeof options.probability === 'number'
       ? options.probability
-      : (isChapterContent ? 0.25 : 0.15);
+      : (isChapterContent ? 0.45 : 0.15); // Increased to 45% for more frequent, subtle typewriter effect
   
   const walker = document.createTreeWalker(
     element,

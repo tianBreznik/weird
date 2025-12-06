@@ -1,6 +1,6 @@
 .reader-top-bar {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + 1rem);
+  top: calc(env(safe-area-inset-top) + 0.6rem); /* Adjusted to balance position and prevent overlap */
   left: 0;
   right: 0;
   display: flex;
@@ -18,6 +18,9 @@
 .reader-top-bar-content {
   max-width: 80vw;
   text-align: center;
+  padding: 0.3rem 1rem; /* Reduced top padding to move content higher */
+  line-height: 1.3; /* Tighter line height for more compact wrapping */
+  min-height: 1.8rem; /* Slightly reduced minimum height */
 }
 
 .reader-chapter-title {
@@ -27,6 +30,10 @@
   color: #0a0a0a;
   letter-spacing: 0.07em;
   text-transform: uppercase;
+  display: block; /* Ensure it's a block element for proper wrapping */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 
 @media (min-width: 769px) {
