@@ -283,13 +283,16 @@
   /* Subtle text shadow for grainy/furry typewriter aesthetic - mobile only */
 }
 
-/* Exclude karaoke elements from text alignment/spacing to preserve highlighting alignment */
+/* Karaoke paragraphs should also be justified, but disable hyphenation to preserve highlighting */
 .page-content p:has(.karaoke-slice),
 .page-content p:has(.karaoke-player) {
-  text-align: left !important;  /* Left-align paragraphs containing karaoke */
-  word-spacing: normal !important;
-  letter-spacing: normal !important;
-  text-justify: auto !important;
+  text-align: justify !important;
+  text-align-last: left !important;
+  text-justify: inter-word !important;
+  word-spacing: -0.08em !important;
+  letter-spacing: 0.01em !important;
+  hyphens: none !important;
+  -webkit-hyphens: none !important;
 }
 
 @media (max-width: 768px) {
@@ -887,8 +890,7 @@
   --karaoke-fill: 0;
   font: inherit;
   line-height: inherit;
-  letter-spacing: normal !important; /* Reset letter-spacing to ensure highlighting alignment */
-  word-spacing: normal !important;    /* Reset word-spacing to ensure highlighting alignment */
+  letter-spacing: inherit;
   text-shadow: none;
   -webkit-text-stroke: none;
 }
@@ -914,7 +916,7 @@
   pointer-events: none;
   opacity: var(--karaoke-fill);
   font: inherit;
-  letter-spacing: normal !important; /* Match parent's normal spacing for alignment */
+  letter-spacing: inherit;
   line-height: inherit;
   font-weight: inherit;
   -webkit-text-stroke: 0.75px rgba(255, 214, 0, 0.95);
@@ -932,7 +934,7 @@
   pointer-events: none;
   opacity: var(--karaoke-fill);
   font: inherit;
-  letter-spacing: normal !important; /* Match parent's normal spacing for alignment */
+  letter-spacing: inherit;
   line-height: inherit;
   font-weight: inherit;
   -webkit-text-stroke: 0.75px rgba(255, 214, 0, 0.95);
@@ -961,11 +963,29 @@
   hyphens: none;
   -webkit-hyphens: none;
   -moz-hyphens: none;
+  /* Apply justified text alignment like regular paragraphs */
+  text-align: justify;
+  text-align-last: left;
+  text-justify: inter-word;
+  word-spacing: -0.08em;
+  letter-spacing: 0.01em;
 }
 
 /* Prevent line breaks after word spans that contain punctuation */
 .karaoke-word:has(.karaoke-punctuation) {
-  white-space: nowrap;
+  white-space: nowrap !important;
+}
+
+/* Prevent line breaks before punctuation - ensure punctuation stays with previous word */
+.karaoke-char.karaoke-punctuation {
+  white-space: nowrap !important;
+  display: inline !important;
+}
+
+/* Prevent orphaned punctuation at line start */
+.karaoke-slice .karaoke-word + .karaoke-char.karaoke-punctuation,
+.karaoke-player .karaoke-word + .karaoke-char.karaoke-punctuation {
+  white-space: nowrap !important;
 }
 
 .karaoke-slice[data-playing="true"] {

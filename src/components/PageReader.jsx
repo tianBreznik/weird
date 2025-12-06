@@ -8,11 +8,56 @@ import {
 import { hyphenateSync } from 'hyphen/en';
 
 // Apply hyphenation to HTML content - the hyphen library automatically skips HTML tags
+// Exclude karaoke blocks from hyphenation to prevent breaking karaoke highlighting
 const applyHyphenationToHTML = (html) => {
   if (!html) return html;
   try {
+    // Check if content contains karaoke blocks (both data-karaoke-block and data-karaoke attributes)
+    if (html.includes('data-karaoke-block') || html.includes('data-karaoke')) {
+      // Match karaoke blocks - can be div with data-karaoke-block or any element with data-karaoke
+      const karaokeBlockRegex = /(<[^>]*(?:data-karaoke-block|data-karaoke)[^>]*>[\s\S]*?<\/[^>]+>)/gi;
+      const karaokeBlocks = [];
+      let match;
+      
+      // Find all karaoke blocks
+      while ((match = karaokeBlockRegex.exec(html)) !== null) {
+        karaokeBlocks.push({
+          start: match.index,
+          end: match.index + match[0].length,
+          content: match[0]
+        });
+      }
+      
+      // If karaoke blocks found, process in segments
+      if (karaokeBlocks.length > 0) {
+        let result = '';
+        let lastIndex = 0;
+        
+        for (let i = 0; i < karaokeBlocks.length; i++) {
+          const block = karaokeBlocks[i];
+          // Hyphenate content before this karaoke block
+          const beforeContent = html.slice(lastIndex, block.start);
+          if (beforeContent) {
+            result += hyphenateSync(beforeContent);
+          }
+          // Add karaoke block without hyphenation
+          result += block.content;
+          lastIndex = block.end;
+        }
+        // Hyphenate remaining content after last karaoke block
+        if (lastIndex < html.length) {
+          result += hyphenateSync(html.slice(lastIndex));
+        }
+        
+        if (result !== html && result.includes('\u00AD')) {
+          console.log('[Hyphenation] Applied successfully (excluding karaoke blocks), soft hyphens inserted');
+        }
+        return result;
+      }
+    }
+    
+    // No karaoke blocks, apply hyphenation normally
     const hyphenated = hyphenateSync(html);
-    // Debug: check if hyphenation actually changed the content
     if (hyphenated !== html && hyphenated.includes('\u00AD')) {
       console.log('[Hyphenation] Applied successfully, soft hyphens inserted');
     }
@@ -39,7 +84,13 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
       return false;
     }
 
-    const text = sliceElement.textContent || '';
+    let text = sliceElement.textContent || '';
+    // Remove soft hyphens (U+00AD) that might have been inserted by hyphenation
+    // These can cause character alignment issues in karaoke highlighting
+    text = text.replace(/\u00AD/g, '');
+    // Normalize apostrophes to match the original text format used in tokenization
+    // Convert curly apostrophes (U+2019) to straight apostrophes (U+0027) for consistency
+    text = text.replace(/'/g, "'");
     if (!text.trim()) {
       console.warn('[[INIT]] Cannot initialize slice - no text content');
       return false;
@@ -115,6 +166,7 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
           const punctSpan = document.createElement('span');
           punctSpan.className = 'karaoke-char karaoke-punctuation';
           punctSpan.style.whiteSpace = 'nowrap';
+          punctSpan.style.display = 'inline';
           punctSpan.textContent = punct;
           punctSpan.dataset.char = punct;
           wordSpan.appendChild(punctSpan);
@@ -122,6 +174,24 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
         localCursor = localEnd + punctuation.length;
       } else {
         localCursor = localEnd;
+      }
+      
+      // Also handle spaces after punctuation to prevent line breaks starting with punctuation
+      if (localCursor < text.length) {
+        const nextChar = text[localCursor];
+        if (nextChar === ' ' && localCursor + 1 < text.length) {
+          const charAfterSpace = text[localCursor + 1];
+          // If space is followed by punctuation, attach the space to the word to prevent breaking
+          if (/[.,!?;:]/.test(charAfterSpace)) {
+            const spaceSpan = document.createElement('span');
+            spaceSpan.className = 'karaoke-char';
+            spaceSpan.style.whiteSpace = 'nowrap';
+            spaceSpan.textContent = ' ';
+            spaceSpan.dataset.char = '\u00A0';
+            wordSpan.appendChild(spaceSpan);
+            localCursor++;
+          }
+        }
       }
 
       fragment.appendChild(wordSpan);
@@ -1555,7 +1625,10 @@ export const PageReader = ({
             return false;
           }
 
-          const fullText = karaokeData?.text || element.textContent || '';
+          let fullText = karaokeData?.text || element.textContent || '';
+          // Normalize apostrophes in fullText to match the normalized source text
+          // This ensures slice boundaries align with character ranges
+          fullText = fullText.replace(/'/g, "'");
           if (!fullText.trim()) {
             return false;
           }
@@ -1565,20 +1638,24 @@ export const PageReader = ({
             `karaoke-${chapterIdx}-${blockMeta?.subchapterId || blockMeta?.chapterId}-${Date.now()}`;
 
           if (!newKaraokeSources[karaokeId]) {
+            // Normalize apostrophes in source text to ensure consistency with extracted text
+            const normalizedSourceText = (karaokeData.text || '').replace(/'/g, "'");
             const { letterTimings, wordCharRanges } = assignLetterTimingsToChars(
-              karaokeData.text || '',
+              normalizedSourceText,
               karaokeData.wordTimings || []
             );
             newKaraokeSources[karaokeId] = {
               ...karaokeData,
               letterTimings,
               wordCharRanges,
-              text: karaokeData.text || '',
+              text: normalizedSourceText, // Store normalized text for consistency
             };
           }
 
+          // Use the normalized source text for slicing to ensure character positions align
+          const sourceText = newKaraokeSources[karaokeId].text;
           let cursor = 0;
-          while (cursor < fullText.length) {
+          while (cursor < sourceText.length) {
             // Reserve space for footnotes OR bottom margin when calculating available height for karaoke
             // Karaoke uses a larger bottom margin (64px instead of 48px)
             const footnotesHeight = measureFootnotesHeight(currentPageFootnotes);
@@ -1587,7 +1664,7 @@ export const PageReader = ({
             const reservedSpace = currentPageFootnotes.size > 0 ? footnotesHeight : BOTTOM_MARGIN_KARAOKE;
             const fullHeight = measure.body.clientHeight;
             const availableHeight = Math.max(0, fullHeight - reservedSpace);
-            const remainingText = fullText.slice(cursor);
+            const remainingText = sourceText.slice(cursor);
 
             const tempElement = document.createElement('div');
             tempElement.className = 'karaoke-slice-measure';
@@ -1611,7 +1688,7 @@ export const PageReader = ({
               charsToUse = Math.min(remainingText.length, 80);
             }
 
-            const sliceText = fullText.slice(cursor, cursor + charsToUse);
+            const sliceText = sourceText.slice(cursor, cursor + charsToUse);
             const sliceEl = document.createElement('span');
             sliceEl.className = 'karaoke-slice';
             sliceEl.dataset.karaokeId = karaokeId;
@@ -1627,7 +1704,7 @@ export const PageReader = ({
             currentPageElements.push(sliceEl.outerHTML);
 
             cursor += charsToUse;
-            if (cursor < fullText.length) {
+            if (cursor < sourceText.length) {
               pushPage(blockMeta);
               startNewPage(false);
             }
