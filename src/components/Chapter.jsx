@@ -222,14 +222,9 @@ const initializeKaraokePlayer = (rootElement, karaokeData) => {
       totalCharacters: debug.totalChars,
       unmatchedWords: debug.unmatched.length,
     };
-    // eslint-disable-next-line no-console
-    console.groupCollapsed('Karaoke debug', summary);
-    // eslint-disable-next-line no-console
-    console.log('Detailed debug info:', debug);
+    // Debug info available in window.__KARAOKE_DEBUG__ if needed
     if (!window.__KARAOKE_DEBUG__) window.__KARAOKE_DEBUG__ = [];
     window.__KARAOKE_DEBUG__.push({ debug, karaokeData });
-    // eslint-disable-next-line no-console
-    console.groupEnd();
   }
 
   // Prepare DOM
@@ -698,7 +693,6 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
         event.preventDefault();
         event.stopPropagation();
 
-        console.log('Image expansion data:', img.currentSrc || img.src);
         showImageOverlay(img);
       };
 

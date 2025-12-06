@@ -49,18 +49,13 @@ const applyHyphenationToHTML = (html) => {
           result += hyphenateSync(html.slice(lastIndex));
         }
         
-        if (result !== html && result.includes('\u00AD')) {
-          console.log('[Hyphenation] Applied successfully (excluding karaoke blocks), soft hyphens inserted');
-        }
+        // Hyphenation applied successfully
         return result;
       }
     }
     
     // No karaoke blocks, apply hyphenation normally
     const hyphenated = hyphenateSync(html);
-    if (hyphenated !== html && hyphenated.includes('\u00AD')) {
-      console.log('[Hyphenation] Applied successfully, soft hyphens inserted');
-    }
     return hyphenated;
   } catch (error) {
     console.warn('[Hyphenation] Error applying hyphenation:', error);
@@ -390,7 +385,6 @@ export const PageReader = ({
         footnotes: [],
       };
       newPages.push(coverPage);
-      console.log('[PageReader] Cover page added:', coverPage);
 
       // Get all footnotes globally for numbering
       const allFootnotes = getAllFootnotes(chapters);
@@ -539,38 +533,20 @@ export const PageReader = ({
           const tempDiv = document.createElement('div');
           tempDiv.innerHTML = block.content || '';
           
-          // Debug: log a snippet of the HTML to see what we're working with
-          const htmlSnippet = (block.content || '').substring(0, 500);
-          if (htmlSnippet.includes('video') || htmlSnippet.includes('Video')) {
-            console.log('[Background Video] Block', blockIdx, 'HTML snippet:', htmlSnippet);
-          }
-          
-          // Try multiple selectors to find background videos
+          // Find background videos
           const videoElements = tempDiv.querySelectorAll('video');
-          console.log('[Background Video] Block', blockIdx, 'Found', videoElements.length, 'video elements');
           
-          videoElements.forEach((video, vidIdx) => {
+          videoElements.forEach((video) => {
             const videoMode = video.getAttribute('data-video-mode');
             const targetPage = parseInt(video.getAttribute('data-target-page'), 10);
             const videoSrc = video.getAttribute('src');
-            const outerHTML = video.outerHTML.substring(0, 200);
-            
-            console.log('[Background Video] Block', blockIdx, 'Video', vidIdx, ':', {
-              mode: videoMode,
-              targetPage: targetPage,
-              src: videoSrc,
-              outerHTML: outerHTML,
-              allAttributes: Array.from(video.attributes).map(attr => `${attr.name}="${attr.value}"`)
-            });
             
             if (videoMode === 'background' && targetPage && videoSrc && !isNaN(targetPage)) {
               // Store the video for this page number (1-indexed)
               backgroundVideosByPage.set(targetPage, videoSrc);
-              console.log('[Background Video] ✓ Stored background video for page', targetPage, 'src:', videoSrc);
             }
           });
         });
-        console.log('[Background Video] Final collected videos for chapter:', Array.from(backgroundVideosByPage.entries()));
 
         let chapterPageIndex = 0;
         let currentPageElements = [];
@@ -1148,9 +1124,6 @@ export const PageReader = ({
           // Check if this page should have a background video (1-indexed page number)
           const pageNumber = chapterPageIndex + 1; // Convert 0-indexed to 1-indexed
           const backgroundVideoSrc = backgroundVideosByPage.get(pageNumber) || null;
-          if (backgroundVideoSrc) {
-            console.log('[Background Video] Assigning video to page', pageNumber, 'src:', backgroundVideoSrc);
-          }
 
           newPages.push({
             chapterIndex: chapterIdx,

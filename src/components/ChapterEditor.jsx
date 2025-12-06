@@ -1012,30 +1012,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   const handleSave = async () => {
     setSaving(true);
     const currentContent = editor ? editor.getHTML() : '';
-    // Debug: always log HTML to see what's being saved
-    console.log('[Save] Full HTML content:', currentContent);
-    console.log('[Save] Contains drop-cap?', currentContent.includes('drop-cap'));
-    if (currentContent.includes('drop-cap')) {
-      const matches = currentContent.match(/<p[^>]*drop-cap[^>]*>.*?<\/p>/gi);
-      console.log('[Save] Drop cap paragraphs found:', matches);
-    }
     try {
-      // Debug: Check if background videos are in the HTML before saving
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = currentContent;
-      const bgVideos = tempDiv.querySelectorAll('video[data-video-mode="background"]');
-      if (bgVideos.length > 0) {
-        console.log('[ChapterEditor] Saving with', bgVideos.length, 'background videos');
-        bgVideos.forEach((vid, idx) => {
-          console.log('[ChapterEditor] Background video', idx, ':', {
-            src: vid.getAttribute('src'),
-            mode: vid.getAttribute('data-video-mode'),
-            targetPage: vid.getAttribute('data-target-page'),
-            outerHTML: vid.outerHTML.substring(0, 200)
-          });
-        });
-      }
-      
       await onSave({ title, epigraph, contentHtml: currentContent, version: entityVersion });
     } catch (err) {
       if (err?.code === 'version-conflict') {
@@ -1100,15 +1077,11 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   };
 
   const handleLinkSubmit = () => {
-    console.log('[Link] handleLinkSubmit called', { url: linkDraft.url, text: linkDraft.text });
     if (!editor) {
-      console.log('[Link] No editor available');
       return;
     }
     const url = linkDraft.url.trim();
     const text = linkDraft.text.trim();
-    
-    console.log('[Link] Processing link', { url, text });
     
     if (url === '') {
       editor.chain().focus().extendMarkRange('link').unsetLink().run();
@@ -1116,24 +1089,19 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       // Ensure URL has protocol
       const finalUrl = url.startsWith('http://') || url.startsWith('https://') ? url : `https://${url}`;
       
-      console.log('[Link] Final URL:', finalUrl);
-      
       // If text is provided, insert it as a link (replacing selection if there is one)
       if (text) {
-        console.log('[Link] Inserting link with text:', text);
         editor.chain()
           .focus()
           .deleteSelection()
           .insertContent(`<a href="${finalUrl}">${text}</a>`)
           .run();
       } else {
-        console.log('[Link] Applying link to selection');
         // Otherwise, just apply the link to the current selection/range
         editor.chain().focus().extendMarkRange('link').setLink({ href: finalUrl }).run();
       }
     }
     
-    console.log('[Link] Closing dialog');
     setShowLinkDialog(false);
     setLinkDraft({ url: '', text: '' });
     refreshToolbarState();
@@ -1190,7 +1158,6 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     }
     
     if (paragraphNode === null || paragraphPos === null) {
-      console.log('[WhisperParagraph] No paragraph found');
       return;
     }
     
@@ -1323,7 +1290,6 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     }
     
     if (!paragraphNode || paragraphPos === null) {
-      console.log('[DropCap] No paragraph found');
       return;
     }
     
@@ -1339,8 +1305,6 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       newClass = (currentClass + ' drop-cap').trim();
     }
     
-    console.log('[DropCap] Current class:', currentClass, 'New class:', newClass);
-    
     // Use the same approach as Indent extension - custom command with setNodeMarkup
     editor.chain().focus().command(({ tr, state, dispatch }) => {
       if (!dispatch) return false;
@@ -1355,23 +1319,6 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       dispatch(tr);
       return true;
     }).run();
-    
-    // Debug: verify the class was actually applied
-    setTimeout(() => {
-      if (editor) {
-        const html = editor.getHTML();
-        console.log('[DropCap] HTML after applying:', html);
-        console.log('[DropCap] Contains drop-cap in HTML?', html.includes('drop-cap'));
-        if (html.includes('drop-cap')) {
-          const matches = html.match(/<p[^>]*drop-cap[^>]*>.*?<\/p>/gi);
-          console.log('[DropCap] Drop cap paragraphs in editor HTML:', matches);
-        } else {
-          // Check what the actual paragraph HTML looks like
-          const paraMatches = html.match(/<p[^>]*>.*?<\/p>/gi);
-          console.log('[DropCap] All paragraphs in HTML (first 3):', paraMatches?.slice(0, 3));
-        }
-      }
-    }, 200);
     
     refreshToolbarState();
   };
@@ -1407,7 +1354,6 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     }
     
     if (!paragraphNode || paragraphPos === null) {
-      console.log('[EpigraphParagraph] No paragraph found');
       return;
     }
     
@@ -1465,7 +1411,6 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     }
     
     if (!paragraphNode || paragraphPos === null) {
-      console.log('[IntroParagraph] No paragraph found');
       return;
     }
     
@@ -2914,7 +2859,6 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   type="button"
                   className="epigraph-save-btn"
                   onClick={(e) => {
-                    console.log('[Link] Add Link button clicked', { url: linkDraft.url, disabled: !linkDraft.url.trim() && !activeFormats.link });
                     e.preventDefault();
                     e.stopPropagation();
                     handleLinkSubmit();

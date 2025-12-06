@@ -46,14 +46,10 @@ function App() {
 
   const load = async () => {
     try {
-      console.log('[Firestore] Loading chapters for book:', BOOK_ID);
       const chaps = await getChapters(BOOK_ID);
-      console.log('[Firestore] Chapters found:', chaps.length, chaps);
       const withChildren = await Promise.all(
         chaps.map(async (c) => {
           const subs = await getSubchapters(BOOK_ID, c.id);
-          console.log('[Firestore] Subchapters for', c.id, subs.length);
-          console.log('Chapter data:', c.id, c.title, c.contentHtml);
           return {
             ...c,
             id: c.id,
