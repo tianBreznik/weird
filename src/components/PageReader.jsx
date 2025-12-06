@@ -3801,6 +3801,40 @@ export const PageReader = ({
     }
   }, [pageToDisplay?.chapterIndex, pageToDisplay?.pageIndex, pageToDisplay?.backgroundVideo, pageToDisplay?.isVideo]);
 
+  // Handle link clicks - open external links
+  useEffect(() => {
+    const pageContent = pageContentRef.current;
+    if (!pageContent) return;
+
+    const handleLinkClick = (e) => {
+      const link = e.target.closest('a');
+      if (!link) return;
+
+      const href = link.getAttribute('href');
+      if (!href) return;
+
+      // Prevent default navigation
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Open external link in new tab
+      window.open(href, '_blank', 'noopener,noreferrer');
+    };
+
+    // Attach click handler to all links
+    const links = pageContent.querySelectorAll('a');
+    links.forEach(link => {
+      link.addEventListener('click', handleLinkClick);
+    });
+
+    // Cleanup
+    return () => {
+      links.forEach(link => {
+        link.removeEventListener('click', handleLinkClick);
+      });
+    };
+  }, [pageToDisplay?.chapterIndex, pageToDisplay?.pageIndex]);
+
   // Track when video is unmuted
   useEffect(() => {
     const blankVideo = blankPageVideoRef.current;

@@ -230,6 +230,32 @@
   padding-bottom: 0; /* Will be set dynamically via inline style */
 }
 
+/* Link styling - standard web link appearance */
+.page-content a {
+  color: #0066cc;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.page-content a:hover {
+  color: #0052a3;
+  text-decoration: underline;
+}
+
+.page-content a:visited {
+  color: #551a8b;
+}
+
+/* Links in background video pages should be visible */
+.background-video-text a {
+  color: #66b3ff !important;
+  text-decoration: underline !important;
+}
+
+.background-video-text a:hover {
+  color: #99ccff !important;
+}
+
 /* Default chapter body style (canonical reading style)
    - Approx 18px text
    - Tight line-height (~1.2)

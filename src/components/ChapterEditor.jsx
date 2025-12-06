@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import TextAlign from '@tiptap/extension-text-align';
+import Link from '@tiptap/extension-link';
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
 import { uploadImageToStorage, uploadVideoToStorage } from '../services/storage';
@@ -41,6 +42,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     alignCenter: false,
     alignRight: false,
     alignJustify: false,
+    link: false,
   });
   const titleInputRef = useRef(null);
   const imageInputRef = useRef(null);
@@ -76,6 +78,11 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     file: null,
   });
   const backgroundVideoFileInputRef = useRef(null);
+  const [showLinkDialog, setShowLinkDialog] = useState(false);
+  const [linkDraft, setLinkDraft] = useState({
+    url: '',
+    text: '',
+  });
 
   
   // Ref to track if we're programmatically setting content (to avoid update loops)
@@ -104,6 +111,13 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       Highlight,
       TextColor,
       Underline,
+      Link.configure({
+        openOnClick: false, // We'll handle clicks in PageReader
+        HTMLAttributes: {
+          target: '_blank',
+          rel: 'noopener noreferrer',
+        },
+      }),
       // Adding back media extensions
       InlineImage, // Must come BEFORE CustomImage so inline images are parsed correctly
       CustomImage,
@@ -425,6 +439,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
         alignCenter: editor.isActive({ textAlign: 'center' }),
         alignRight: editor.isActive({ textAlign: 'right' }),
         alignJustify: editor.isActive({ textAlign: 'justify' }),
+        link: editor.isActive('link'),
         // Check if image is selected and its alignment
         // For atom nodes like images, check nodeBefore, nodeAfter, and nodeAt positions
         // Check if video is selected and its mode
@@ -1072,6 +1087,58 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     editor.chain().focus().toggleStrike().run();
     refreshToolbarState();
   };
+  const handleLinkButtonClick = () => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    const selectedText = editor.state.doc.textBetween(from, to, ' ');
+    const previousUrl = editor.getAttributes('link').href;
+    setLinkDraft({ 
+      url: previousUrl || '',
+      text: selectedText || '',
+    });
+    setShowLinkDialog(true);
+  };
+
+  const handleLinkSubmit = () => {
+    console.log('[Link] handleLinkSubmit called', { url: linkDraft.url, text: linkDraft.text });
+    if (!editor) {
+      console.log('[Link] No editor available');
+      return;
+    }
+    const url = linkDraft.url.trim();
+    const text = linkDraft.text.trim();
+    
+    console.log('[Link] Processing link', { url, text });
+    
+    if (url === '') {
+      editor.chain().focus().extendMarkRange('link').unsetLink().run();
+    } else {
+      // Ensure URL has protocol
+      const finalUrl = url.startsWith('http://') || url.startsWith('https://') ? url : `https://${url}`;
+      
+      console.log('[Link] Final URL:', finalUrl);
+      
+      // If text is provided, insert it as a link (replacing selection if there is one)
+      if (text) {
+        console.log('[Link] Inserting link with text:', text);
+        editor.chain()
+          .focus()
+          .deleteSelection()
+          .insertContent(`<a href="${finalUrl}">${text}</a>`)
+          .run();
+      } else {
+        console.log('[Link] Applying link to selection');
+        // Otherwise, just apply the link to the current selection/range
+        editor.chain().focus().extendMarkRange('link').setLink({ href: finalUrl }).run();
+      }
+    }
+    
+    console.log('[Link] Closing dialog');
+    setShowLinkDialog(false);
+    setLinkDraft({ url: '', text: '' });
+    refreshToolbarState();
+  };
+
   const applyUnderline = (e) => {
     if (e) {
       e.preventDefault();
@@ -2414,6 +2481,14 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                 >
                   <span className="icon">✶</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={handleLinkButtonClick}
+                  className={`toolbar-btn ${activeFormats.link ? 'active' : ''}`}
+                  title="Link"
+                >
+                  <span style={{textDecoration: 'none'}}>🔗</span>
+                </button>
                 <button 
                   className="toolbar-save-btn"
                   onClick={handleSave}
@@ -2761,6 +2836,92 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   disabled={uploadingVideo || !backgroundVideoDraft.file}
                 >
                   {uploadingVideo ? 'Uploading...' : 'Insert Background Video'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Link dialog */}
+      {showLinkDialog && createPortal(
+        <div 
+          className="karaoke-dialog-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowLinkDialog(false);
+            }
+          }}
+        >
+          <div 
+            className="karaoke-dialog epigraph-dialog-wrapper"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="close-btn close-top"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowLinkDialog(false);
+                setLinkDraft({ url: '', text: '' });
+              }}
+            >
+              ✕
+            </button>
+            <div className="karaoke-dialog-content epigraph-dialog">
+              <h2 className="epigraph-dialog-title">Insert Link</h2>
+              <div className="form-group">
+                <label htmlFor="link-text">Link Text</label>
+                <input
+                  id="link-text"
+                  type="text"
+                  value={linkDraft.text}
+                  onChange={(e) => setLinkDraft((prev) => ({ ...prev, text: e.target.value }))}
+                  placeholder="Link text (optional)"
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="link-url">URL</label>
+                <input
+                  id="link-url"
+                  type="url"
+                  value={linkDraft.url}
+                  onChange={(e) => setLinkDraft((prev) => ({ ...prev, url: e.target.value }))}
+                  placeholder="https://example.com"
+                  autoFocus
+                />
+              </div>
+              <div className="epigraph-actions">
+                {activeFormats.link && (
+                  <button
+                    type="button"
+                    className="epigraph-delete-btn"
+                    onClick={() => {
+                      if (editor) {
+                        editor.chain().focus().extendMarkRange('link').unsetLink().run();
+                        refreshToolbarState();
+                      }
+                      setShowLinkDialog(false);
+                      setLinkDraft({ url: '', text: '' });
+                    }}
+                  >
+                    Remove Link
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="epigraph-save-btn"
+                  onClick={(e) => {
+                    console.log('[Link] Add Link button clicked', { url: linkDraft.url, disabled: !linkDraft.url.trim() && !activeFormats.link });
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleLinkSubmit();
+                  }}
+                  disabled={!linkDraft.url.trim() && !activeFormats.link}
+                >
+                  {activeFormats.link ? 'Update Link' : 'Add Link'}
                 </button>
               </div>
             </div>
