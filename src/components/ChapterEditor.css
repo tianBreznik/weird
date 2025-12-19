@@ -245,9 +245,8 @@
 }
 
 @media (max-width: 768px) {
-  .toolbar-buttons .karaoke-btn {
-    display: none;
-  }
+  /* On mobile we still want karaoke available, so keep it visible.
+     Toolbar already scrolls horizontally to fit all buttons. */
 }
 
 .page-frame {

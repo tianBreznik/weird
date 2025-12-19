@@ -1022,6 +1022,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     // Karaoke insertion will be handled via TipTap commands
   }, [showKaraokeDialog, editor]);
 
+
   // Handle content changes - TipTap handles this via onUpdate callback
   // This function is kept for compatibility but may not be needed
   const handleEditorInput = () => {
@@ -2052,9 +2053,23 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   // Parse SRT/VTT file to extract word timings
   const parseTimingFile = async (file) => {
     const text = await file.text();
+    
+    // Try JSON format first
+    if (file.name.endsWith('.json') || text.trim().startsWith('[') || text.trim().startsWith('{')) {
+      try {
+        const jsonData = JSON.parse(text);
+        if (Array.isArray(jsonData)) {
+          return jsonData;
+        }
+        throw new Error('JSON file must contain an array of word timings.');
+      } catch (err) {
+        throw new Error('Invalid JSON format: ' + err.message);
+      }
+    }
+    
     const lines = text.split('\n').map(l => l.trim()).filter(l => l);
     
-    // Try SRT format first
+    // Try SRT format
     if (lines.some(l => l.includes('-->'))) {
       return parseSRT(text);
     }
@@ -2064,7 +2079,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       return parseVTT(text);
     }
     
-    throw new Error('Unsupported timing file format. Please use SRT or VTT.');
+    throw new Error('Unsupported timing file format. Please use SRT, VTT, or JSON.');
   };
 
   const parseSRT = (text) => {
@@ -2197,22 +2212,23 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     let audioUrl = '';
     let wordTimings = [];
     
-    // Handle audio: convert file to base64 or use URL
+    // Handle audio: upload file to storage first, then use URL (URLs work better with Deepgram)
     if (karaokeAudioFile) {
       try {
-        // Convert audio to base64 (similar to images)
-        const reader = new FileReader();
-        audioUrl = await new Promise((resolve, reject) => {
-          reader.onload = (e) => resolve(e.target.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(karaokeAudioFile);
-        });
+        // Upload audio file to Firebase Storage first (like images/videos)
+        // This gives us a URL that Deepgram can access, which works better than sending File objects
+        audioUrl = await uploadVideoToStorage(karaokeAudioFile);
       } catch (err) {
-        alert('Failed to process audio file: ' + err.message);
+        alert('Failed to upload audio file: ' + err.message);
         return;
       }
     } else {
       audioUrl = karaokeAudioUrl.trim();
+    }
+    
+    if (!audioUrl) {
+      alert('Please upload an audio file or provide an audio URL.');
+      return;
     }
     
     // Handle timings: parse file or auto-generate
@@ -2226,15 +2242,9 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     } else if (karaokeTimingMethod === 'auto') {
       try {
         setGeneratingTimings(true);
-        const audioSource = karaokeAudioFile || audioUrl;
-        if (!audioSource) {
-          alert('Please provide an audio file or URL for auto-generation.');
-          setGeneratingTimings(false);
-          return;
-        }
-        
+        // Use the URL (from storage or user input) - this works better with Deepgram
         // Generate word timings using Deepgram API
-        wordTimings = await generateWordTimingsWithDeepgram(audioSource, karaokeText.trim());
+        wordTimings = await generateWordTimingsWithDeepgram(audioUrl, karaokeText.trim());
         
         if (wordTimings.length === 0) {
           alert('Failed to generate word timings. Please try uploading a timing file instead.');
@@ -2269,7 +2279,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
         id: karaokeId,
         audioUrl: audioUrl,
         timingsJson: JSON.stringify(wordTimings),
-        text: karaokeText.trim(),
+        text: karaokeText, // Preserve newlines - don't trim
       },
     }).run();
     
@@ -2438,6 +2448,105 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                 </button>
                 <input ref={inlineImageInputRef} type="file" accept="image/*" onChange={handleInlineImageSelected} style={{ display: 'none' }} disabled={uploadingImage} />
                 <button
+                  onClick={() => {
+                    // Disable editor and blur it before opening dialog
+                    if (editor) {
+                      editor.commands.blur();
+                    }
+                    setShowKaraokeDialog(true);
+                    setKaraokeText('');
+                    setKaraokeAudioFile(null);
+                    setKaraokeAudioUrl('');
+                    setKaraokeTimingFile(null);
+                    setKaraokeTimingMethod('upload');
+                  }}
+                  className="toolbar-btn karaoke-btn"
+                  title="Vstavi karaoke"
+                >
+                  🎤
+                </button>
+                <button
+                  onClick={() => {
+                    if (!editor) {
+                      alert('Editor not available');
+                      return;
+                    }
+                    
+                    // Try to find from DOM first (more reliable)
+                    const editorEl = editor.view?.dom;
+                    let karaokeData = null;
+                    let wordTimings = null;
+                    
+                    if (editorEl) {
+                      const karaokeElement = editorEl.querySelector('.karaoke-object, [data-karaoke-block="true"]');
+                      if (karaokeElement) {
+                        const karaokeDataAttr = karaokeElement.getAttribute('data-karaoke');
+                        if (karaokeDataAttr) {
+                          try {
+                            karaokeData = JSON.parse(decodeURIComponent(karaokeDataAttr));
+                            wordTimings = karaokeData.wordTimings || karaokeData.timings || [];
+                          } catch (e) {
+                            console.error('Failed to parse karaoke data:', e);
+                          }
+                        }
+                      }
+                    }
+                    
+                    // If not found in DOM, try TipTap document
+                    if (!wordTimings || wordTimings.length === 0) {
+                      let found = false;
+                      editor.state.doc.descendants((node, pos) => {
+                        if (found) return false;
+                        if (node.type.name === 'karaokeBlock') {
+                          const timingsJson = node.attrs.timingsJson;
+                          if (timingsJson) {
+                            try {
+                              wordTimings = JSON.parse(timingsJson);
+                              found = true;
+                              return false; // Stop traversal
+                            } catch (e) {
+                              console.error('Failed to parse karaoke timings:', e);
+                            }
+                          }
+                        }
+                      });
+                    }
+                    
+                    if (wordTimings && Array.isArray(wordTimings) && wordTimings.length > 0) {
+                      // Download JSON file
+                      const jsonStr = JSON.stringify(wordTimings, null, 2);
+                      const blob = new Blob([jsonStr], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `karaoke-timings-${Date.now()}.json`;
+                      a.style.display = 'none';
+                      document.body.appendChild(a);
+                      
+                      // Trigger download
+                      try {
+                        a.click();
+                        console.log('Download triggered for', wordTimings.length, 'word timings');
+                      } catch (err) {
+                        console.error('Download failed:', err);
+                        alert('Download failed. Please check browser console for details.');
+                      }
+                      
+                      setTimeout(() => {
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                      }, 100);
+                    } else {
+                      console.log('No word timings found. karaokeData:', karaokeData, 'wordTimings:', wordTimings);
+                      alert('No karaoke block found. Please select or create a karaoke block first.');
+                    }
+                  }}
+                  className="toolbar-btn"
+                  title="Prenesi JSON časovnih oznak"
+                >
+                  ⬇️
+                </button>
+                <button
                   onClick={handleVideoButtonClick}
                   className={`toolbar-btn ${uploadingVideo ? 'uploading' : ''}`}
                   title={uploadingVideo ? "Nalaganje video..." : "Vstavi video"}
@@ -2489,24 +2598,6 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                     </span>
                   </button>
                 )} */}
-                <button
-                  onClick={() => {
-                    // Disable editor and blur it before opening dialog
-                    if (editor) {
-                      editor.commands.blur();
-                    }
-                    setShowKaraokeDialog(true);
-                    setKaraokeText('');
-                    setKaraokeAudioFile(null);
-                    setKaraokeAudioUrl('');
-                    setKaraokeTimingFile(null);
-                    setKaraokeTimingMethod('upload');
-                  }}
-                  className="toolbar-btn karaoke-btn"
-                  title="Vstavi karaoke"
-                >
-                  🎤
-                </button>
                 <button
                   onClick={handleInsertFootnote}
                   className="toolbar-btn"
@@ -2855,7 +2946,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                 <label>Avdio:</label>
                 <input
                   type="file"
-                  accept="audio/*"
+                  accept="audio/mpeg,audio/mp3,audio/mp4,audio/x-m4a,audio/wav,audio/wave,audio/x-wav,audio/ogg,audio/webm,audio/flac,audio/aac,audio/x-aac,.mp3,.m4a,.wav,.ogg,.webm,.flac,.aac"
                   onChange={handleKaraokeAudioFileSelected}
                 />
                 <div className="karaoke-form-divider">ali</div>
@@ -2879,7 +2970,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                       checked={karaokeTimingMethod === 'upload'}
                       onChange={() => setKaraokeTimingMethod('upload')}
                     />
-                    Naloži SRT/VTT datoteko
+                    Naloži SRT/VTT/JSON datoteko
                   </label>
                   <label>
                     <input
@@ -2893,7 +2984,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                 {karaokeTimingMethod === 'upload' && (
                   <input
                     type="file"
-                    accept=".srt,.vtt,text/vtt"
+                    accept=".srt,.vtt,.json,text/vtt,application/json"
                     onChange={handleKaraokeTimingFileSelected}
                   />
                 )}
@@ -2924,7 +3015,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   disabled={!karaokeText.trim() || (!karaokeAudioFile && !karaokeAudioUrl.trim()) || generatingTimings}
                 >
                   {generatingTimings ? 'Generiranje...' : 'Vstavi'}
-                </button>
+              </button>
             </div>
           </div>
         </div>

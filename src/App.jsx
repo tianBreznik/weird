@@ -11,6 +11,7 @@ import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-ki
 import { DraggableChapter } from './components/DraggableChapter';
 import { PageReader } from './components/PageReader';
 import { useReadingPosition } from './hooks/useReadingPosition';
+import { FeatherCursor } from './components/FeatherCursor';
 
 const BOOK_ID = 'primary';
 
@@ -258,6 +259,7 @@ function App() {
 
   return (
     <div className={`app eink ${editingChapter || showNewChapterEditor || parentChapterForNewSub ? 'with-editor' : ''} ${isMobile && !isEditor && previewingAsReader ? 'with-page-reader' : ''}`}>
+      <FeatherCursor />
       {/* Mobile: Always show PageReader view - the old chapter list view is gone on mobile */}
       {isMobile && (
         <>
@@ -266,32 +268,32 @@ function App() {
               <img src="/pigeondove.gif" alt="Loading..." className="loading-gif" />
             </div>
           ) : (
-            <PageReader
-              chapters={chapters}
-              onPageChange={handlePageChange}
-              initialPosition={readingPosition}
-              onEditChapter={openEditorWithLatest}
-              onAddSubchapter={(chapter) => setParentChapterForNewSub(chapter)}
-              onDeleteChapter={async (chapterId) => {
-                await deleteChapter(BOOK_ID, chapterId);
-                await refresh();
-              }}
-              onEditSubchapter={openEditorWithLatest}
-              onDeleteSubchapter={async (subchapterId, parentChapterId) => {
-                await deleteSubchapter(BOOK_ID, parentChapterId, subchapterId);
-                await refresh();
-              }}
-              onReorderChapters={async (orderedIds) => {
-                try {
-                  await reorderChapters(BOOK_ID, orderedIds);
-                } catch (err) {
-                  console.error('Failed to reorder chapters', err);
-                }
-              }}
-              onOpenSettings={() => setShowSetup(true)}
-              onAddChapter={() => setShowNewChapterEditor(true)}
-              onToggleEditorReader={togglePreviewMode}
-            />
+          <PageReader
+            chapters={chapters}
+            onPageChange={handlePageChange}
+            initialPosition={readingPosition}
+            onEditChapter={openEditorWithLatest}
+            onAddSubchapter={(chapter) => setParentChapterForNewSub(chapter)}
+            onDeleteChapter={async (chapterId) => {
+              await deleteChapter(BOOK_ID, chapterId);
+              await refresh();
+            }}
+            onEditSubchapter={openEditorWithLatest}
+            onDeleteSubchapter={async (subchapterId, parentChapterId) => {
+              await deleteSubchapter(BOOK_ID, parentChapterId, subchapterId);
+              await refresh();
+            }}
+            onReorderChapters={async (orderedIds) => {
+              try {
+                await reorderChapters(BOOK_ID, orderedIds);
+              } catch (err) {
+                console.error('Failed to reorder chapters', err);
+              }
+            }}
+            onOpenSettings={() => setShowSetup(true)}
+            onAddChapter={() => setShowNewChapterEditor(true)}
+            onToggleEditorReader={togglePreviewMode}
+          />
           )}
         </>
       )}

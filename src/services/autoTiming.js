@@ -26,13 +26,43 @@ export async function generateWordTimingsWithDeepgram(audioSource, text) {
 
   if (audioSource instanceof File) {
     // For files, use FormData
+    // Validate file before sending
+    if (!audioSource.size || audioSource.size === 0) {
+      throw new Error('Audio file is empty');
+    }
+    
+    // Check if file type is supported
+    const supportedTypes = ['audio/', 'video/', 'application/octet-stream'];
+    const fileType = audioSource.type || '';
+    const isSupported = supportedTypes.some(type => fileType.startsWith(type)) || 
+                       /\.(mp3|wav|m4a|ogg|webm|flac|aac|mp4|mov|avi)$/i.test(audioSource.name);
+    
+    if (!isSupported && fileType) {
+      console.warn(`Audio file type "${fileType}" may not be supported by Deepgram`);
+    }
+    
+    // Verify file is readable (not corrupted)
+    if (audioSource.size > 0 && audioSource.size < 100) {
+      console.warn('Audio file is very small, may be corrupted');
+    }
+    
     const formData = new FormData();
-    formData.append('audio', audioSource, audioSource.name);
+    // Include filename to help Deepgram identify file type
+    formData.append('audio', audioSource, audioSource.name || 'audio');
+
+    // Log file info for debugging (without logging the actual file data)
+    console.log('[Deepgram] Uploading audio file:', {
+      name: audioSource.name,
+      type: audioSource.type,
+      size: audioSource.size,
+      lastModified: audioSource.lastModified
+    });
 
     response = await fetch(`${DEEPGRAM_API_URL}?${apiParams.toString()}`, {
       method: 'POST',
       headers: {
         'Authorization': `Token ${DEEPGRAM_API_KEY}`,
+        // Don't set Content-Type - browser will set it with boundary for multipart/form-data
       },
       body: formData,
     });
@@ -54,8 +84,11 @@ export async function generateWordTimingsWithDeepgram(audioSource, text) {
 
   if (!response.ok) {
     let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    let errorDetails = null;
     try {
       const errorData = await response.json();
+      console.error('[Deepgram API Error]', errorData);
+      
       if (errorData.err_msg) {
         errorMessage = errorData.err_msg;
       } else if (errorData.message) {
@@ -63,10 +96,30 @@ export async function generateWordTimingsWithDeepgram(audioSource, text) {
       } else if (errorData.error) {
         errorMessage = typeof errorData.error === 'string' ? errorData.error : JSON.stringify(errorData.error);
       }
+      
+      // Capture additional error details
+      if (errorData.details) {
+        errorDetails = errorData.details;
+      }
     } catch (e) {
-      // If JSON parsing fails, use the status text
+      // If JSON parsing fails, try to get text response
+      try {
+        const textResponse = await response.text();
+        console.error('[Deepgram API Error - Text Response]', textResponse);
+        if (textResponse) {
+          errorMessage = `${errorMessage}: ${textResponse}`;
+        }
+      } catch (textErr) {
+        // If text parsing also fails, use the status text
+        console.error('[Deepgram API Error - Could not parse response]', e, textErr);
+      }
     }
-    throw new Error(`Deepgram API error: ${errorMessage}`);
+    
+    const fullErrorMessage = errorDetails 
+      ? `Deepgram API error: ${errorMessage} (Details: ${JSON.stringify(errorDetails)})`
+      : `Deepgram API error: ${errorMessage}`;
+    
+    throw new Error(fullErrorMessage);
   }
 
   const data = await response.json();

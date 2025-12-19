@@ -103,6 +103,21 @@ export const KaraokeBlock = Node.create({
     
     const karaokePayload = encodeURIComponent(JSON.stringify(karaokeData));
     
+    // Convert newlines to HTML: split text by newlines and insert <br> tags
+    const text = HTMLAttributes.text || '';
+    const parts = [];
+    const lines = text.split(/\n/);
+    
+    lines.forEach((line, index) => {
+      if (index > 0) {
+        // Add <br> before each line except the first
+        parts.push(['br']);
+      }
+      if (line) {
+        parts.push(line);
+      }
+    });
+    
     return [
       'div',
       {
@@ -112,7 +127,7 @@ export const KaraokeBlock = Node.create({
         'data-karaoke-id': HTMLAttributes.id || `karaoke-${Date.now()}`,
         contenteditable: 'false',
       },
-      HTMLAttributes.text || '',
+      ...parts,
     ];
   },
 });

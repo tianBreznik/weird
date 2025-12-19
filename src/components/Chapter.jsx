@@ -23,6 +23,7 @@ export const applyInkEffectToTextMobile = (element, options = {}) => {
   if (window.innerWidth > 768) return;
   
   // Skip karaoke players - they handle their own ink effect
+  // But allow ink effect on karaoke slices (we'll preserve <br> tags)
   if (element.closest('.karaoke-player')) return;
   
   // Determine probability of applying ink based on context
@@ -54,6 +55,15 @@ export const applyInkEffectToTextMobile = (element, options = {}) => {
         if (parent.closest('.karaoke-player')) {
           return NodeFilter.FILTER_REJECT;
         }
+        // For karaoke slices: only process text nodes inside karaoke-char spans
+        // This preserves <br> tags and paragraph structure
+        const karaokeSlice = parent.closest('.karaoke-slice');
+        if (karaokeSlice) {
+          // Only accept if parent is a karaoke-char span
+          if (!parent.classList.contains('karaoke-char')) {
+            return NodeFilter.FILTER_REJECT;
+          }
+        }
         // Skip empty text nodes
         if (node.textContent.trim().length === 0) {
           return NodeFilter.FILTER_REJECT;
@@ -74,6 +84,11 @@ export const applyInkEffectToTextMobile = (element, options = {}) => {
     if (!parent || parent.classList.contains('ink-processed-mobile')) return;
     // Skip if inside karaoke player
     if (parent.closest('.karaoke-player')) return;
+    // For karaoke slices: only process if parent is karaoke-char (TreeWalker should have filtered, but double-check)
+    const karaokeSlice = parent.closest('.karaoke-slice');
+    if (karaokeSlice && !parent.classList.contains('karaoke-char')) {
+      return;
+    }
 
     const text = textNode.textContent;
     const fragment = document.createDocumentFragment();
@@ -92,16 +107,16 @@ export const applyInkEffectToTextMobile = (element, options = {}) => {
       } else {
         // For non-whitespace segments (words), wrap characters in spans
         Array.from(segment).forEach((char) => {
-          const span = document.createElement('span');
-          span.className = 'ink-char-mobile';
-          span.textContent = char;
+      const span = document.createElement('span');
+      span.className = 'ink-char-mobile';
+      span.textContent = char;
 
-          // Randomly apply ink effect to ~15% of non-whitespace, non-punctuation characters
-          if (!isWhitespace(char) && !isPunctuation(char) && Math.random() < probability) {
-            span.dataset.ink = '1';
-          }
+      // Randomly apply ink effect to ~15% of non-whitespace, non-punctuation characters
+      if (!isWhitespace(char) && !isPunctuation(char) && Math.random() < probability) {
+        span.dataset.ink = '1';
+      }
 
-          fragment.appendChild(span);
+      fragment.appendChild(span);
         });
       }
     });

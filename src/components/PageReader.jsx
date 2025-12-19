@@ -8,7 +8,9 @@ import {
 import { hyphenateSync } from 'hyphen/en';
 
 // Apply hyphenation to HTML content - the hyphen library automatically skips HTML tags
-// Exclude karaoke blocks from hyphenation to prevent breaking karaoke highlighting
+// IMPORTANT: We EXCLUDE karaoke blocks themselves from this page-level hyphenation.
+// Karaoke text has its OWN controlled hyphenation pipeline (using the same library)
+// so that highlighting logic can stay in sync with where soft hyphens are inserted.
 const applyHyphenationToHTML = (html) => {
   if (!html) return html;
   try {
@@ -79,10 +81,15 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
       return false;
     }
 
-    let text = sliceElement.textContent || '';
-    // Remove soft hyphens (U+00AD) that might have been inserted by hyphenation
-    // These can cause character alignment issues in karaoke highlighting
-    text = text.replace(/\u00AD/g, '');
+    // Use the source text directly for this slice to preserve newlines.
+    // This is more reliable than reading textContent which may have lost <br> tags.
+    // IMPORTANT: This text does NOT contain soft hyphens; browser hyphenation
+    // (hyphens:auto + lang=\"en\") will insert them at render time, exactly like
+    // normal paragraphs. Our indexing logic uses this clean text.
+    const sourceText = source.text || '';
+    const sliceStart = startChar;
+    const sliceEnd = typeof endChar === 'number' ? endChar : sliceStart + sourceText.length;
+    let text = sourceText.slice(sliceStart, sliceEnd);
     // Normalize apostrophes to match the original text format used in tokenization
     // Convert curly apostrophes (U+2019) to straight apostrophes (U+0027) for consistency
     text = text.replace(/'/g, "'");
@@ -92,9 +99,24 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
     }
 
     const fragment = document.createDocumentFragment();
+    
+    // POLISH NOTE:
+    // -------------------------------
+    // For hyphenated words that wrap across lines during karaoke playback,
+    // we currently highlight the word as a single inline span using the
+    // ::after overlay. Browsers render that overlay only over the first
+    // visual fragment of a wrapped inline, so the continuation of a
+    // hyphenated word on the next line does not receive the gold overlay.
+    //
+    // Fixing this “properly” would require either:
+    //   (1) returning to per-character spans and driving highlight at
+    //       character level (sacrificing native hyphenation behaviour), or
+    //   (2) a layout-aware JS solution that inspects getClientRects() and
+    //       injects fragment-level overlays.
+    //
+    // For now we accept this limitation as a known polish issue so that we
+    // can keep the browser’s native, book-like hyphenation for karaoke text.
     const wordMetadata = source.wordCharRanges || [];
-    const sliceStart = startChar;
-    const sliceEnd = typeof endChar === 'number' ? endChar : sliceStart + text.length;
 
 // console.log('[[INIT]] Initializing slice with word-level highlighting', {
 //       karaokeId,
@@ -118,7 +140,20 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
       }
 
       if (localStart > localCursor) {
-        fragment.appendChild(document.createTextNode(text.slice(localCursor, localStart)));
+        // Convert newlines to <br> elements when appending text
+        const textBeforeWord = text.slice(localCursor, localStart);
+        const parts = textBeforeWord.split('\n');
+        parts.forEach((part, idx) => {
+          if (idx > 0) {
+            // Insert <br> before each part except the first
+            const br = document.createElement('br');
+            // Force the <br> to be visible by ensuring it's in the DOM
+            fragment.appendChild(br);
+          }
+          if (part) {
+            fragment.appendChild(document.createTextNode(part));
+          }
+        });
         localCursor = localStart;
       }
 
@@ -132,27 +167,22 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
       if (typeof word.end === 'number') {
         wordSpan.dataset.end = String(word.end);
       }
+      // Store the literal word text for the ::after overlay. This text has no
+      // manual soft hyphens; browser hyphenation will decide where to break.
       wordSpan.dataset.word = wordText;
 
-      Array.from(wordText).forEach((char) => {
-        const charSpan = document.createElement('span');
-        charSpan.className = 'karaoke-char';
-        charSpan.textContent = char;
-        charSpan.dataset.char = char === ' ' ? '\u00A0' : char;
-
-        if (!/\s/.test(char) && !/[.,!?;:]/.test(char) && Math.random() < 0.35) {
-          charSpan.dataset.ink = '1';
-        }
-
-        wordSpan.appendChild(charSpan);
-      });
+      // OPTION A: Keep the DOM as close as possible to normal text so the browser
+      // can apply its own hyphenation. We do NOT wrap every character in spans.
+      // Instead, we leave the word as a single text node, and the highlight uses
+      // .karaoke-word::after + --karaoke-fill to animate the whole word.
+      wordSpan.appendChild(document.createTextNode(wordText));
 
       // Check if there's punctuation immediately after this word and attach it to prevent line breaks
       const nextWord = wordMetadata[wordIndex + 1];
       const nextWordStart = nextWord ? Math.max(0, nextWord.charStart - sliceStart) : text.length;
       const textAfterWord = text.slice(localEnd, nextWordStart);
       
-      // Extract punctuation immediately after the word (before any spaces)
+      // Extract punctuation immediately after the word (before any spaces or newlines)
       const punctuationMatch = textAfterWord.match(/^([.,!?;:]+)/);
       if (punctuationMatch) {
         const punctuation = punctuationMatch[1];
@@ -172,7 +202,7 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
       }
       
       // Also handle spaces after punctuation to prevent line breaks starting with punctuation
-      if (localCursor < text.length) {
+      if (localCursor < text.length && localCursor < nextWordStart) {
         const nextChar = text[localCursor];
         if (nextChar === ' ' && localCursor + 1 < text.length) {
           const charAfterSpace = text[localCursor + 1];
@@ -190,14 +220,51 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
       }
 
       fragment.appendChild(wordSpan);
+      
+      // Now handle any remaining text after the word (including newlines) that wasn't processed above
+      // This includes newlines that come after punctuation/spaces
+      if (localCursor < nextWordStart) {
+        const remainingAfterText = text.slice(localCursor, nextWordStart);
+        // Split by newlines and insert <br> elements
+        const remainingParts = remainingAfterText.split('\n');
+        remainingParts.forEach((part, partIdx) => {
+          if (partIdx > 0) {
+            // Insert <br> before each part except the first
+            fragment.appendChild(document.createElement('br'));
+          }
+          if (part) {
+            // Add any remaining text (spaces, etc.) as text nodes
+            fragment.appendChild(document.createTextNode(part));
+          }
+        });
+        localCursor = nextWordStart; // Update cursor to account for all processed text
+      } else {
+        localCursor = nextWordStart;
+      }
     });
 
     if (localCursor < text.length) {
-      fragment.appendChild(document.createTextNode(text.slice(localCursor)));
+      // Convert newlines to <br> elements when appending remaining text
+      const remainingText = text.slice(localCursor);
+      const parts = remainingText.split('\n');
+      parts.forEach((part, idx) => {
+        if (idx > 0) {
+          // Insert <br> before each part except the first
+          fragment.appendChild(document.createElement('br'));
+        }
+        if (part) {
+          fragment.appendChild(document.createTextNode(part));
+        }
+      });
     }
 
     sliceElement.innerHTML = '';
     sliceElement.appendChild(fragment);
+    
+    // Force a reflow to ensure <br> tags are rendered correctly
+    // This fixes the issue where <br> tags aren't visible until a layout recalculation
+    void sliceElement.offsetHeight;
+    
 // console.log('[[INIT]] Slice initialized successfully with words');
     return true;
   };
@@ -1251,8 +1318,8 @@ export const PageReader = ({
           // Standard bottom margin when there are no footnotes (for consistent page spacing)
           const BOTTOM_MARGIN_NO_FOOTNOTES = 48; // ~4.5rem in pixels (increased to prevent unnecessary splits)
           
-          // Larger bottom margin for karaoke pages (karaoke elements need more space)
-          const BOTTOM_MARGIN_KARAOKE = 64; // ~4rem in pixels (more space for karaoke)
+          // Bottom margin for karaoke pages (reduced to fit more content)
+          const BOTTOM_MARGIN_KARAOKE = 32; // Reduced from 48px to fit one more line
           
           // Check if page has karaoke elements
           const hasKaraoke = currentPageElements.some(el => 
@@ -1771,17 +1838,22 @@ export const PageReader = ({
             `karaoke-${chapterIdx}-${blockMeta?.subchapterId || blockMeta?.chapterId}-${Date.now()}`;
 
           if (!newKaraokeSources[karaokeId]) {
-            // Normalize apostrophes in source text to ensure consistency with extracted text
+            // Normalize apostrophes in source text to ensure consistency with extracted text.
+            // IMPORTANT: We do NOT pre-hyphenate karaoke text. We let the browser's own
+            // hyphenation (hyphens:auto + lang=\"en\") decide where to break, exactly like
+            // normal paragraphs. All timing/indexing is done on this clean text.
             const normalizedSourceText = (karaokeData.text || '').replace(/'/g, "'");
+
             const { letterTimings, wordCharRanges } = assignLetterTimingsToChars(
               normalizedSourceText,
               karaokeData.wordTimings || []
             );
+
             newKaraokeSources[karaokeId] = {
               ...karaokeData,
               letterTimings,
               wordCharRanges,
-              text: normalizedSourceText, // Store normalized text for consistency
+              text: normalizedSourceText, // Clean text; browser hyphenation handles visual breaks
             };
           }
 
@@ -1790,10 +1862,10 @@ export const PageReader = ({
           let cursor = 0;
           while (cursor < sourceText.length) {
             // Reserve space for footnotes OR bottom margin when calculating available height for karaoke
-            // Karaoke uses a larger bottom margin (64px instead of 48px)
+            // Karaoke uses a reduced bottom margin (32px) to fit more content
             const footnotesHeight = measureFootnotesHeight(currentPageFootnotes);
-            const BOTTOM_MARGIN_KARAOKE = 64; // ~4rem in pixels (more space for karaoke)
-            // For karaoke, use the larger bottom margin when no footnotes
+            const BOTTOM_MARGIN_KARAOKE = 32; // Reduced from 48px to fit one more line
+            // For karaoke, use the reduced bottom margin when no footnotes
             const reservedSpace = currentPageFootnotes.size > 0 ? footnotesHeight : BOTTOM_MARGIN_KARAOKE;
             const fullHeight = measure.body.clientHeight;
             const availableHeight = Math.max(0, fullHeight - reservedSpace);
@@ -1827,7 +1899,10 @@ export const PageReader = ({
             sliceEl.dataset.karaokeId = karaokeId;
             sliceEl.dataset.karaokeStart = String(cursor);
             sliceEl.dataset.karaokeEnd = String(cursor + charsToUse);
-            sliceEl.textContent = sliceText;
+            // Convert newlines to <br> tags for proper rendering
+            // We use innerHTML here because textContent would collapse newlines
+            // The highlighting system will still work because it reads textContent which converts <br> back to \n
+            sliceEl.innerHTML = sliceText.replace(/\n/g, '<br>');
 
             const measureNode = sliceEl.cloneNode(true);
             measure.body.appendChild(measureNode);
@@ -2817,7 +2892,29 @@ export const PageReader = ({
 
     const audio = new Audio(source.audioUrl);
     audio.preload = 'auto';
-    audio.crossOrigin = 'anonymous';
+    // Only set crossOrigin if we need it for Web Audio API (we don't currently)
+    // audio.crossOrigin = 'anonymous';
+    
+    // Add error handler for debugging
+    audio.addEventListener('error', (e) => {
+      console.error('[KARAOKE AUDIO] Audio error', {
+        error: audio.error,
+        code: audio.error?.code,
+        message: audio.error?.message,
+        networkState: audio.networkState,
+        readyState: audio.readyState,
+        src: source.audioUrl
+      });
+    });
+    
+    // Log when audio is loaded
+    audio.addEventListener('loadeddata', () => {
+      console.log('[KARAOKE AUDIO] Audio loaded', {
+        readyState: audio.readyState,
+        duration: audio.duration,
+        src: source.audioUrl
+      });
+    });
 
     let rafId = null;
     let currentSlice = null;
@@ -3120,26 +3217,27 @@ export const PageReader = ({
           controller.resumeTime = null;
         }
 
-        // Calculate start time
+        // Calculate highlight start time (when highlighting should begin)
+        // Audio always starts from 0.0, but highlighting starts at the appropriate time
         const letterTimings = source.letterTimings || [];
         const wordMetadata = source.wordCharRanges || [];
-        let startTime;
+        let highlightStartTime;
 
         if (typeof options.resumeTime === 'number') {
-          // Prefer an exact resumeTime if we have it
-          startTime = options.resumeTime;
+          // Resuming: start audio at resumeTime, highlighting starts immediately
+          highlightStartTime = options.resumeTime;
         } else if (typeof options.resumeWordIndex === 'number') {
           const resumeWord = wordMetadata[options.resumeWordIndex];
-          startTime =
+          highlightStartTime =
             resumeWord && typeof resumeWord.start === 'number'
               ? resumeWord.start
               : 0;
         } else {
+          // Starting fresh: audio always starts from 0.0
+          // Highlighting starts when the first word in this slice should be highlighted
           const startTiming = letterTimings[startChar];
-          startTime = startTiming ? startTiming.start : 0;
+          highlightStartTime = startTiming ? startTiming.start : 0;
         }
-
-// console.log('[[PLAY]] Starting playback at time', startTime);
 
         currentSlice = {
           sliceElement,
@@ -3147,6 +3245,7 @@ export const PageReader = ({
           endChar,
           letterTimings,
           resumeWordIndex: options.resumeWordIndex,
+          highlightStartTime, // When highlighting should begin (may be > 0 if audio starts at 0)
           _stepCount: 0,
           _loggedSpans: false,
           _loggedMissingTiming: false,
@@ -3154,10 +3253,68 @@ export const PageReader = ({
         };
 
         try {
-          audio.currentTime = startTime;
-// console.log('[[PLAY]] Calling audio.play() at time', startTime);
+          // Check if audio has an error
+          if (audio.error) {
+            console.error('[KARAOKE PLAY] Audio has error in playSlice', {
+              code: audio.error.code,
+              message: audio.error.message,
+              networkState: audio.networkState,
+              readyState: audio.readyState
+            });
+            sliceElement.removeAttribute('data-playing');
+            return;
+          }
+          
+          // Wait for audio to be ready if needed
+          if (audio.readyState < 4) {
+            console.log('[KARAOKE PLAY] Waiting for audio to load in playSlice', {
+              readyState: audio.readyState,
+              networkState: audio.networkState
+            });
+            
+            await new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                reject(new Error('Audio load timeout in playSlice'));
+              }, 10000);
+              
+              const onReady = () => {
+                clearTimeout(timeout);
+                audio.removeEventListener('canplaythrough', onReady);
+                audio.removeEventListener('error', onError);
+                resolve();
+              };
+              
+              const onError = (e) => {
+                clearTimeout(timeout);
+                audio.removeEventListener('canplaythrough', onReady);
+                audio.removeEventListener('error', onError);
+                reject(e);
+              };
+              
+              if (audio.readyState >= 4) {
+                clearTimeout(timeout);
+                resolve();
+              } else {
+                audio.addEventListener('canplaythrough', onReady, { once: true });
+                audio.addEventListener('error', onError, { once: true });
+                if (audio.networkState === 0) {
+                  audio.load();
+                }
+              }
+            });
+          }
+          
+          // Audio always starts from 0.0 (or resumeTime if resuming)
+          // Highlighting will start at highlightStartTime
+          const audioStartTime = typeof options.resumeTime === 'number' ? options.resumeTime : 0;
+          audio.currentTime = audioStartTime;
+          console.log('[KARAOKE PLAY] Starting audio playback', {
+            audioStartTime,
+            highlightStartTime,
+            currentTime: audio.currentTime
+          });
           await audio.play();
-// console.log('[[PLAY]] Audio playing successfully, starting animation loop');
+          console.log('[KARAOKE PLAY] Audio playing successfully, starting animation loop');
           
           // Clear processing flag now that playback has started
           sliceElement.dataset.processing = 'false';
@@ -3254,14 +3411,46 @@ export const PageReader = ({
         
         // Use touchend for mobile, click for desktop
         const handleInteraction = (e) => {
+          console.log('[KARAOKE TAP] Event received', {
+            type: e.type,
+            target: e.target?.tagName,
+            targetClass: e.target?.className,
+            slice: slice?.className,
+            karaokeId: slice?.getAttribute('data-karaoke-id'),
+            hasTouchStart: !!touchStartRef.current,
+            hasTouchCurrent: !!touchCurrentRef.current,
+            timestamp: Date.now()
+          });
+          
+          // For touchend events, check if it's a tap (not a swipe)
+          if (e.type === 'touchend' && touchStartRef.current && touchCurrentRef.current) {
+            const deltaX = touchCurrentRef.current.x - touchStartRef.current.x;
+            const deltaY = touchCurrentRef.current.y - touchStartRef.current.y;
+            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            console.log('[KARAOKE TAP] Movement check', { deltaX, deltaY, distance, isTap: distance <= 10 });
+            // If movement is too large, it's a swipe, not a tap - ignore it
+            if (distance > 10) {
+              console.log('[KARAOKE TAP] Ignored - movement too large (swipe)');
+              return;
+            }
+          }
+          
           e.stopPropagation(); // Prevent swipe from triggering
           e.preventDefault(); // Prevent any default behavior
+          
+          console.log('[KARAOKE TAP] Processing tap - passed all checks');
 
           const karaokeId = slice.getAttribute('data-karaoke-id');
           const startChar = parseInt(slice.getAttribute('data-karaoke-start') || '0', 10);
           const endChar = parseInt(slice.getAttribute('data-karaoke-end') || '0', 10);
           
 // console.log('Karaoke slice clicked', { karaokeId, startChar, endChar });
+          
+          // Only allow playback to start if this is the first page of the karaoke object (startChar === 0)
+          if (startChar !== 0) {
+            console.log('[KARAOKE TAP] Ignored - not on first page of karaoke object', { startChar });
+            return; // Do nothing if not on first page
+          }
           
           // Prevent multiple simultaneous clicks
           if (slice.dataset.processing === 'true') {
@@ -3288,14 +3477,80 @@ export const PageReader = ({
             
             const controller = getKaraokeController(karaokeId);
             if (controller && controller.audio) {
+              const audio = controller.audio;
+              
+              // Wait for audio to be ready before playing
+              const playAudio = async () => {
+                // Check if audio has an error
+                if (audio.error) {
+                  console.error('[KARAOKE PLAY] Audio has error', {
+                    code: audio.error.code,
+                    message: audio.error.message,
+                    networkState: audio.networkState,
+                    readyState: audio.readyState
+                  });
+                  return;
+                }
+                
+                // Wait for audio to be ready (HAVE_ENOUGH_DATA = 4)
+                if (audio.readyState < 4) {
+                  console.log('[KARAOKE PLAY] Waiting for audio to load', {
+                    readyState: audio.readyState,
+                    networkState: audio.networkState
+                  });
+                  
+                  // Wait for loadeddata or canplaythrough
+                  await new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                      reject(new Error('Audio load timeout'));
+                    }, 10000); // 10 second timeout
+                    
+                    const onReady = () => {
+                      clearTimeout(timeout);
+                      audio.removeEventListener('canplaythrough', onReady);
+                      audio.removeEventListener('error', onError);
+                      resolve();
+                    };
+                    
+                    const onError = (e) => {
+                      clearTimeout(timeout);
+                      audio.removeEventListener('canplaythrough', onReady);
+                      audio.removeEventListener('error', onError);
+                      reject(e);
+                    };
+                    
+                    if (audio.readyState >= 4) {
+                      clearTimeout(timeout);
+                      resolve();
+                    } else {
+                      audio.addEventListener('canplaythrough', onReady, { once: true });
+                      audio.addEventListener('error', onError, { once: true });
+                      // Also try to load if not already loading
+                      if (audio.networkState === 0) {
+                        audio.load();
+                      }
+                    }
+                  });
+                }
+                
+                // Now try to play
+                try {
+                  await audio.play();
+                  return true;
+                } catch (err) {
+                  console.error('[KARAOKE PLAY] Play failed', err);
+                  throw err;
+                }
+              };
+              
               // Unlock audio by playing the actual karaoke audio (best gesture context)
               if (!audioUnlockedRef.current) {
-// console.log('Unlocking audio via karaoke click...');
-                controller.audio.play().then(() => {
-                  controller.audio.pause();
-                  controller.audio.currentTime = 0;
+                console.log('[KARAOKE PLAY] Unlocking audio via karaoke click...');
+                playAudio().then(() => {
+                  audio.pause();
+                  audio.currentTime = 0;
                   audioUnlockedRef.current = true;
-// console.log('Audio unlocked via karaoke click');
+                  console.log('[KARAOKE PLAY] Audio unlocked via karaoke click');
                   window.dispatchEvent(new CustomEvent('audioUnlocked'));
                   // Now start playback from this slice, clearing any pending resume
                   karaokeControllersRef.current.forEach((ctrl, id) => {
@@ -3309,8 +3564,8 @@ export const PageReader = ({
                   controller.playSlice(slice, startChar, endChar);
                   currentKaraokeSliceRef.current = { karaokeId, sliceElement: slice, startChar, endChar };
                 }).catch((err) => {
-                  console.warn('Failed to unlock via karaoke click', err);
-                  // Still try to play
+                  console.error('[KARAOKE PLAY] Failed to unlock via karaoke click', err);
+                  // Still try to play - might work if audio context is unlocked
                   audioUnlockedRef.current = true;
                   window.dispatchEvent(new CustomEvent('audioUnlocked'));
                   karaokeControllersRef.current.forEach((ctrl, id) => {
@@ -3326,26 +3581,37 @@ export const PageReader = ({
                 });
               } else {
                 // Already unlocked, just play
-// console.log('Audio already unlocked, starting playback');
-                karaokeControllersRef.current.forEach((ctrl, id) => {
-                  if (id !== karaokeId) {
-                    ctrl.pause();
-                  }
+                console.log('[KARAOKE PLAY] Audio already unlocked, starting playback');
+                playAudio().then(() => {
+                  karaokeControllersRef.current.forEach((ctrl, id) => {
+                    if (id !== karaokeId) {
+                      ctrl.pause();
+                    }
+                  });
+                  controller.resumeWordIndex = null;
+                  controller.resumeTime = null;
+                  controller.waitingForNextPage = false;
+                  controller.playSlice(slice, startChar, endChar);
+                  currentKaraokeSliceRef.current = { karaokeId, sliceElement: slice, startChar, endChar };
+                }).catch((err) => {
+                  console.error('[KARAOKE PLAY] Failed to start playback', err);
                 });
-                controller.resumeWordIndex = null;
-                controller.resumeTime = null;
-                controller.waitingForNextPage = false;
-                controller.playSlice(slice, startChar, endChar);
-                currentKaraokeSliceRef.current = { karaokeId, sliceElement: slice, startChar, endChar };
               }
             } else {
-              console.warn('Controller or audio not found', { controller: !!controller, audio: controller?.audio });
+              console.warn('[KARAOKE PLAY] Controller or audio not found', { controller: !!controller, audio: controller?.audio });
             }
           }
         };
         
-        // Use click for both mobile and desktop; swipes are handled by global touch handlers
-        slice.addEventListener('click', handleInteraction);
+        // Use touchend for mobile, click for desktop
+        // Mobile: touchend fires immediately and reliably, avoiding click delay/cancellation
+        // Desktop: click works fine
+        const isMobileDevice = window.innerWidth <= 768;
+        if (isMobileDevice) {
+          slice.addEventListener('touchend', handleInteraction, { passive: false });
+        } else {
+          slice.addEventListener('click', handleInteraction);
+        }
       }
     });
   }, [getKaraokeController, unlockAudioContext]);
@@ -3882,15 +4148,32 @@ export const PageReader = ({
       );
       
       if (prevPage) {
+        console.log('[SWIPE BACK] Starting transition', {
+          currentPage: { chapterIndex: currentChapterIndex, pageIndex: currentPageIndex, hasContent: !!currentPage?.content, contentLength: currentPage?.content?.length },
+          prevPage: { chapterIndex: prevPage.chapterIndex, pageIndex: prevPage.pageIndex, hasContent: !!prevPage.content, contentLength: prevPage.content?.length }
+        });
+        
+        // Safety check: ensure prevPage has content
+        if (!prevPage.content) {
+          console.error('[SWIPE BACK] prevPage has no content!', {
+            prevPage: { chapterIndex: prevPage.chapterIndex, pageIndex: prevPage.pageIndex, id: prevPage.id }
+          });
+          return; // Don't proceed if no content
+        }
+        
         setIsTransitioning(true);
         // Wait for fade-out to complete (1s), then update content and fade in
         setTimeout(() => {
+          console.log('[SWIPE BACK] Setting displayPage to prevPage', {
+            prevPage: { chapterIndex: prevPage.chapterIndex, pageIndex: prevPage.pageIndex, hasContent: !!prevPage.content, contentLength: prevPage.content?.length }
+          });
           // Update both displayPage and indices together
           setDisplayPage(prevPage);
           setCurrentPageIndex(currentPageIndex - 1);
           // Wait for DOM to update and ink effect to be applied before starting fade-in
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
+              console.log('[SWIPE BACK] Transition complete, setting isTransitioning to false');
               setIsTransitioning(false);
             });
           });
@@ -4003,6 +4286,19 @@ export const PageReader = ({
   const handleTouchEnd = useCallback(
     (e) => {
       if (!touchStartRef.current || !touchCurrentRef.current) return;
+
+      // Skip swipe processing if touch target is a karaoke slice (let karaoke handler process the tap)
+      const touchTarget = e.target;
+      if (touchTarget && (touchTarget.closest('.karaoke-slice') || touchTarget.classList.contains('karaoke-slice'))) {
+        // Check if it's a tap (minimal movement) - if so, let karaoke handler process it
+        const deltaX = touchCurrentRef.current.x - touchStartRef.current.x;
+        const deltaY = touchCurrentRef.current.y - touchStartRef.current.y;
+        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        if (distance < 10) { // Very small movement = tap, not swipe
+          return; // Let karaoke touchend handler process this
+        }
+        // If it's a larger movement, might be a swipe, continue processing
+      }
 
       const deltaX = touchCurrentRef.current.x - touchStartRef.current.x;
       const deltaY = touchCurrentRef.current.y - touchStartRef.current.y;
@@ -4247,17 +4543,29 @@ export const PageReader = ({
   // Use displayPage for rendering, fallback to currentPage
   const pageToDisplay = displayPage || currentPage;
   
-  // Clear preserved HTML when page changes
+  // Log pageToDisplay state for debugging swipe back issue
+  if (isTransitioning && (!pageToDisplay || !pageToDisplay.content)) {
+    console.warn('[PAGE TO DISPLAY] pageToDisplay is null or has no content during transition', {
+      pageToDisplay: pageToDisplay ? { chapterIndex: pageToDisplay.chapterIndex, pageIndex: pageToDisplay.pageIndex, hasContent: !!pageToDisplay.content } : null,
+      displayPage: displayPage ? { chapterIndex: displayPage.chapterIndex, pageIndex: displayPage.pageIndex, hasContent: !!displayPage.content } : null,
+      currentPage: currentPage ? { chapterIndex: currentPage.chapterIndex, pageIndex: currentPage.pageIndex, hasContent: !!currentPage.content } : null,
+      isTransitioning: isTransitioningRef.current
+    });
+  }
+  
+  // Clear preserved HTML when page changes (but NOT during transitions)
+  // During transitions, we need the preserved HTML to restore content
   useEffect(() => {
-    if (pageToDisplay) {
+    if (pageToDisplay && !isTransitioning) {
       const currentPageKey = `page-${pageToDisplay.chapterIndex}-${pageToDisplay.pageIndex}`;
       // If we're on a different page, clear the preserved HTML
+      // But only if we're NOT transitioning (during transitions, we need it for restoration)
       if (preservedPageKeyRef.current !== currentPageKey) {
         preservedInkHTMLRef.current = null;
         preservedPageKeyRef.current = null;
       }
     }
-  }, [pageToDisplay?.chapterIndex, pageToDisplay?.pageIndex]);
+  }, [pageToDisplay?.chapterIndex, pageToDisplay?.pageIndex, isTransitioning]);
 
   // Callback ref to apply ink effect directly when content node is set
   // Must be defined before any conditional returns (Rules of Hooks)
@@ -4642,6 +4950,15 @@ export const PageReader = ({
         ? `page-${pageToDisplay.chapterIndex}-${pageToDisplay.pageIndex}`
         : null;
       
+      console.log('[PAGE CONTENT CALLBACK] Node connected', {
+        hasNode: !!node,
+        isConnected: node.isConnected,
+        pageToDisplay: pageToDisplay ? { chapterIndex: pageToDisplay.chapterIndex, pageIndex: pageToDisplay.pageIndex, hasContent: !!pageToDisplay.content, contentLength: pageToDisplay.content?.length } : null,
+        currentPageKey,
+        isTransitioning: isTransitioningRef.current,
+        nodeInnerHTML: node.innerHTML?.substring(0, 100)
+      });
+
       // Apply ink effect with multiple attempts to ensure it applies
       const applyInk = () => {
         if (node && node.isConnected) {
@@ -4650,7 +4967,9 @@ export const PageReader = ({
           if (!hasInkChars) {
             // If we have preserved HTML for THIS page, restore it
             // Otherwise, apply fresh ink effect
-            if (preservedInkHTMLRef.current && preservedPageKeyRef.current === currentPageKey && !isTransitioningRef.current) {
+            // BUT don't restore if karaoke slices are already initialized (would overwrite them)
+            const hasInitializedKaraoke = node.querySelectorAll('.karaoke-slice .karaoke-word').length > 0;
+            if (preservedInkHTMLRef.current && preservedPageKeyRef.current === currentPageKey && !isTransitioningRef.current && !hasInitializedKaraoke) {
               node.innerHTML = preservedInkHTMLRef.current;
             } else if (!preservedInkHTMLRef.current || preservedPageKeyRef.current !== currentPageKey) {
               applyInkEffectToTextMobile(node, { probability: 0.25 });
@@ -4676,7 +4995,15 @@ export const PageReader = ({
         preservedPageKeyRef.current = currentPageKey;
       }
       // During transitions, restore from preserved HTML if available
-      if (isTransitioningRef.current && preservedInkHTMLRef.current && preservedPageKeyRef.current === currentPageKey && !hasInkChars) {
+      // BUT don't restore if karaoke slices are already initialized (would overwrite them)
+      const hasInitializedKaraokeCheck = node.querySelectorAll('.karaoke-slice .karaoke-word').length > 0;
+      if (isTransitioningRef.current && preservedInkHTMLRef.current && preservedPageKeyRef.current === currentPageKey && !hasInkChars && !hasInitializedKaraokeCheck) {
+        console.log('[PAGE CONTENT] Restoring preserved HTML during transition', {
+          currentPageKey,
+          preservedPageKey: preservedPageKeyRef.current,
+          preservedHTMLLength: preservedInkHTMLRef.current?.length,
+          hasInitializedKaraoke: hasInitializedKaraokeCheck
+        });
         node.innerHTML = preservedInkHTMLRef.current;
       }
       
@@ -4710,26 +5037,108 @@ export const PageReader = ({
         });
         
         if (node && node.isConnected) {
+          // CRITICAL: During transitions, ensure content exists before processing
+          // If content is empty, it means React hasn't set it yet - wait for it
+          if (isTransitioningRef.current && (!node.innerHTML || node.innerHTML.trim() === '')) {
+            // Content not set yet - wait a bit and check again
+            setTimeout(() => {
+              if (node && node.isConnected && (!node.innerHTML || node.innerHTML.trim() === '')) {
+                // Still empty - this shouldn't happen, but ensure content is set from pageToDisplay
+                if (pageToDisplay && pageToDisplay.content) {
+                  node.innerHTML = pageToDisplay.content;
+                }
+              }
+            }, 50);
+            return; // Don't process yet
+          }
+          
           const hasInkChars = node.querySelectorAll('.ink-char-mobile').length > 0;
           if (!hasInkChars) {
             // During transitions, restore from preserved HTML only if it's for the current page
-            if (isTransitioningRef.current && preservedInkHTMLRef.current && preservedPageKeyRef.current === currentPageKey) {
+            // BUT don't restore if karaoke slices are already initialized (would overwrite them)
+            const hasInitializedKaraokeCheck2 = node.querySelectorAll('.karaoke-slice .karaoke-word').length > 0;
+            if (isTransitioningRef.current && preservedInkHTMLRef.current && preservedPageKeyRef.current === currentPageKey && !hasInitializedKaraokeCheck2) {
+              console.log('[PAGE CONTENT] Restoring preserved HTML during transition', {
+                currentPageKey,
+                preservedPageKey: preservedPageKeyRef.current
+              });
               node.innerHTML = preservedInkHTMLRef.current;
             } else {
-              // Apply ink effect only after user has interacted
+              // CRITICAL: During transitions, ensure content is set from pageToDisplay.content
+              // This is especially important when swiping back - the preserved HTML might be for the wrong page
+              if (isTransitioningRef.current && (!node.innerHTML || node.innerHTML.trim() === '')) {
+                if (pageToDisplay && pageToDisplay.content) {
+                  console.log('[PAGE CONTENT] Setting content from pageToDisplay during transition', {
+                    currentPageKey,
+                    hasContent: !!pageToDisplay.content,
+                    contentLength: pageToDisplay.content.length
+                  });
+                  node.innerHTML = pageToDisplay.content;
+                }
+              }
+              
+              // Ensure we have content before processing
+              if (!node.innerHTML || node.innerHTML.trim() === '') {
+                if (pageToDisplay && pageToDisplay.content) {
+                  node.innerHTML = pageToDisplay.content;
+                } else {
+                  console.error('[PAGE CONTENT] No content available!', {
+                    currentPageKey,
+                    hasPageToDisplay: !!pageToDisplay,
+                    hasContent: !!pageToDisplay?.content
+                  });
+                  return; // No content to process
+                }
+              }
+              
+              // CRITICAL: During transitions, skip karaoke initialization to prevent crashes
+              // The callback will run again after transition completes and process normally
+              if (isTransitioningRef.current) {
+                // Just preserve the raw content - don't process during transition
+                if (pageToDisplay && pageToDisplay.content) {
+                  preservedInkHTMLRef.current = pageToDisplay.content;
+                  preservedPageKeyRef.current = currentPageKey;
+                }
+                return; // Skip processing during transitions
+              }
+              
+              // Initialize karaoke slices FIRST (creates structure with <br> tags)
+              try {
+                initializeKaraokeSlices(node);
+                // Then apply ink effect to wrap characters in the initialized karaoke structure
+                applyInk();
+                // Immediately preserve the HTML so we can restore it later without re-applying
+                preservedInkHTMLRef.current = node.innerHTML;
+                preservedPageKeyRef.current = currentPageKey;
+              } catch (error) {
+                console.error('[PAGE CONTENT] Error initializing karaoke/ink:', error);
+                // If initialization fails, at least preserve the raw content
+                if (pageToDisplay && pageToDisplay.content) {
+                  preservedInkHTMLRef.current = pageToDisplay.content;
+                  preservedPageKeyRef.current = currentPageKey;
+                }
+              }
+            }
+          } else {
+            // Ink chars exist - check if karaoke needs initialization
+            const hasInitializedKaraoke = node.querySelectorAll('.karaoke-slice .karaoke-word').length > 0;
+            if (!hasInitializedKaraoke) {
+              // Initialize karaoke slices (this will rebuild, losing ink effect)
+              initializeKaraokeSlices(node);
+              // Re-apply ink effect after karaoke initialization
               applyInk();
-              // Immediately preserve the HTML so we can restore it later without re-applying
+            }
+            // Preserve HTML after both are done
+            if (!preservedInkHTMLRef.current || preservedPageKeyRef.current !== currentPageKey) {
               preservedInkHTMLRef.current = node.innerHTML;
               preservedPageKeyRef.current = currentPageKey;
             }
-          } else if (!preservedInkHTMLRef.current || preservedPageKeyRef.current !== currentPageKey) {
-            // Ink chars exist but we haven't preserved HTML yet for this page - preserve it now
+          }
+          // Preserve HTML AFTER karaoke initialization so it includes initialized karaoke slices
+          if (node && node.isConnected) {
             preservedInkHTMLRef.current = node.innerHTML;
             preservedPageKeyRef.current = currentPageKey;
           }
-          
-          // Initialize karaoke slices after ink effect is applied
-          initializeKaraokeSlices(node);
         }
       };
       
@@ -4743,9 +5152,12 @@ export const PageReader = ({
             setTimeout(() => {
               if (node && node.isConnected) {
                 const hasInkChars = node.querySelectorAll('.ink-char-mobile').length > 0;
+                // Check if karaoke slices are already initialized (have .karaoke-word spans)
+                const hasInitializedKaraoke = node.querySelectorAll('.karaoke-slice .karaoke-word').length > 0;
                 if (!hasInkChars) {
                   // During transitions, restore from preserved HTML only if it's for the current page
-                  if (isTransitioningRef.current && preservedInkHTMLRef.current && preservedPageKeyRef.current === currentPageKey) {
+                  // BUT don't restore if karaoke slices are already initialized (would overwrite them)
+                  if (isTransitioningRef.current && preservedInkHTMLRef.current && preservedPageKeyRef.current === currentPageKey && !hasInitializedKaraoke) {
                     node.innerHTML = preservedInkHTMLRef.current;
                   } else {
                     applyInk();
@@ -4758,6 +5170,11 @@ export const PageReader = ({
                 
                 // Initialize karaoke slices again after second frame
                 initializeKaraokeSlices(node);
+                // Preserve HTML AFTER karaoke initialization
+                if (node && node.isConnected) {
+                  preservedInkHTMLRef.current = node.innerHTML;
+                  preservedPageKeyRef.current = currentPageKey;
+                }
                 
                 // DON'T call startVisibleKaraoke here - let the transition end effect handle it
                 // This ensures resume state is always checked before starting playback
@@ -4782,7 +5199,7 @@ export const PageReader = ({
         }, 50);
       }
     }
-  }, [pageToDisplay, initializeKaraokeSlices, startVisibleKaraoke]); // Include dependencies
+  }, [pageToDisplay, initializeKaraokeSlices, startVisibleKaraoke, isTransitioning]); // Include isTransitioning so callback runs when transition completes
 
   // Prevent pull-to-refresh on mobile - use document-level listener with passive: false
   // This is necessary because React's onTouchMove may be passive, preventing preventDefault
@@ -4976,9 +5393,7 @@ export const PageReader = ({
   if (isDesktop) {
     if (pages.length === 0) {
       return (
-        <div className="page-reader-loading">
-          <img src="/pigeondove.gif" alt="Loading..." className="loading-gif" />
-        </div>
+        <div className="page-reader-loading" />
       );
     }
     // Always start at page 1 (cover page)
@@ -5057,7 +5472,7 @@ export const PageReader = ({
             const displayPageNumber = (page.isFirstPage || page.isCover) ? 0 : regularPages.findIndex(
               (p) => p.chapterIndex === page.chapterIndex && p.pageIndex === page.pageIndex
             ) + 1;
-            const shouldShowTopBar = page && !page.hasHeading && !page.isEpigraph && !page.isCover && !page.isFirstPage;
+            const shouldShowTopBar = page && !page.hasHeading && !page.isEpigraph && !page.isCover && !page.isFirstPage && page.pageIndex > 0;
             
             return (
               <div
@@ -5232,9 +5647,7 @@ export const PageReader = ({
     return (
       <>
         {backgroundImage}
-        <div className="page-reader-loading">
-          <img src="/pigeondove.gif" alt="Loading..." className="loading-gif" />
-        </div>
+        <div className="page-reader-loading" />
       </>
     );
   }
@@ -5256,7 +5669,7 @@ export const PageReader = ({
     currentPageNumber = pageIndex >= 0 ? pageIndex + 1 : 0;
     totalPages = regularPages.length;
   }
-  const shouldShowTopBar = !pageToDisplay.hasHeading && !pageToDisplay.isEpigraph && !pageToDisplay.isCover && !pageToDisplay.isFirstPage;
+  const shouldShowTopBar = !pageToDisplay.hasHeading && !pageToDisplay.isEpigraph && !pageToDisplay.isCover && !pageToDisplay.isFirstPage && pageToDisplay.pageIndex > 0;
 
   const pageContent = (
     <>

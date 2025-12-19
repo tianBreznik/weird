@@ -330,8 +330,9 @@
   text-justify: inter-word !important;
   word-spacing: -0.08em !important;
   letter-spacing: 0.01em !important;
-  hyphens: none !important;
-  -webkit-hyphens: none !important;
+  hyphens: auto !important;
+  -webkit-hyphens: auto !important;
+  -moz-hyphens: auto !important;
 }
 
 @media (max-width: 768px) {
@@ -968,9 +969,7 @@
 }
 
 .page-reader-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
   height: 100vh;
   width: 100vw;
   position: fixed;
@@ -984,6 +983,7 @@
   /* Ensure loading state is visible immediately */
   opacity: 1;
   visibility: visible;
+  overflow: hidden;
 }
 
 .loading-gif {
@@ -1012,12 +1012,37 @@
 /* Desktop: hide page reader */
 /* Karaoke highlighting styles */
 .karaoke-slice .karaoke-char,
-.karaoke-player .karaoke-char,
+.karaoke-player .karaoke-char {
+  /* Punctuation / special chars we attach to words.
+     Keep them behaving like normal inline text so browser hyphenation
+     can work exactly as for regular paragraphs. */
+  position: static;
+  display: inline;
+  white-space: normal;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  vertical-align: baseline;
+  color: inherit;
+  --karaoke-fill: 0;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  text-shadow: none;
+  -webkit-text-stroke: none;
+}
+
 .karaoke-slice .karaoke-word,
 .karaoke-player .karaoke-word {
   position: relative;
-  display: inline-block;
-  white-space: pre;
+  display: inline;           /* Let the browser treat words as normal inline text */
+  white-space: normal;       /* Normal wrapping & justification */
+  word-break: normal;        /* Use default word-breaking */
+  overflow-wrap: normal;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  vertical-align: baseline;
   color: inherit;
   --karaoke-fill: 0;
   font: inherit;
@@ -1043,7 +1068,7 @@
   content: attr(data-char);
   position: absolute;
   inset: 0;
-  white-space: pre;
+  white-space: pre; /* Keep 'pre' to match character span positioning */
   color: transparent;
   pointer-events: none;
   opacity: var(--karaoke-fill);
@@ -1091,16 +1116,54 @@
   display: inline-block;
   animation: karaoke-breathe 2s ease-in-out infinite;
   will-change: opacity;
-  /* Disable hyphenation for karaoke text to prevent word breaking issues */
-  hyphens: none;
-  -webkit-hyphens: none;
-  -moz-hyphens: none;
+  /* Match normal paragraph font metrics exactly */
+  font-size: 1.3rem;
+  line-height: 1.35;
+  word-spacing: -0.08em;
+  letter-spacing: 0.01em;
   /* Apply justified text alignment like regular paragraphs */
   text-align: justify;
   text-align-last: left;
   text-justify: inter-word;
+  /* Enable hyphenation like normal paragraphs */
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  -moz-hyphens: auto;
+  /* Ensure <br> tags are visible and functional - allow line breaks */
+  white-space: normal;
+}
+
+
+/* Karaoke player wrapper - match normal paragraph font metrics exactly */
+.karaoke-player {
+  font-size: 1.3rem;
+  line-height: 1.35;
   word-spacing: -0.08em;
   letter-spacing: 0.01em;
+  /* Enable hyphenation like normal paragraphs */
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  -moz-hyphens: auto;
+}
+
+/* Note: line-height for karaoke with <br> tags kept at 1.35 to match normal paragraphs */
+
+/* Reduce spacing between paragraphs in karaoke text (smaller than normal paragraph gap) */
+.karaoke-slice br,
+.karaoke-player br {
+  display: block;
+  margin: 0;
+  padding: 0;
+  line-height: 0.08rem; /* Very small line-height to minimize gap */
+  height: 0.08rem; /* Explicit height for consistent spacing */
+  font-size: 0.08rem; /* Small font size to minimize spacing */
+}
+
+/* Further reduce spacing by pulling content closer after breaks */
+.karaoke-slice br + *,
+.karaoke-player br + * {
+  margin-top: -0.2rem; /* Increased negative margin to pull content closer after <br> */
+  display: inline-block; /* Ensure negative margin works */
 }
 
 /* Prevent line breaks after word spans that contain punctuation */
