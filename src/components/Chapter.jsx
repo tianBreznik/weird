@@ -55,12 +55,12 @@ export const applyInkEffectToTextMobile = (element, options = {}) => {
         if (parent.closest('.karaoke-player')) {
           return NodeFilter.FILTER_REJECT;
         }
-        // For karaoke slices: only process text nodes inside karaoke-char spans
-        // This preserves <br> tags and paragraph structure
+        // For karaoke slices: process only text nodes that are direct children
+        // of a karaoke-word span. This preserves <br> tags and overall layout.
         const karaokeSlice = parent.closest('.karaoke-slice');
         if (karaokeSlice) {
-          // Only accept if parent is a karaoke-char span
-          if (!parent.classList.contains('karaoke-char')) {
+          // Accept only if the text lives directly in a karaoke-word span
+          if (!parent.classList.contains('karaoke-word')) {
             return NodeFilter.FILTER_REJECT;
           }
         }
@@ -84,9 +84,9 @@ export const applyInkEffectToTextMobile = (element, options = {}) => {
     if (!parent || parent.classList.contains('ink-processed-mobile')) return;
     // Skip if inside karaoke player
     if (parent.closest('.karaoke-player')) return;
-    // For karaoke slices: only process if parent is karaoke-char (TreeWalker should have filtered, but double-check)
+    // For karaoke slices: only process if parent is karaoke-word (TreeWalker should have filtered, but double-check)
     const karaokeSlice = parent.closest('.karaoke-slice');
-    if (karaokeSlice && !parent.classList.contains('karaoke-char')) {
+    if (karaokeSlice && !parent.classList.contains('karaoke-word')) {
       return;
     }
 

@@ -4553,18 +4553,12 @@ export const PageReader = ({
     });
   }
   
-  // Clear preserved HTML when page changes (but NOT during transitions)
-  // During transitions, we need the preserved HTML to restore content
+  // NOTE: Ink preservation between pages is temporarily disabled to simplify
+  // navigation logic and avoid crashes when swiping back on karaoke pages.
+  // We keep the refs so future polish can reintroduce this if needed, but we
+  // no longer clear/restore preserved HTML across page changes.
   useEffect(() => {
-    if (pageToDisplay && !isTransitioning) {
-      const currentPageKey = `page-${pageToDisplay.chapterIndex}-${pageToDisplay.pageIndex}`;
-      // If we're on a different page, clear the preserved HTML
-      // But only if we're NOT transitioning (during transitions, we need it for restoration)
-      if (preservedPageKeyRef.current !== currentPageKey) {
-        preservedInkHTMLRef.current = null;
-        preservedPageKeyRef.current = null;
-      }
-    }
+    // no-op for now
   }, [pageToDisplay?.chapterIndex, pageToDisplay?.pageIndex, isTransitioning]);
 
   // Callback ref to apply ink effect directly when content node is set
@@ -4792,154 +4786,31 @@ export const PageReader = ({
     }
   }, [isTransitioning, startVisibleKaraoke, initializeKaraokeSlices]);
 
-  // Keep ref in sync with state and watch for HTML resets during transitions
+  // Keep ref in sync with state only. Ink restoration during transitions has
+  // been disabled to avoid complex innerHTML rewrites that conflicted with
+  // karaoke pagination and could cause freezes when swiping back.
   useEffect(() => {
     isTransitioningRef.current = isTransitioning;
-    
-    const node = pageContentRef.current;
-    if (!node || !node.isConnected) return;
-    
-    // When transitioning starts, immediately check and restore ink effect
-    if (isTransitioning) {
-      const currentPageKey = pageToDisplay 
-        ? `page-${pageToDisplay.chapterIndex}-${pageToDisplay.pageIndex}`
-        : null;
-      
-      // Synchronous check first - catch any immediate resets
-      const hasInkChars = node.querySelectorAll('.ink-char-mobile').length > 0;
-      // Only restore if preserved HTML is for the current page
-      if (!hasInkChars && preservedInkHTMLRef.current && preservedPageKeyRef.current === currentPageKey) {
-        // Always restore from preserved HTML during transitions - never apply fresh
-        node.innerHTML = preservedInkHTMLRef.current;
-      }
-      
-      // Use requestAnimationFrame to catch any resets that happen in the next frame
-      requestAnimationFrame(() => {
-        if (node && node.isConnected && isTransitioningRef.current) {
-          const hasInkChars = node.querySelectorAll('.ink-char-mobile').length > 0;
-          const currentPageKey = pageToDisplay 
-            ? `page-${pageToDisplay.chapterIndex}-${pageToDisplay.pageIndex}`
-            : null;
-          // Only restore if preserved HTML is for the current page
-          if (!hasInkChars && preservedInkHTMLRef.current && preservedPageKeyRef.current === currentPageKey) {
-            // Always restore from preserved HTML during transitions - never apply fresh
-            node.innerHTML = preservedInkHTMLRef.current;
-          }
-        }
-      });
-      
-      // Also set up a MutationObserver to catch any HTML resets during transition
-      const observer = new MutationObserver(() => {
-        if (node && node.isConnected && isTransitioningRef.current) {
-          const hasInkChars = node.querySelectorAll('.ink-char-mobile').length > 0;
-          const currentPageKey = pageToDisplay 
-            ? `page-${pageToDisplay.chapterIndex}-${pageToDisplay.pageIndex}`
-            : null;
-          // Only restore if preserved HTML is for the current page
-          if (!hasInkChars && preservedInkHTMLRef.current && preservedPageKeyRef.current === currentPageKey) {
-            // React reset the HTML - always restore from preserved HTML during transitions
-            // This ensures the same characters have ink throughout the fade-out
-            node.innerHTML = preservedInkHTMLRef.current;
-          }
-        }
-      });
-      
-      observer.observe(node, {
-        childList: true,
-        subtree: true,
-        characterData: true
-      });
-      
-      return () => {
-        observer.disconnect();
-      };
-    }
   }, [isTransitioning, pageToDisplay]);
   
-  // Watch for TOC closing and continuously restore ink effects if React resets them
+  // Watch for TOC closing & ink resets – disabled for now to avoid extra
+  // MutationObservers and innerHTML rewrites that can interfere with karaoke
+  // pagination. Kept here only as placeholders for future polish.
   const prevIsTOCOpenRef = useRef(isTOCOpen);
   const isTOCClosingRef = useRef(false);
   const restoreTimeoutRef = useRef(null);
   
   useEffect(() => {
-    const justClosed = prevIsTOCOpenRef.current && !isTOCOpen;
     prevIsTOCOpenRef.current = isTOCOpen;
-    
-    if (justClosed) {
-      // TOC is closing - set flag and keep watching for React's HTML reset
-      isTOCClosingRef.current = true;
-      
-      // Keep watching for longer to catch delayed re-renders
-      if (restoreTimeoutRef.current) {
-        clearTimeout(restoreTimeoutRef.current);
-      }
-      restoreTimeoutRef.current = setTimeout(() => {
-        isTOCClosingRef.current = false;
-      }, 4000); // Watch for 4 seconds to catch any delayed re-renders
+    isTOCClosingRef.current = false;
+    if (restoreTimeoutRef.current) {
+      clearTimeout(restoreTimeoutRef.current);
+      restoreTimeoutRef.current = null;
     }
   }, [isTOCOpen]);
   
-  // Use MutationObserver to catch when React resets the HTML and restore immediately
   useEffect(() => {
-    if (isTransitioning) return;
-    
-    const pageContent = pageContentRef.current;
-    if (!pageContent) return;
-    
-    const currentPageKey = pageToDisplay 
-      ? `page-${pageToDisplay.chapterIndex}-${pageToDisplay.pageIndex}`
-      : null;
-    
-    if (!currentPageKey || !preservedInkHTMLRef.current || preservedPageKeyRef.current !== currentPageKey) {
-      return;
-    }
-    
-    // Watch for innerHTML changes (React resetting the content)
-    const observer = new MutationObserver(() => {
-      // Always restore if ink effects are missing, not just during closing
-      // This ensures restoration happens even after animation completes
-      const hasInkChars = pageContent.querySelectorAll('.ink-char-mobile').length > 0;
-      if (!hasInkChars) {
-        // React just reset the HTML - restore immediately
-        pageContent.innerHTML = preservedInkHTMLRef.current;
-      }
-    });
-    
-    observer.observe(pageContent, {
-      childList: true,
-      subtree: true,
-      characterData: true
-    });
-    
-    // Also check immediately when TOC opens or closes
-    const checkAndRestore = () => {
-      const hasInkChars = pageContent.querySelectorAll('.ink-char-mobile').length > 0;
-      if (!hasInkChars) {
-        requestAnimationFrame(() => {
-          if (pageContentRef.current) {
-            pageContentRef.current.innerHTML = preservedInkHTMLRef.current;
-          }
-        });
-      }
-    };
-    
-    // Check immediately
-    checkAndRestore();
-    
-    // Also check periodically for a bit after TOC state changes
-    const intervalId = setInterval(() => {
-      checkAndRestore();
-    }, 100);
-    
-    const timeoutId = setTimeout(() => {
-      clearInterval(intervalId);
-    }, 3000); // Check for 3 seconds after state change
-    
-    return () => {
-      observer.disconnect();
-      clearInterval(intervalId);
-      clearTimeout(timeoutId);
-    };
+    // no-op for now
   }, [isTOCOpen, pageToDisplay, isTransitioning]);
   
   const pageContentRefCallback = useCallback((node) => {
@@ -5007,15 +4878,7 @@ export const PageReader = ({
         node.innerHTML = preservedInkHTMLRef.current;
       }
       
-      // CRITICAL FIX: Skip applying ink effect on initial load to prevent word spacing issues
-      // Only apply ink effect after user has interacted (swiped) at least once
-      // This ensures the browser has completed its initial text layout calculation
       const applyInkWhenReady = async () => {
-        // Skip ink effect on initial load - wait for user interaction
-        if (!hasUserInteractedRef.current) {
-          return; // Don't apply ink effect until user has swiped at least once
-        }
-        
         // Wait for fonts to be loaded
         if (document.fonts && document.fonts.ready) {
           try {
