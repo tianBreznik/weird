@@ -2754,10 +2754,12 @@ export const PageReader = ({
       }
       
       // Restore initial position immediately when pages are calculated
-      // Cover page is always at index 0, so start there if no bookmark
+      // Start at first page (isFirstPage) if no bookmark, not cover page
       if (newPages.length > 0) {
-        // Find the cover page (should be first)
-        const coverPage = newPages.find(p => p.isCover);
+        // Find the first page (isFirstPage) - this is the actual first page of content
+        const firstPage = newPages.find(p => p.isFirstPage);
+        // Find the cover page as fallback
+        const coverPage = newPages.find(p => p.isCover && !p.isFirstPage);
         
         if (initialPosition) {
           const { chapterId, pageIndex } = initialPosition;
@@ -2769,18 +2771,30 @@ export const PageReader = ({
             if (page) {
               setCurrentChapterIndex(page.chapterIndex);
               setCurrentPageIndex(page.pageIndex);
+            } else if (firstPage) {
+              // Fallback to first page if saved position not found
+              setCurrentChapterIndex(firstPage.chapterIndex);
+              setCurrentPageIndex(firstPage.pageIndex);
             } else if (coverPage) {
-              // Fallback to cover page if saved position not found
+              // Fallback to cover page if no first page exists
               setCurrentChapterIndex(coverPage.chapterIndex);
               setCurrentPageIndex(coverPage.pageIndex);
             }
+          } else if (firstPage) {
+            // No chapterId means start at first page
+            setCurrentChapterIndex(firstPage.chapterIndex);
+            setCurrentPageIndex(firstPage.pageIndex);
           } else if (coverPage) {
-            // No chapterId means start at cover
+            // Fallback to cover page if no first page exists
             setCurrentChapterIndex(coverPage.chapterIndex);
             setCurrentPageIndex(coverPage.pageIndex);
           }
+        } else if (firstPage) {
+          // No saved position, start at first page (not cover page)
+          setCurrentChapterIndex(firstPage.chapterIndex);
+          setCurrentPageIndex(firstPage.pageIndex);
         } else if (coverPage) {
-          // No saved position, start at cover page (first page)
+          // Fallback to cover page if no first page exists
           setCurrentChapterIndex(coverPage.chapterIndex);
           setCurrentPageIndex(coverPage.pageIndex);
         }
