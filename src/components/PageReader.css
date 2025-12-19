@@ -1097,6 +1097,7 @@
   -webkit-text-stroke: 0.75px rgba(255, 214, 0, 0.95);
   text-shadow: none;
   transition: opacity 90ms linear;
+  top: -0.05em; /* Move up slightly to align with text */
 }
 
 .karaoke-slice .karaoke-char.karaoke-char-complete,
