@@ -8,11 +8,14 @@ import { IsolatedButton } from './IsolatedButton';
 
 const KARAOKE_DEBUG = true;
 
-const TOKEN_REGEX = /[\p{L}\p{N}'’]+/gu;
+// Use compatible regex without Unicode property escapes for older Safari support
+// \p{L} = letters, \p{N} = numbers - replaced with explicit ranges
+const TOKEN_REGEX = /[a-zA-Z0-9\u00C0-\u017F\u0400-\u04FF\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF''']+/gu;
 const NORMALIZE_REGEX = /[^a-z0-9']+/g;
 
 const isWhitespace = (char) => /\s/.test(char);
-const isPunctuation = (char) => /[\p{P}\u2019\u2018]/u.test(char);
+// \p{P} = punctuation - replaced with explicit punctuation ranges
+const isPunctuation = (char) => /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~\u2019\u2018]/u.test(char);
 
 // Apply ink effect to text on mobile by wrapping characters in spans
 // This is needed because mobile Safari doesn't render subpixel effects like desktop

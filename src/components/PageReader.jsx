@@ -277,6 +277,7 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
     return true;
   };
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { applyInkEffectToTextMobile } from './Chapter';
 import { ReaderTopBar } from './ReaderTopBar';
 import { MobileTOC } from './MobileTOC';
@@ -296,7 +297,9 @@ const normalizeWord = (value) => {
 
 const tokenizeText = (text) => {
   const tokens = [];
-  const TOKEN_REGEX = /[\p{L}\p{N}'’]+/gu;
+  // Use compatible regex without Unicode property escapes for older Safari support
+  // \p{L} = letters, \p{N} = numbers - replaced with explicit ranges
+  const TOKEN_REGEX = /[a-zA-Z0-9\u00C0-\u017F\u0400-\u04FF\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF''']+/gu;
   for (const match of text.matchAll(TOKEN_REGEX)) {
     const raw = match[0];
     const start = match.index ?? 0;
@@ -2913,7 +2916,8 @@ export const PageReader = ({
     if (!source) return null;
 
     const audio = new Audio(source.audioUrl);
-    audio.preload = 'auto';
+    // iOS Safari doesn't respect 'auto' preload - we'll load explicitly on user gesture
+    audio.preload = 'none'; // Changed from 'auto' - iOS requires explicit load() after user gesture
     // Only set crossOrigin if we need it for Web Audio API (we don't currently)
     // audio.crossOrigin = 'anonymous';
     
@@ -2935,6 +2939,22 @@ export const PageReader = ({
         readyState: audio.readyState,
         duration: audio.duration,
         src: source.audioUrl
+      });
+    });
+    
+    // Log network state changes for debugging
+    audio.addEventListener('loadstart', () => {
+      console.log('[KARAOKE AUDIO] Load started', {
+        networkState: audio.networkState,
+        readyState: audio.readyState
+      });
+    });
+    
+    audio.addEventListener('progress', () => {
+      console.log('[KARAOKE AUDIO] Loading progress', {
+        networkState: audio.networkState,
+        readyState: audio.readyState,
+        buffered: audio.buffered.length > 0 ? audio.buffered.end(0) : 0
       });
     });
 
@@ -3290,20 +3310,28 @@ export const PageReader = ({
           }
           
           // Wait for audio to be ready if needed
+          // iOS Safari requires explicit load() after user gesture
           if (audio.readyState < 4) {
             console.log('[KARAOKE PLAY] Waiting for audio to load in playSlice', {
               readyState: audio.readyState,
               networkState: audio.networkState
             });
             
+            // Explicitly load audio - required on iOS Safari
+            if (audio.networkState === 0 || audio.networkState === 3) {
+              console.log('[KARAOKE PLAY] Explicitly loading audio (iOS compatibility)');
+              audio.load();
+            }
+            
             await new Promise((resolve, reject) => {
               const timeout = setTimeout(() => {
                 reject(new Error('Audio load timeout in playSlice'));
-              }, 10000);
+              }, 20000); // Increased timeout for slower connections (was 10s)
               
               const onReady = () => {
                 clearTimeout(timeout);
                 audio.removeEventListener('canplaythrough', onReady);
+                audio.removeEventListener('loadeddata', onReady);
                 audio.removeEventListener('error', onError);
                 resolve();
               };
@@ -3311,6 +3339,7 @@ export const PageReader = ({
               const onError = (e) => {
                 clearTimeout(timeout);
                 audio.removeEventListener('canplaythrough', onReady);
+                audio.removeEventListener('loadeddata', onReady);
                 audio.removeEventListener('error', onError);
                 reject(e);
               };
@@ -3319,11 +3348,10 @@ export const PageReader = ({
                 clearTimeout(timeout);
                 resolve();
               } else {
+                // Listen to both canplaythrough and loadeddata for better iOS compatibility
                 audio.addEventListener('canplaythrough', onReady, { once: true });
+                audio.addEventListener('loadeddata', onReady, { once: true });
                 audio.addEventListener('error', onError, { once: true });
-                if (audio.networkState === 0) {
-                  audio.load();
-                }
               }
             });
           }
@@ -3553,22 +3581,30 @@ export const PageReader = ({
                 }
                 
                 // Wait for audio to be ready (HAVE_ENOUGH_DATA = 4)
+                // iOS Safari requires explicit load() after user gesture
                 if (audio.readyState < 4) {
                   console.log('[KARAOKE PLAY] Waiting for audio to load', {
                     readyState: audio.readyState,
                     networkState: audio.networkState
                   });
                   
+                  // Explicitly load audio - required on iOS Safari
+                  if (audio.networkState === 0 || audio.networkState === 3) {
+                    console.log('[KARAOKE PLAY] Explicitly loading audio (iOS compatibility)');
+                    audio.load();
+                  }
+                  
                   // Wait for loadeddata or canplaythrough
                   try {
                     await new Promise((resolve, reject) => {
                       const timeout = setTimeout(() => {
                         reject(new Error('Audio load timeout'));
-                      }, 10000); // 10 second timeout
+                      }, 20000); // Increased timeout for slower connections (was 10s)
                       
                       const onReady = () => {
                         clearTimeout(timeout);
                         audio.removeEventListener('canplaythrough', onReady);
+                        audio.removeEventListener('loadeddata', onReady);
                         audio.removeEventListener('error', onError);
                         resolve();
                       };
@@ -3576,6 +3612,7 @@ export const PageReader = ({
                       const onError = (e) => {
                         clearTimeout(timeout);
                         audio.removeEventListener('canplaythrough', onReady);
+                        audio.removeEventListener('loadeddata', onReady);
                         audio.removeEventListener('error', onError);
                         reject(e);
                       };
@@ -3584,12 +3621,10 @@ export const PageReader = ({
                         clearTimeout(timeout);
                         resolve();
                       } else {
+                        // Listen to both canplaythrough and loadeddata for better iOS compatibility
                         audio.addEventListener('canplaythrough', onReady, { once: true });
+                        audio.addEventListener('loadeddata', onReady, { once: true });
                         audio.addEventListener('error', onError, { once: true });
-                        // Also try to load if not already loading
-                        if (audio.networkState === 0) {
-                          audio.load();
-                        }
                       }
                     });
                   } catch (loadErr) {
@@ -5696,10 +5731,11 @@ export const PageReader = ({
           </section>
         </article>
       </div>
-       {pageToDisplay && !pageToDisplay.isFirstPage && !pageToDisplay.isCover && (
+       {pageToDisplay && !pageToDisplay.isFirstPage && !pageToDisplay.isCover && typeof document !== 'undefined' && createPortal(
          <div className="page-number">
-           {currentPageNumber}
-         </div>
+           {currentPageNumber || '?'}
+         </div>,
+         document.body
        )}
        {/* Chapter progress bar - Kindle-like thin gray bar */}
        {pageToDisplay && !pageToDisplay.isFirstPage && !pageToDisplay.isCover && chapterProgress > 0 && (

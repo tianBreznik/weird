@@ -1054,16 +1054,31 @@
 
 /* Page number in bottom right corner */
 .page-number {
-  position: fixed;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 2rem + 1rem); /* Same as footnotes padding + original offset */
-  right: 1rem;
+  position: fixed !important;
+  /* Use fixed value for compatibility - older Safari may not support env() with calc() */
+  /* Position it lower, near the bottom like the original (1rem from bottom, or 1rem + safe area) */
+  bottom: 0.5rem !important;
+  right: 1rem !important;
   font-family: 'Baskerville Old Face', 'Baskerville', 'Garamond', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif;
   font-size: 0.9rem;
-  color: #1f140a;
-  opacity: 0.6;
-  z-index: 100;
+  color: #1f140a !important;
+  opacity: 0.6 !important; /* Restore original opacity */
+  z-index: 99999 !important; /* Very high z-index to ensure it's on top */
   padding: 0.25rem 0.5rem;
   pointer-events: none;
+  /* Ensure visibility on all devices */
+  display: block !important;
+  visibility: visible !important;
+  /* Ensure it's not clipped */
+  overflow: visible !important;
+}
+
+/* Use @supports to add safe area support for modern browsers */
+@supports (bottom: env(safe-area-inset-bottom)) {
+  .page-number {
+    /* Add safe area inset to account for iPhone home indicator, etc. */
+    bottom: calc(env(safe-area-inset-bottom) + 1rem);
+  }
 }
 
 /* Desktop: hide page reader */
@@ -1103,7 +1118,7 @@
 .karaoke-slice .karaoke-word,
 .karaoke-player .karaoke-word {
   position: relative;
-  display: inline;           /* Let the browser treat words as normal inline text */
+  display: inline-block;    /* inline-block for better ::after positioning on older Safari (iPhone 12 Mini fix) */
   white-space: normal;       /* Normal wrapping & justification */
   word-break: normal;        /* Use default word-breaking */
   overflow-wrap: normal;
@@ -1116,6 +1131,7 @@
   font: inherit;
   line-height: inherit;
   letter-spacing: inherit;
+  /* Note: inline-block elements don't hyphenate, but karaoke words are individual words so this is fine */
   /* Fluffy, scanned paper-like text shadow for karaoke text (ink effect disabled - see polish note in PageReader.jsx) */
   text-shadow: 
     0 0.2px 0.4px rgba(0, 0, 0, 0.3),
@@ -1164,7 +1180,15 @@
 .karaoke-player .karaoke-word::after {
   content: attr(data-word);
   position: absolute;
-  inset: 0;
+  /* Use explicit positioning - for inline elements, we need to cover the full width */
+  top: -0.05em; /* Move up slightly to align with text */
+  left: 0;
+  /* Use min-width: 100% to ensure full coverage on older Safari with inline elements */
+  min-width: 100%;
+  width: max-content; /* Allow the overlay to match the word width exactly */
+  height: 100%;
+  bottom: 0;
+  /* Keep pre to match exact character positions - critical for accurate highlighting */
   white-space: pre;
   color: transparent;
   pointer-events: none;
@@ -1176,7 +1200,6 @@
   -webkit-text-stroke: 0.75px rgba(255, 214, 0, 0.95);
   text-shadow: none;
   transition: opacity 90ms linear;
-  top: -0.05em; /* Move up slightly to align with text */
 }
 
 
