@@ -1,155 +1,213 @@
-# Pagination Algorithm Analysis: Issue, Fix, and Current State
+# calculatePages Function Analysis
 
-## The Problem
+## Overview
+The `calculatePages` function is ~2500 lines and can be split into logical sections.
 
-Paragraphs that should have been split were being pushed entirely to the next page instead. Logs showed:
-- First paragraph: `remainingContentHeight: 272px` (plenty of space available)
-- Next paragraph: `remainingContentHeight: 0px` (no space)
+## Current Structure (Lines 445-2955)
 
-This caused the second paragraph to be pushed to the next page instead of being split, even though there was visible space remaining on the current page.
+### 1. **Initialization & Setup** (~225 lines: 445-670)
+**Purpose:** Set up environment, sort chapters, create measurement tools
 
-## Root Cause: Measurement Mismatch
+**Contains:**
+- Viewport calculations
+- Chapter sorting (first page → cover → regular)
+- Footnote setup (getAllFootnotes, create map)
+- Desktop/mobile detection
+- Page dimensions (width/height)
+- Measurement container creation (already extracted to `createMeasureContainer`)
+- Content width calculation
+- Helper function definitions (most already extracted)
 
-The issue was in how `remainingContentHeight` was calculated:
+**Can extract to:** `initializePaginationContext()`
 
-```javascript
-// BEFORE THE FIX (line ~1697):
-const currentPageContentHeight = tempCurrentPageContainer.offsetHeight;
-const remainingContentHeight = Math.max(0, contentAvailableHeight - currentPageContentHeight);
+---
+
+### 2. **Chapter Processing Loop** (~2100 lines: 680-2788)
+**Purpose:** Process each chapter and its content blocks
+
+**Structure:**
+```
+for each chapter:
+  - Determine chapterIndex
+  - Build contentBlocks (chapter + subchapters)
+  - Handle empty pages for special pages
+  - Extract background videos
+  
+  for each contentBlock:
+    - Create epigraph page (if exists)
+    - Process HTML content (parse, load images)
+    - Extract videos
+    - Main element pagination loop
+    - Create video pages
 ```
 
-**The Problem:**
-- The measurement container (`tempCurrentPageContainer`) didn't have the same CSS styling as the rendered page
-- Missing base paragraph styles (font-size, line-height, margins, font-family)
-- Different typography than final rendering
-- **Result:** `currentPageContentHeight` was measured incorrectly
+**Can split into:**
+- **2a. Build Chapter Content Blocks** (~50 lines: 680-788)
+  - Extract to: `buildChapterContentBlocks(chapter)`
+  
+- **2b. Process Content Block** (~2000 lines: 2060-2787)
+  - Epigraph handling
+  - HTML processing
+  - Element pagination loop
+  - Video page creation
+  - Extract to: `processContentBlock(block, chapter, ...)`
 
-**Impact:**
-- If measured smaller than actual → `remainingContentHeight` appeared larger → splitting logic didn't trigger
-- If measured larger than actual → `remainingContentHeight` appeared as 0 → element pushed to next page
+---
 
-## The Fix
+### 3. **Element Pagination Logic** (~550 lines: 2200-2756)
+**Purpose:** Paginate individual elements within a content block
 
-Added `applyParagraphStylesToContainer()` before measuring `currentPageContentHeight`:
+**Contains:**
+- Heading state management
+- Background video handling
+- Karaoke element handling
+- Available height calculation
+- Element fitting logic (atomic vs splittable)
+- Text splitting (sentence/word boundaries)
 
-```javascript
-// AFTER THE FIX (line ~1699):
-applyParagraphStylesToContainer(tempCurrentPageContainer);
-const currentPageContentHeight = tempCurrentPageContainer.offsetHeight;
+**Can extract to:** `paginateElement(element, context, ...)`
+
+**Key functions already extracted:**
+- `splitTextAtSentenceBoundary` ✅
+- `splitTextAtWordBoundary` ✅
+- `isAtomicElement` ✅
+- `handleKaraokeElement` (needs extraction - ~110 lines)
+
+---
+
+### 4. **Page Creation Functions** (~170 lines: 1340-1506)
+**Purpose:** Create page objects from accumulated elements
+
+**Contains:**
+- `pushPage(blockMeta)` - Creates page from currentPageElements
+- `startNewPage(initialHeading)` - Resets page state
+
+**Can extract to:** `createPageFromElements(elements, context, ...)`
+
+---
+
+### 5. **Post-Processing** (~165 lines: 2790-2955)
+**Purpose:** Finalize pages, apply hyphenation, restore position
+
+**Contains:**
+- Cleanup (measure.destroy())
+- Calculate totalPages per chapter
+- Verify page order
+- Apply hyphenation asynchronously
+- Restore initial position
+
+**Can split into:**
+- **5a. Finalize Pages** (~50 lines: 2790-2846)
+  - Extract to: `finalizePages(newPages)`
+  
+- **5b. Apply Hyphenation** (~50 lines: 2852-2905)
+  - Extract to: `applyHyphenationToPages(pages, setPages)`
+  
+- **5c. Restore Position** (~50 lines: 2907-2954)
+  - Extract to: `restoreInitialPosition(newPages, initialPosition, setters)`
+
+---
+
+## Footnote Handling (Cross-Cutting Concern)
+
+Footnotes appear in multiple places throughout the function:
+
+### 1. **Initialization** (Lines 468-474)
+- `getAllFootnotes(chapters)` - Get all footnotes globally
+- `footnoteContentToNumber` Map - Map content to global numbers
+- **Location:** Setup section
+- **Status:** ✅ Already extracted to helpers (`extractFootnotesFromContent`)
+
+### 2. **Helper Functions** (Lines 805-903)
+- `extractFootnotesFromContent(htmlContent)` - Extract footnote refs from HTML
+- `measureFootnotesHeight(footnoteNumbers, container)` - Measure footnote section height
+- **Location:** Helper functions (inside chapter loop)
+- **Status:** ✅ Already extracted to `paginationHelpers.js`
+
+### 3. **Page State Tracking** (Line 792, 797)
+- `currentPageFootnotes` - Set tracking footnotes on current page
+- Reset in `startNewPage()`
+- **Location:** Inside chapter processing loop
+- **Status:** Part of page state management
+
+### 4. **Element Pagination** (Lines 2240-2261, 2342, 2552, 2665, etc.)
+- Extract footnotes from each element
+- Calculate footnote height for available space
+- Track footnotes as elements are added
+- **Location:** Element pagination loop
+- **Used in:** Available height calculation, element fitting logic
+
+### 5. **Page Creation** (Lines 1405-1445)
+- Extract footnotes from `currentPageElements`
+- Replace `^[content]` with superscript numbers
+- Render footnote section HTML
+- Calculate footnote height for padding
+- **Location:** `pushPage()` function
+- **Status:** Needs extraction
+
+### Footnote Flow:
+```
+1. Setup: Get all footnotes → Create map
+2. During pagination: Extract from elements → Track in currentPageFootnotes → Calculate height
+3. Page creation: Extract from content → Replace with superscripts → Render section → Calculate padding
 ```
 
-**What `applyParagraphStylesToContainer()` does:**
-- Applies base paragraph styles to all `<p>` elements:
-  - `font-size: 1.125rem`
-  - `line-height: 1.2`
-  - `margin: 0.45rem 0`
-  - `font-family: 'Times New Roman', ...`
-- Applies poetry block styles if present
-- Preserves inline styles from TipTap (e.g., text-align)
+**Recommendation:** Footnotes are a cross-cutting concern. Consider:
+- Creating a `FootnoteManager` class/object to handle all footnote operations
+- Or pass footnote context through function parameters
+- Keep footnote helpers in `paginationHelpers.js` (already done)
 
-**Result:** Measurement containers now match the rendered page, so `remainingContentHeight` is calculated accurately.
+---
 
-## Current Algorithm State
+## Proposed Extraction Plan
 
-### ✅ Strengths
+### Phase 1: Extract Helper Functions ✅ DONE
+- All helper functions extracted to `paginationHelpers.js`
+- Footnote helpers: `extractFootnotesFromContent`, `measureFootnotesHeight` ✅
 
-1. **Accurate Measurement:** Measurement containers now match actual rendering
-2. **Multiple Split Triggers:**
-   - Element doesn't fit → split
-   - Element fits but overflows with padding → split
-   - Element fits but `remainingContentHeight < 30px` → split (uses small remaining space)
-3. **Handles Edge Cases:**
-   - Footnotes reserve space correctly
-   - Bottom margin (48px) reserved when no footnotes
-   - Atomic elements (images, poetry) can't be split
-   - Sentence-level splitting before word-level
+### Phase 2: Extract Page Creation Logic
+1. Extract `pushPage` → `createPageFromElements()`
+   - **Includes:** Footnote extraction, replacement, rendering, height calculation
+2. Extract `startNewPage` → `initializeNewPage()`
+   - **Includes:** Reset `currentPageFootnotes`
 
-4. **Karaoke Splitting (Special Case):**
-   - **Karaoke blocks CAN be split** across pages (lines 1449-1544)
-   - Uses `handleKaraokeElement()` function which:
-     - Extracts karaoke data (text, word timings, audio URL)
-     - Splits text using `splitTextAtWordBoundary()` 
-     - Creates `.karaoke-slice` elements with `data-karaoke-start` and `data-karaoke-end` attributes
-     - Pushes pages when slices don't fit
-   - **Pause/Resume Functionality:**
-     - Karaoke controller (lines 2127-2527) manages cross-page playback
-     - Tracks `resumeWordIndex` and `resumeTime` for seamless continuation
-     - Automatically pauses at end of slice if more text exists
-     - Resumes on next page at correct word/time position
-     - Uses `waitingForNextPage` flag to coordinate between pages
+### Phase 3: Extract Content Processing
+1. Extract `buildChapterContentBlocks()` 
+2. Extract `processContentBlock()` (large, but self-contained)
+3. Extract `handleKaraokeElement()` (if not already extracted)
 
-### ⚠️ Potential Issues
+### Phase 4: Extract Element Pagination
+1. Extract `paginateElement()` - the main element processing logic
+   - **Includes:** Footnote extraction per element, height calculation
 
-1. **Measurement Accuracy Dependencies:**
-   - Relies on `applyParagraphStylesToContainer()` being called consistently
-   - If CSS changes, measurement may drift
-   - Browser rendering differences can affect `offsetHeight`
+### Phase 5: Extract Post-Processing
+1. Extract `finalizePages()`
+2. Extract `applyHyphenationToPages()`
+3. Extract `restoreInitialPosition()`
 
-2. **Split Threshold:**
-   - `shouldTrySplitDueToSmallSpace` uses `< 30px` threshold
-   - May be too aggressive or too conservative depending on content
-   - May need tuning based on real-world usage
+### Phase 6: Extract Main Function
+1. Create `usePagePagination` hook
+2. Wire everything together
 
-3. **Complexity:**
-   - Multiple code paths (element fits, doesn't fit, overflows with padding, small space)
-   - Harder to debug and maintain
-   - Risk of edge cases
+---
 
-4. **Performance:**
-   - Multiple DOM measurements per element
-   - `applyParagraphStylesToContainer()` runs on every measurement
-   - Could be slow with many elements
+## Benefits of This Approach
 
-### 📋 Recommendations for Stability
+1. **Testability:** Each function can be tested independently
+2. **Maintainability:** Clear separation of concerns
+3. **Readability:** Main function becomes an orchestrator
+4. **Reusability:** Functions can be reused elsewhere
+5. **Debugging:** Easier to isolate issues
 
-1. **Add Unit Tests:**
-   - Test `applyParagraphStylesToContainer()` applies correct styles
-   - Test `remainingContentHeight` calculation with known content
-   - Test splitting logic with various paragraph sizes
+---
 
-2. **Consider Caching Measurements:**
-   - Cache `currentPageContentHeight` until page changes
-   - Avoid recalculating for every element
+## Estimated Line Counts After Extraction
 
-3. **Add Validation:**
-   - Verify `remainingContentHeight >= 0` after calculation
-   - Log warnings if measurements seem inconsistent
+- Main `calculatePages`: ~200-300 lines (orchestration)
+- Helper functions: ~800 lines (already extracted)
+- Page creation: ~200 lines
+- Content processing: ~500 lines
+- Element pagination: ~400 lines
+- Post-processing: ~200 lines
 
-4. **Document the Algorithm:**
-   - Document when splitting occurs
-   - Document measurement assumptions
-   - Document edge cases
-
-## Conclusion
-
-The fix addresses the core measurement mismatch issue. The algorithm should now be more stable, but:
-- Monitor for edge cases in production
-- Consider performance optimizations if needed
-- Keep measurement logic in sync with CSS changes
-
-**The pagination algorithm is now at a more stable point**, but ongoing monitoring and refinement are recommended as content patterns emerge.
-
-## Special Features: Karaoke Splitting
-
-**Karaoke blocks are NOT atomic** - they have their own sophisticated splitting system:
-
-1. **Splitting Logic** (`handleKaraokeElement`, lines 1449-1544):
-   - Splits karaoke text at word boundaries using `splitTextAtWordBoundary()`
-   - Creates multiple `.karaoke-slice` elements across pages
-   - Each slice has `data-karaoke-start` and `data-karaoke-end` attributes
-   - Uses larger bottom margin (64px) for karaoke pages
-
-2. **Pause/Resume System** (Karaoke Controller, lines 2127-2527):
-   - Tracks playback state across page boundaries
-   - Automatically pauses when reaching end of slice
-   - Resumes on next page at correct word/time
-   - Uses `resumeWordIndex` and `resumeTime` for seamless continuation
-   - Handles word-level highlighting across slices
-
-3. **Initialization** (`ensureWordSliceInitialized`, lines 9-121):
-   - Initializes word-level highlighting for each slice
-   - Wraps characters in spans for highlighting
-   - Preserves timing information across splits
-
-This system allows karaoke blocks to span multiple pages while maintaining synchronized audio playback and word highlighting.
-
+**Total:** ~2300 lines (same, but better organized)
