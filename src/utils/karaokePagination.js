@@ -2,6 +2,7 @@ import { assignLetterTimingsToChars } from './paginationHelpers';
 import { splitTextAtWordBoundary } from './paginationHelpers';
 import { measureFootnotesHeight } from './paginationHelpers';
 import { extractFootnotesFromContent } from './paginationHelpers';
+import { hyphenateSync } from 'hyphen/en';
 
 /**
  * Handle karaoke element pagination (splits across pages)
@@ -55,21 +56,69 @@ export const handleKaraokeElement = ({
 
   if (!newKaraokeSources[karaokeId]) {
     // Normalize apostrophes in source text to ensure consistency with extracted text.
-    // IMPORTANT: We do NOT pre-hyphenate karaoke text. We let the browser's own
-    // hyphenation (hyphens:auto + lang="en") decide where to break, exactly like
-    // normal paragraphs. All timing/indexing is done on this clean text.
     const normalizedSourceText = (karaokeData.text || '').replace(/'/g, "'");
 
+    // Apply hyphenation programmatically to eliminate visual glitch during transitions
+    // This ensures text appears hyphenated from the start, matching how it looks after initialization
+    const hyphenatedText = hyphenateSync(normalizedSourceText);
+    
+    // Build position map: maps clean text positions → hyphenated text positions
+    // This accounts for soft hyphens (\u00AD) inserted by hyphenation
+    const positionMap = [];
+    let cleanIdx = 0;
+    let hyphenIdx = 0;
+    while (cleanIdx < normalizedSourceText.length && hyphenIdx < hyphenatedText.length) {
+      if (normalizedSourceText[cleanIdx] === hyphenatedText[hyphenIdx]) {
+        // Same character - map directly
+        positionMap[cleanIdx] = hyphenIdx;
+        cleanIdx++;
+        hyphenIdx++;
+      } else if (hyphenatedText[hyphenIdx] === '\u00AD') {
+        // Soft hyphen in hyphenated text - skip it, don't advance clean index
+        hyphenIdx++;
+      } else {
+        // Mismatch (shouldn't happen, but handle gracefully)
+        positionMap[cleanIdx] = hyphenIdx;
+        cleanIdx++;
+        hyphenIdx++;
+      }
+    }
+    // Fill remaining positions (if any)
+    while (cleanIdx < normalizedSourceText.length) {
+      positionMap[cleanIdx] = hyphenIdx;
+      cleanIdx++;
+    }
+
+    // Calculate timing/indexing on clean text (without soft hyphens)
     const { letterTimings, wordCharRanges } = assignLetterTimingsToChars(
       normalizedSourceText,
       karaokeData.wordTimings || []
     );
 
+    // Adjust wordCharRanges to account for soft hyphens in hyphenated text
+    const adjustedWordCharRanges = wordCharRanges.map((wordRange) => {
+      if (!wordRange) return null;
+      // Map charStart and charEnd from clean text to hyphenated text
+      const adjustedCharStart = positionMap[wordRange.charStart] ?? wordRange.charStart;
+      // charEnd is exclusive, so we need to find the position after the last character
+      const adjustedCharEnd = wordRange.charEnd < normalizedSourceText.length
+        ? (positionMap[wordRange.charEnd] ?? wordRange.charEnd)
+        : hyphenatedText.length;
+      
+      return {
+        ...wordRange,
+        charStart: adjustedCharStart,
+        charEnd: adjustedCharEnd,
+      };
+    });
+
     newKaraokeSources[karaokeId] = {
       ...karaokeData,
       letterTimings,
-      wordCharRanges,
-      text: normalizedSourceText, // Clean text; browser hyphenation handles visual breaks
+      wordCharRanges: adjustedWordCharRanges, // Use adjusted ranges for hyphenated text
+      text: hyphenatedText, // Store hyphenated text for display
+      cleanText: normalizedSourceText, // Keep clean text for reference (if needed)
+      positionMap, // Store position map for debugging/reference
     };
   }
 

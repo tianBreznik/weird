@@ -65,7 +65,7 @@ const applyHyphenationToHTML = (html) => {
   }
 };
 
-const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, startChar, endChar) => {
+const ensureWordSliceInitialized = async (karaokeSourcesRef, karaokeId, sliceElement, startChar, endChar) => {
     if (!sliceElement || !sliceElement.isConnected) {
       console.warn('[[INIT]] Cannot initialize slice - not connected');
       return false;
@@ -83,9 +83,8 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
 
     // Use the source text directly for this slice to preserve newlines.
     // This is more reliable than reading textContent which may have lost <br> tags.
-    // IMPORTANT: This text does NOT contain soft hyphens; browser hyphenation
-    // (hyphens:auto + lang=\"en\") will insert them at render time, exactly like
-    // normal paragraphs. Our indexing logic uses this clean text.
+    // IMPORTANT: This text NOW contains soft hyphens (\u00AD) from programmatic hyphenation.
+    // The wordCharRanges have been adjusted to account for these soft hyphens.
     const sourceText = source.text || '';
     const sliceStart = startChar;
     const sliceEnd = typeof endChar === 'number' ? endChar : sliceStart + sourceText.length;
@@ -175,8 +174,9 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
       if (typeof word.end === 'number') {
         wordSpan.dataset.end = String(word.end);
       }
-      // Store the literal word text for the ::after overlay. This text has no
-      // manual soft hyphens; browser hyphenation will decide where to break.
+      // Store the literal word text for the ::after overlay. This text may contain
+      // soft hyphens (\u00AD) from programmatic hyphenation, which is fine - they're
+      // invisible unless the word breaks, and the ::after overlay will render correctly.
       wordSpan.dataset.word = wordText;
 
       // OPTION A: Keep the DOM as close as possible to normal text so the browser
@@ -266,6 +266,65 @@ const ensureWordSliceInitialized = (karaokeSourcesRef, karaokeId, sliceElement, 
       });
     }
 
+    // CRITICAL: Wait for browser to fully render and apply hyphenation before rebuilding
+    // On the first page, the browser needs time to:
+    // 1. Apply CSS hyphenation (hyphens: none, but soft hyphens from hyphenateSync)
+    // 2. Calculate line breaks based on container width
+    // 3. Render the text with proper wrapping
+    // Only after all this is complete should we clear and rebuild with word spans.
+    // Otherwise, the rebuild will recalculate line breaks and may wrap differently.
+    
+    // Measure the current rendered layout to detect when it's stable
+    const container = sliceElement.closest('.page-content') || sliceElement.parentElement;
+    let previousHeight = 0;
+    let stableCount = 0;
+    const requiredStableFrames = 3; // Require 3 consecutive stable measurements
+    
+    // Wait for layout to stabilize by checking if height/position stops changing
+    await new Promise(resolve => {
+      const checkStability = () => {
+        if (!sliceElement || !sliceElement.isConnected) {
+          resolve();
+          return;
+        }
+        
+        // Measure current layout
+        const currentHeight = sliceElement.getBoundingClientRect().height;
+        const currentTop = sliceElement.getBoundingClientRect().top;
+        
+        // Check if layout is stable (height and position haven't changed)
+        if (Math.abs(currentHeight - previousHeight) < 0.5 && 
+            Math.abs(currentTop - (previousHeight > 0 ? sliceElement.getBoundingClientRect().top : currentTop)) < 0.5) {
+          stableCount++;
+          if (stableCount >= requiredStableFrames) {
+            // Layout is stable, proceed
+            resolve();
+            return;
+          }
+        } else {
+          // Layout changed, reset counter
+          stableCount = 0;
+        }
+        
+        previousHeight = currentHeight;
+        
+        // Continue checking
+        requestAnimationFrame(() => {
+          requestAnimationFrame(checkStability);
+        });
+      };
+      
+      // Start checking after initial render
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          // Give browser time to apply hyphenation
+          setTimeout(() => {
+            checkStability();
+          }, 100);
+        });
+      });
+    });
+    
     sliceElement.innerHTML = '';
     sliceElement.appendChild(fragment);
     
@@ -686,18 +745,18 @@ export const PageReader = ({
         
         // If this is early in playback (first 10 frames), try to re-initialize the slice
         if (currentSlice._stepCount <= 10 && sliceElement && sliceElement.isConnected) {
-          // Try to initialize the slice one more time
-          const wasInitialized = ensureWordSliceInitialized(karaokeSourcesRef, karaokeId, sliceElement, startChar, endChar);
-          if (wasInitialized) {
+          // Try to initialize the slice one more time (fire and forget - async)
+          ensureWordSliceInitialized(karaokeSourcesRef, karaokeId, sliceElement, startChar, endChar).then((wasInitialized) => {
+            if (wasInitialized) {
 // console.log('[[STEP]] Re-initialized slice on frame', currentSlice._stepCount);
-            // Re-query spans after initialization
-            const newSpans = sliceElement.querySelectorAll('.karaoke-word');
-            if (newSpans.length > 0) {
-              // Continue with the new spans
-              wordSpans = newSpans;
-              currentSlice._loggedNoSpans = false; // Reset so we can log again if needed
+              // Re-query spans after initialization
+              const newSpans = sliceElement.querySelectorAll('.karaoke-word');
+              if (newSpans.length > 0) {
+                // Continue with the new spans (will be picked up on next frame)
+                currentSlice._loggedNoSpans = false; // Reset so we can log again if needed
+              }
             }
-          }
+          });
         }
         
         // If still no spans, continue the loop in case they appear later
@@ -888,7 +947,8 @@ export const PageReader = ({
         const hasSpans = sliceElement.querySelectorAll('.karaoke-word').length > 0;
         if (!hasSpans) {
           // Only initialize if not already initialized
-        if (!ensureWordSliceInitialized(karaokeSourcesRef, karaokeId, sliceElement, startChar, endChar)) {
+          const initialized = await ensureWordSliceInitialized(karaokeSourcesRef, karaokeId, sliceElement, startChar, endChar);
+          if (!initialized) {
             console.warn('[[PLAY]] Failed to initialize slice, cannot start playback');
             sliceElement.removeAttribute('data-playing'); // Remove if failed
             return;
@@ -1067,7 +1127,7 @@ export const PageReader = ({
   }, []);
 
   // Initialize karaoke slices on a page
-  const initializeKaraokeSlices = useCallback((pageContentElement) => {
+  const initializeKaraokeSlices = useCallback(async (pageContentElement) => {
     if (!pageContentElement) return;
 
     const slices = pageContentElement.querySelectorAll('.karaoke-slice');
@@ -1076,28 +1136,28 @@ export const PageReader = ({
 //      elementConnected: pageContentElement.isConnected,
 //    });
     
-    slices.forEach((slice) => {
+    for (const slice of slices) {
       // Only process slices that are actually connected to the DOM
       if (!slice.isConnected) {
 // console.log('[[INIT]] Skipping disconnected slice', {
 //          startChar: slice.getAttribute('data-karaoke-start'),
 //          endChar: slice.getAttribute('data-karaoke-end'),
 //        });
-        return;
+        continue;
       }
 
       const karaokeId = slice.getAttribute('data-karaoke-id');
       const startChar = parseInt(slice.getAttribute('data-karaoke-start') || '0', 10);
       const endChar = parseInt(slice.getAttribute('data-karaoke-end') || '0', 10);
 
-      if (!karaokeId) return;
+      if (!karaokeId) continue;
 
       // Initialize slice if not already initialized (has karaoke-word spans)
       const isInitialized = slice.querySelectorAll('.karaoke-word').length > 0;
       if (!isInitialized) {
-        const initialized = ensureWordSliceInitialized(karaokeSourcesRef, karaokeId, slice, startChar, endChar);
+        const initialized = await ensureWordSliceInitialized(karaokeSourcesRef, karaokeId, slice, startChar, endChar);
         if (!initialized) {
-          return;
+          continue;
         }
       } else {
 // console.log('[[INIT]] Skipping already-initialized slice', {
@@ -1111,7 +1171,7 @@ export const PageReader = ({
         slice.dataset.clickHandlerAdded = 'true';
         
         // Use touchend for mobile, click for desktop
-        const handleInteraction = (e) => {
+        const handleInteraction = async (e) => {
           console.log('[KARAOKE TAP] Event received', {
             type: e.type,
             target: e.target?.tagName,
@@ -1174,7 +1234,7 @@ export const PageReader = ({
             // Ensure slice is initialized BEFORE doing anything else
             if (slice.querySelectorAll('.karaoke-word').length === 0) {
 // console.log('Slice not initialized in click handler, initializing now...');
-              const initialized = ensureWordSliceInitialized(karaokeSourcesRef, karaokeId, slice, startChar, endChar);
+              const initialized = await ensureWordSliceInitialized(karaokeSourcesRef, karaokeId, slice, startChar, endChar);
               if (!initialized) {
                 console.error('Failed to initialize slice in click handler');
                 return;
@@ -1331,7 +1391,7 @@ export const PageReader = ({
           slice.addEventListener('click', handleInteraction);
         }
       }
-    });
+    }
   }, [getKaraokeController, unlockAudioContext]);
 
   // Start playback for visible karaoke slice
@@ -2450,11 +2510,11 @@ export const PageReader = ({
       isTransitioningRef.current = false;
       
       // Wait for DOM to settle and slices to be initialized
-      const timer = setTimeout(() => {
+      const timer = setTimeout(async () => {
         const node = pageContentRef.current;
         if (node && node.isConnected) {
           // Ensure slices are initialized before trying to start
-          initializeKaraokeSlices(node);
+          await initializeKaraokeSlices(node);
         }
         
         // POLISH NOTE: Ink effect application to karaoke text is disabled (see note above)
@@ -2470,12 +2530,12 @@ export const PageReader = ({
         } else {
 // console.log('Transition ended, audio not unlocked yet, waiting...');
           // Wait for audio unlock event
-          const handleUnlock = () => {
+          const handleUnlock = async () => {
 // console.log('Audio unlocked after transition, starting karaoke');
-            setTimeout(() => {
+            setTimeout(async () => {
               const node = pageContentRef.current;
               if (node && node.isConnected) {
-                initializeKaraokeSlices(node);
+                await initializeKaraokeSlices(node);
               }
               setTimeout(() => {
                 startVisibleKaraoke();
@@ -2485,13 +2545,13 @@ export const PageReader = ({
           };
           window.addEventListener('audioUnlocked', handleUnlock);
           // Also check periodically in case event was missed
-          const checkInterval = setInterval(() => {
+          const checkInterval = setInterval(async () => {
             if (audioUnlockedRef.current) {
               clearInterval(checkInterval);
               window.removeEventListener('audioUnlocked', handleUnlock);
               const node = pageContentRef.current;
               if (node && node.isConnected) {
-                initializeKaraokeSlices(node);
+                await initializeKaraokeSlices(node);
               }
               setTimeout(() => {
                 startVisibleKaraoke();
@@ -2580,7 +2640,7 @@ export const PageReader = ({
    * Process karaoke content: initialize karaoke slices
    * This only handles karaoke-specific processing
    */
-  const processKaraokeContent = useCallback((node) => {
+  const processKaraokeContent = useCallback(async (node) => {
     if (!node || !node.isConnected) return false;
     
     // Check if karaoke slices need initialization
@@ -2589,7 +2649,7 @@ export const PageReader = ({
     }
     
     try {
-      initializeKaraokeSlices(node);
+      await initializeKaraokeSlices(node);
       return true;
     } catch (error) {
       console.error('[PAGE CONTENT] Error initializing karaoke:', error);
@@ -2723,7 +2783,7 @@ export const PageReader = ({
       
       // Process in order: Karaoke first, then normal text
       // This ensures karaoke structure is ready before normal text processing
-      processKaraokeContent(node);
+      await processKaraokeContent(node);
       processNormalTextContent(node);
       
       // Preserve the final processed HTML

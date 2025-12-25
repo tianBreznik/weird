@@ -393,9 +393,13 @@
   text-justify: inter-word !important;
   word-spacing: -0.08em !important;
   letter-spacing: 0.01em !important;
-  hyphens: auto !important;
-  -webkit-hyphens: auto !important;
-  -moz-hyphens: auto !important;
+  /* Use ONLY programmatic hyphenation (soft hyphens from hyphenateSync)
+     Do NOT use hyphens: auto - it conflicts with soft hyphens and causes
+     visual glitches where hyphen positions change after DOM rebuild.
+     Soft hyphens (\u00AD) work independently and are always respected. */
+  hyphens: none !important;
+  -webkit-hyphens: none !important;
+  -moz-hyphens: none !important;
 }
 
 @media (max-width: 768px) {
@@ -1124,7 +1128,7 @@
 .karaoke-slice .karaoke-word,
 .karaoke-player .karaoke-word {
   position: relative;
-  display: inline-block;    /* inline-block for better ::after positioning on older Safari (iPhone 12 Mini fix) */
+  display: inline;          /* inline allows soft hyphens to break (inline-block prevents it) */
   white-space: normal;       /* Normal wrapping & justification */
   word-break: normal;        /* Use default word-breaking */
   overflow-wrap: normal;
@@ -1137,7 +1141,8 @@
   font: inherit;
   line-height: inherit;
   letter-spacing: inherit;
-  /* Note: inline-block elements don't hyphenate, but karaoke words are individual words so this is fine */
+  /* Note: Changed from inline-block to inline to allow hyphenation. The ::after overlay
+     uses position: absolute with min-width: 100% which should work with inline elements. */
   /* Fluffy, scanned paper-like text shadow for karaoke text (ink effect disabled - see polish note in PageReader.jsx) */
   text-shadow: 
     0 0.2px 0.4px rgba(0, 0, 0, 0.3),
@@ -1235,10 +1240,13 @@
   text-align: justify;
   text-align-last: left;
   text-justify: inter-word;
-  /* Enable hyphenation like normal paragraphs */
-  hyphens: auto;
-  -webkit-hyphens: auto;
-  -moz-hyphens: auto;
+  /* Use ONLY programmatic hyphenation (soft hyphens from hyphenateSync)
+     Do NOT use hyphens: auto - it conflicts with soft hyphens and causes
+     visual glitches where hyphen positions change after DOM rebuild.
+     Soft hyphens (\u00AD) work independently and are always respected. */
+  hyphens: none;
+  -webkit-hyphens: none;
+  -moz-hyphens: none;
   /* Ensure <br> tags are visible and functional - allow line breaks */
   white-space: normal;
 }
