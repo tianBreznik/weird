@@ -324,7 +324,7 @@ const ensureWordSliceInitialized = async (karaokeSourcesRef, karaokeId, sliceEle
         });
       });
     });
-    
+
     sliceElement.innerHTML = '';
     sliceElement.appendChild(fragment);
     
@@ -747,15 +747,15 @@ export const PageReader = ({
         if (currentSlice._stepCount <= 10 && sliceElement && sliceElement.isConnected) {
           // Try to initialize the slice one more time (fire and forget - async)
           ensureWordSliceInitialized(karaokeSourcesRef, karaokeId, sliceElement, startChar, endChar).then((wasInitialized) => {
-            if (wasInitialized) {
+          if (wasInitialized) {
 // console.log('[[STEP]] Re-initialized slice on frame', currentSlice._stepCount);
-              // Re-query spans after initialization
-              const newSpans = sliceElement.querySelectorAll('.karaoke-word');
-              if (newSpans.length > 0) {
+            // Re-query spans after initialization
+            const newSpans = sliceElement.querySelectorAll('.karaoke-word');
+            if (newSpans.length > 0) {
                 // Continue with the new spans (will be picked up on next frame)
-                currentSlice._loggedNoSpans = false; // Reset so we can log again if needed
-              }
+              currentSlice._loggedNoSpans = false; // Reset so we can log again if needed
             }
+          }
           });
         }
         
@@ -918,6 +918,7 @@ export const PageReader = ({
       resumeWordIndex: null,
       resumeTime: null,
       waitingForNextPage: false,
+      manuallyPaused: false, // Track if paused due to manual navigation
 
       playSlice: async (sliceElement, startChar, endChar, options = {}) => {
 // console.log('[[PLAY]] playSlice called', {
@@ -968,6 +969,10 @@ export const PageReader = ({
           resetHighlighting(); // Reset all slices, not just this one
           controller.resumeWordIndex = null;
           controller.resumeTime = null;
+          controller.manuallyPaused = false;
+        } else {
+          // Clear manuallyPaused flag when resuming
+          controller.manuallyPaused = false;
         }
 
         // Calculate highlight start time (when highlighting should begin)
@@ -1102,6 +1107,158 @@ export const PageReader = ({
         audio.pause();
         cancelAnimation();
       },
+      pauseWithResume: () => {
+        // Pause and save resume state for manual navigation
+        if (!currentSlice || !audio) {
+          audio?.pause();
+          cancelAnimation();
+          // Remove data-playing attribute so breathing animation can resume
+          const allSlices = document.querySelectorAll(`[data-karaoke-id="${karaokeId}"].karaoke-slice`);
+          allSlices.forEach((slice) => slice.removeAttribute('data-playing'));
+          return;
+        }
+
+        const current = audio.currentTime;
+        const wordMetadata = source?.wordCharRanges || [];
+        
+        if (!wordMetadata || wordMetadata.length === 0) {
+          audio.pause();
+          cancelAnimation();
+          // Remove data-playing attribute so breathing animation can resume
+          const allSlices = document.querySelectorAll(`[data-karaoke-id="${karaokeId}"].karaoke-slice`);
+          allSlices.forEach((slice) => slice.removeAttribute('data-playing'));
+          return;
+        }
+
+        // Find the current word based on audio time (more reliable than CSS classes)
+        // Find the word that contains the current time, or the last word that has ended
+        let currentWordIndex = null;
+        let currentWord = null;
+
+        // First, try to find a word that is currently active (start <= current < end)
+        for (let i = 0; i < wordMetadata.length; i++) {
+          const word = wordMetadata[i];
+          if (!word || typeof word.start !== 'number' || typeof word.end !== 'number') continue;
+          
+          if (current >= word.start && current < word.end) {
+            // This word is currently being highlighted
+            currentWordIndex = word.wordIndex;
+            currentWord = word;
+            break;
+          }
+        }
+
+        // If no active word found, find the last word that has ended (current >= end)
+        if (!currentWordIndex) {
+          for (let i = wordMetadata.length - 1; i >= 0; i--) {
+            const word = wordMetadata[i];
+            if (!word || typeof word.start !== 'number' || typeof word.end !== 'number') continue;
+            
+            if (current >= word.end) {
+              // This word has completed
+              currentWordIndex = word.wordIndex;
+              currentWord = word;
+              break;
+            }
+          }
+        }
+
+        // If still no word found (audio hasn't started yet), use the first word
+        if (!currentWordIndex && wordMetadata.length > 0) {
+          const firstWord = wordMetadata.find(w => w && typeof w.start === 'number');
+          if (firstWord) {
+            currentWordIndex = firstWord.wordIndex;
+            currentWord = firstWord;
+          }
+        }
+
+        // Save resume state and preserve highlighting
+        if (currentWord && typeof currentWord.start === 'number') {
+          controller.resumeWordIndex = currentWordIndex;
+          controller.resumeTime = current; // Use current audio time for more accuracy
+          controller.manuallyPaused = true;
+          controller.waitingForNextPage = false; // Not waiting for next page, waiting for user to return
+          
+          // Preserve highlighting state: mark all words before current as complete,
+          // and set current word's fill value
+          const { sliceElement } = currentSlice;
+          if (sliceElement && sliceElement.isConnected) {
+            const wordSpans = sliceElement.querySelectorAll('.karaoke-word');
+            wordSpans.forEach((span) => {
+              const spanWordIndex = parseInt(span.dataset.wordIndex ?? '-1', 10);
+              if (spanWordIndex < 0) return;
+              
+              if (spanWordIndex < currentWordIndex) {
+                // Word is before current - mark as complete
+                span.classList.add('karaoke-word-complete');
+                span.classList.remove('karaoke-word-active');
+                span.style.setProperty('--karaoke-fill', '1');
+              } else if (spanWordIndex === currentWordIndex) {
+                // Current word - set fill based on progress
+                const wordStart = currentWord.start;
+                const wordEnd = currentWord.end;
+                const duration = Math.max(wordEnd - wordStart, 0.001);
+                const fillValue = Math.min(Math.max((current - wordStart) / duration, 0), 1);
+                span.style.setProperty('--karaoke-fill', fillValue.toFixed(3));
+                if (fillValue > 0) {
+                  span.classList.add('karaoke-word-active');
+                  span.classList.remove('karaoke-word-complete');
+                }
+              } else {
+                // Word is after current - leave as is (not highlighted)
+                // Don't remove classes in case they were set, just ensure fill is 0
+                if (!span.classList.contains('karaoke-word-active') && !span.classList.contains('karaoke-word-complete')) {
+                  span.style.setProperty('--karaoke-fill', '0');
+                }
+              }
+            });
+          }
+          
+          // Also preserve highlighting on other slices of the same karaoke block
+          const allSlices = document.querySelectorAll(`[data-karaoke-id="${karaokeId}"].karaoke-slice`);
+          allSlices.forEach((slice) => {
+            if (slice === sliceElement) return; // Already processed
+            
+            const sliceStart = parseInt(slice.getAttribute('data-karaoke-start') || '0', 10);
+            const sliceEnd = parseInt(slice.getAttribute('data-karaoke-end') || '0', 10);
+            const currentCharStart = currentWord.charStart;
+            
+            // If this slice is before the current word, mark all words as complete
+            if (sliceEnd <= currentCharStart) {
+              const sliceWordSpans = slice.querySelectorAll('.karaoke-word');
+              sliceWordSpans.forEach((span) => {
+                span.classList.add('karaoke-word-complete');
+                span.classList.remove('karaoke-word-active');
+                span.style.setProperty('--karaoke-fill', '1');
+              });
+            }
+          });
+          
+          console.log('[KARAOKE PAUSE] Saved resume state and preserved highlighting', {
+            karaokeId,
+            resumeWordIndex: currentWordIndex,
+            resumeTime: current,
+            wordStart: currentWord.start,
+            wordEnd: currentWord.end,
+            wordCharStart: currentWord.charStart,
+            wordCharEnd: currentWord.charEnd,
+            controllerExists: !!controller,
+            controllerInMap: karaokeControllersRef.current.has(karaokeId)
+          });
+        } else {
+          console.warn('[KARAOKE PAUSE] Could not find word for resume state', {
+            currentTime: current,
+            wordMetadataLength: wordMetadata.length
+          });
+        }
+
+        audio.pause();
+        cancelAnimation();
+        
+        // Remove data-playing attribute so breathing animation can resume
+        const allSlices = document.querySelectorAll(`[data-karaoke-id="${karaokeId}"].karaoke-slice`);
+        allSlices.forEach((slice) => slice.removeAttribute('data-playing'));
+      },
       stop: () => {
         audio.pause();
         audio.currentTime = 0;
@@ -1204,23 +1361,26 @@ export const PageReader = ({
           e.stopPropagation(); // Prevent swipe from triggering
           e.preventDefault(); // Prevent any default behavior
           
+          // Q11: Ignore taps during page transitions
+          if (isTransitioningRef.current) {
+            console.log('[KARAOKE TAP] Ignored - page is transitioning');
+            return;
+          }
+          
           console.log('[KARAOKE TAP] Processing tap - passed all checks');
 
           const karaokeId = slice.getAttribute('data-karaoke-id');
           const startChar = parseInt(slice.getAttribute('data-karaoke-start') || '0', 10);
           const endChar = parseInt(slice.getAttribute('data-karaoke-end') || '0', 10);
           
-// console.log('Karaoke slice clicked', { karaokeId, startChar, endChar });
-          
-          // Only allow playback to start if this is the first page of the karaoke object (startChar === 0)
-          if (startChar !== 0) {
-            console.log('[KARAOKE TAP] Ignored - not on first page of karaoke object', { startChar });
-            return; // Do nothing if not on first page
+          if (!karaokeId) {
+            console.warn('[KARAOKE TAP] No karaokeId found');
+            return;
           }
           
           // Prevent multiple simultaneous clicks
           if (slice.dataset.processing === 'true') {
-// console.log('Already processing click, ignoring');
+            console.log('[KARAOKE TAP] Already processing, ignoring');
             return;
           }
           slice.dataset.processing = 'true';
@@ -1230,20 +1390,166 @@ export const PageReader = ({
             slice.dataset.processing = 'false';
           }, 500);
           
-          if (karaokeId) {
-            // Ensure slice is initialized BEFORE doing anything else
+          const controller = getKaraokeController(karaokeId);
+          if (!controller || !controller.audio) {
+            console.warn('[KARAOKE TAP] Controller or audio not found', { controller: !!controller, audio: controller?.audio });
+            slice.dataset.processing = 'false';
+            return;
+          }
+          
+          const audio = controller.audio;
+          
+          // Check if karaoke is currently playing using multiple indicators:
+          // 1. Audio is not paused AND has currentTime > 0 (actually playing, not just loaded)
+          // 2. OR any slice of this karaoke has data-playing attribute (set when playback starts, even if audio is temporarily paused during setup)
+          // The data-playing attribute is set immediately when playSlice is called, so if it exists, playback has been initiated
+          const audioIsPlaying = !audio.paused && audio.currentTime > 0;
+          const hasPlayingAttribute = document.querySelector(`[data-karaoke-id="${karaokeId}"][data-playing="true"]`) !== null;
+          const isPlaying = audioIsPlaying || hasPlayingAttribute;
+          
+          // Check if karaoke is paused with resume state
+          const hasResumeState = typeof controller.resumeWordIndex === 'number' && controller.resumeTime !== null;
+          
+          console.log('[KARAOKE TAP] State check', {
+            isPlaying,
+            audioIsPlaying,
+            hasPlayingAttribute,
+            hasResumeState,
+            resumeWordIndex: controller.resumeWordIndex,
+            resumeTime: controller.resumeTime,
+            startChar,
+            audioPaused: audio.paused,
+            audioCurrentTime: audio.currentTime
+          });
+          
+          // If playing, pause it
+          if (isPlaying) {
+            console.log('[KARAOKE TAP] Pausing playback');
+            controller.pauseWithResume();
+            slice.dataset.processing = 'false';
+            return;
+          }
+          
+          // If paused with resume state, resume it (can resume from any page)
+          if (hasResumeState) {
+            console.log('[KARAOKE TAP] Resuming playback');
+            
+            // Ensure slice is initialized
             if (slice.querySelectorAll('.karaoke-word').length === 0) {
-// console.log('Slice not initialized in click handler, initializing now...');
               const initialized = await ensureWordSliceInitialized(karaokeSourcesRef, karaokeId, slice, startChar, endChar);
               if (!initialized) {
-                console.error('Failed to initialize slice in click handler');
+                console.error('[KARAOKE TAP] Failed to initialize slice for resume');
+                slice.dataset.processing = 'false';
                 return;
               }
             }
             
-            const controller = getKaraokeController(karaokeId);
-            if (controller && controller.audio) {
-              const audio = controller.audio;
+            // Find the slice that contains the resume word
+            const sourceForResume = karaokeSourcesRef.current[karaokeId];
+            const resumeWordMeta = sourceForResume?.wordCharRanges?.[controller.resumeWordIndex];
+            const resumeCharPosition = resumeWordMeta ? resumeWordMeta.charStart : null;
+            
+            let targetSlice = slice;
+            let targetStartChar = startChar;
+            let targetEndChar = endChar;
+            
+            // If resume word is not in this slice, find the correct slice
+            if (typeof resumeCharPosition === 'number') {
+              const sStart = parseInt(slice.getAttribute('data-karaoke-start') || '0', 10);
+              const sEnd = parseInt(slice.getAttribute('data-karaoke-end') || '0', 10);
+              const resumeWordEnd = resumeWordMeta ? resumeWordMeta.charEnd : null;
+              const wordStartsInSlice = resumeCharPosition >= sStart && resumeCharPosition < sEnd;
+              const wordEndsInSlice = resumeWordEnd && resumeWordEnd > sStart && resumeWordEnd <= sEnd;
+              const wordSpansSlice = resumeCharPosition < sStart && resumeWordEnd && resumeWordEnd > sEnd;
+              
+              if (!wordStartsInSlice && !wordEndsInSlice && !wordSpansSlice) {
+                // Resume word is not in this slice, find the correct slice
+                const allSlices = document.querySelectorAll(`[data-karaoke-id="${karaokeId}"].karaoke-slice`);
+                for (const otherSlice of allSlices) {
+                  const otherStart = parseInt(otherSlice.getAttribute('data-karaoke-start') || '0', 10);
+                  const otherEnd = parseInt(otherSlice.getAttribute('data-karaoke-end') || '0', 10);
+                  const otherWordStartsInSlice = resumeCharPosition >= otherStart && resumeCharPosition < otherEnd;
+                  const otherWordEndsInSlice = resumeWordEnd && resumeWordEnd > otherStart && resumeWordEnd <= otherEnd;
+                  const otherWordSpansSlice = resumeCharPosition < otherStart && resumeWordEnd && resumeWordEnd > otherEnd;
+                  
+                  if (otherWordStartsInSlice || otherWordEndsInSlice || otherWordSpansSlice) {
+                    targetSlice = otherSlice;
+                    targetStartChar = otherStart;
+                    targetEndChar = otherEnd;
+                    break;
+                  }
+                }
+              }
+            }
+            
+            // Resume playback
+            const playOptions = {
+              resumeWordIndex: controller.resumeWordIndex,
+              resumeTime: controller.resumeTime
+            };
+            
+            // Stop other karaoke instances
+            karaokeControllersRef.current.forEach((ctrl, id) => {
+              if (id !== karaokeId) {
+                ctrl.pause();
+              }
+            });
+            
+            // CRITICAL FOR iOS: audio.play() must be called synchronously within the user gesture handler
+            if (!audioUnlockedRef.current) {
+              console.log('[KARAOKE PLAY] Unlocking audio via karaoke click (iOS-compatible)...');
+              try {
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                  playPromise.then(() => {
+                    audio.pause();
+                    audio.currentTime = 0;
+                  }).catch(() => {});
+                }
+                audioUnlockedRef.current = true;
+                window.dispatchEvent(new CustomEvent('audioUnlocked'));
+              } catch (unlockErr) {
+                console.warn('[KARAOKE PLAY] Unlock attempt had error, but continuing', unlockErr);
+                audioUnlockedRef.current = true;
+                window.dispatchEvent(new CustomEvent('audioUnlocked'));
+              }
+            }
+            
+            // Resume playback
+            (async () => {
+              try {
+                controller.playSlice(targetSlice, targetStartChar, targetEndChar, playOptions);
+                currentKaraokeSliceRef.current = { karaokeId, sliceElement: targetSlice, startChar: targetStartChar, endChar: targetEndChar };
+              } catch (playErr) {
+                console.error('[KARAOKE PLAY] Failed to resume playback', playErr);
+              }
+            })();
+            
+            slice.dataset.processing = 'false';
+            return;
+          }
+          
+          // If not started yet, only allow starting on first page
+          if (startChar !== 0) {
+            console.log('[KARAOKE TAP] Ignored - not on first page of karaoke object', { startChar });
+            slice.dataset.processing = 'false';
+            return;
+          }
+          
+          // Start new playback
+          console.log('[KARAOKE TAP] Starting new playback');
+          
+          // Ensure slice is initialized BEFORE doing anything else
+          if (slice.querySelectorAll('.karaoke-word').length === 0) {
+            const initialized = await ensureWordSliceInitialized(karaokeSourcesRef, karaokeId, slice, startChar, endChar);
+            if (!initialized) {
+              console.error('[KARAOKE TAP] Failed to initialize slice in click handler');
+              slice.dataset.processing = 'false';
+              return;
+            }
+          }
+          
+          if (controller && controller.audio) {
               
               // CRITICAL FOR iOS: audio.play() must be called synchronously within the user gesture handler
               // On iOS, attempting audio.play() (even if it fails) unlocks the audio context
@@ -1329,7 +1635,7 @@ export const PageReader = ({
                       if (audio.readyState >= 4) {
                         clearTimeout(timeout);
                         resolve();
-                      } else {
+              } else {
                         // Listen to both canplaythrough and loadeddata for better iOS compatibility
                         audio.addEventListener('canplaythrough', onReady, { once: true });
                         audio.addEventListener('loadeddata', onReady, { once: true });
@@ -1345,17 +1651,17 @@ export const PageReader = ({
                 // Now start actual playback
                 try {
                   // Stop other karaoke instances
-                  karaokeControllersRef.current.forEach((ctrl, id) => {
-                    if (id !== karaokeId) {
-                      ctrl.pause();
-                    }
-                  });
+                karaokeControllersRef.current.forEach((ctrl, id) => {
+                  if (id !== karaokeId) {
+                    ctrl.pause();
+                  }
+                });
                   
-                  controller.resumeWordIndex = null;
-                  controller.resumeTime = null;
-                  controller.waitingForNextPage = false;
-                  controller.playSlice(slice, startChar, endChar);
-                  currentKaraokeSliceRef.current = { karaokeId, sliceElement: slice, startChar, endChar };
+                controller.resumeWordIndex = null;
+                controller.resumeTime = null;
+                controller.waitingForNextPage = false;
+                controller.playSlice(slice, startChar, endChar);
+                currentKaraokeSliceRef.current = { karaokeId, sliceElement: slice, startChar, endChar };
                 } catch (playErr) {
                   console.error('[KARAOKE PLAY] Failed to start playback', playErr);
                 }
@@ -1363,7 +1669,6 @@ export const PageReader = ({
             } else {
               console.warn('[KARAOKE PLAY] Controller or audio not found', { controller: !!controller, audio: controller?.audio });
             }
-          }
         };
         
         // Use touchend for mobile, click for desktop
@@ -1392,7 +1697,25 @@ export const PageReader = ({
         }
       }
     }
-  }, [getKaraokeController, unlockAudioContext]);
+  }, [getKaraokeController]);
+
+  // Helper function to pause all playing karaoke and save resume state
+  const pauseAllKaraoke = useCallback(() => {
+    karaokeControllersRef.current.forEach((ctrl) => {
+      if (ctrl.pauseWithResume) {
+        ctrl.pauseWithResume();
+      } else {
+        ctrl.pause(); // Fallback if method doesn't exist
+      }
+    });
+  }, []);
+
+  // Helper function to stop all playing karaoke (cleanup)
+  const stopAllKaraoke = useCallback(() => {
+    karaokeControllersRef.current.forEach((ctrl) => {
+      ctrl.stop();
+    });
+  }, []);
 
   // Start playback for visible karaoke slice
   const startVisibleKaraoke = useCallback(() => {
@@ -1429,11 +1752,12 @@ export const PageReader = ({
         resumeController = getKaraokeController(firstKaraokeId);
         if (resumeController && typeof resumeController.resumeWordIndex === 'number' && resumeController.resumeTime !== null) {
           hasResumeState = true;
-// console.log('[[RESUME]] Resume state found BEFORE initialization', {
-//            karaokeId: firstKaraokeId,
-//            resumeWordIndex: resumeController.resumeWordIndex,
-//            resumeTime: resumeController.resumeTime,
-//          });
+          console.log('[KARAOKE RESUME] Resume state found BEFORE initialization', {
+            karaokeId: firstKaraokeId,
+            resumeWordIndex: resumeController.resumeWordIndex,
+            resumeTime: resumeController.resumeTime,
+            manuallyPaused: resumeController.manuallyPaused
+          });
         }
       }
     }
@@ -1475,15 +1799,26 @@ export const PageReader = ({
       // Try to find the slice on this page that contains the resume word
       const resumeIndex = controller.resumeWordIndex;
       const sourceForResume = karaokeSourcesRef.current[firstKaraokeId];
+      
+      console.log('[KARAOKE RESUME] Checking for resume state', {
+        resumeWordIndex: resumeIndex,
+        resumeTime: controller.resumeTime,
+        manuallyPaused: controller.manuallyPaused,
+        hasSource: !!sourceForResume,
+        wordCharRangesLength: sourceForResume?.wordCharRanges?.length,
+        firstKaraokeId
+      });
+      
       const resumeWordMeta = sourceForResume?.wordCharRanges?.[resumeIndex];
       const resumeCharPosition = resumeWordMeta ? resumeWordMeta.charStart : null;
-// console.log('[[RESUME]] Resume state detected', {
-//        resumeWordIndex: resumeIndex,
-//        resumeCharPosition,
-//        resumeTime: controller.resumeTime,
-//        waitingForNextPage: controller.waitingForNextPage,
-//        note: 'Checking for resume even if waitingForNextPage is false',
-//      });
+      
+      console.log('[KARAOKE RESUME] Resume word lookup', {
+        resumeIndex,
+        foundWord: !!resumeWordMeta,
+        resumeCharPosition,
+        wordCharStart: resumeWordMeta?.charStart,
+        wordCharEnd: resumeWordMeta?.charEnd
+      });
 
       if (typeof resumeCharPosition === 'number') {
         for (const slice of slices) {
@@ -1494,22 +1829,79 @@ export const PageReader = ({
 //            sEnd,
 //            resumeCharPosition,
 //          });
-          if (resumeCharPosition >= sStart && resumeCharPosition < sEnd) {
+          // Check if resume word is in this slice (inclusive of end boundary)
+          // A word at charStart is in the slice if: sStart <= charStart < sEnd
+          // But we also need to check if the word ENDS in this slice, so check charEnd too
+          const resumeWordEnd = resumeWordMeta ? resumeWordMeta.charEnd : null;
+          const wordStartsInSlice = resumeCharPosition >= sStart && resumeCharPosition < sEnd;
+          const wordEndsInSlice = resumeWordEnd && resumeWordEnd > sStart && resumeWordEnd <= sEnd;
+          const wordSpansSlice = resumeCharPosition < sStart && resumeWordEnd && resumeWordEnd > sEnd;
+          
+          if (wordStartsInSlice || wordEndsInSlice || wordSpansSlice) {
             targetSlice = slice;
             targetStartChar = sStart;
             targetEndChar = sEnd;
             resumeWordIndex = resumeIndex;
+            console.log('[KARAOKE RESUME] Found resume word on this page', {
+              sliceStart: sStart,
+              sliceEnd: sEnd,
+              resumeCharStart: resumeCharPosition,
+              resumeCharEnd: resumeWordEnd,
+              resumeWordIndex: resumeIndex
+            });
             break;
           }
         }
       }
 
       if (resumeWordIndex === null) {
-        console.warn('[[RESUME]] No slice on this page contains resumeIndex, falling back to first slice', {
+        // Resume word is not on this page - don't start karaoke here
+        // But we should still restore highlighting for words that are before the resume word
+        const sourceForHighlighting = karaokeSourcesRef.current[firstKaraokeId];
+        const resumeWordMetaForHighlighting = sourceForHighlighting?.wordCharRanges?.[resumeIndex];
+        
+        if (resumeWordMetaForHighlighting) {
+          // Restore highlighting for all slices on this page that are before the resume word
+          slices.forEach((slice) => {
+            const sliceStart = parseInt(slice.getAttribute('data-karaoke-start') || '0', 10);
+            const sliceEnd = parseInt(slice.getAttribute('data-karaoke-end') || '0', 10);
+            const resumeCharStart = resumeWordMetaForHighlighting.charStart;
+            
+            // If this slice is entirely before the resume word, mark all words as complete
+            if (sliceEnd <= resumeCharStart) {
+              const wordSpans = slice.querySelectorAll('.karaoke-word');
+              wordSpans.forEach((span) => {
+                span.classList.add('karaoke-word-complete');
+                span.classList.remove('karaoke-word-active');
+                span.style.setProperty('--karaoke-fill', '1');
+              });
+            } else {
+              // Slice might contain words before and after resume - mark only words before as complete
+              const wordSpans = slice.querySelectorAll('.karaoke-word');
+              wordSpans.forEach((span) => {
+                const spanWordIndex = parseInt(span.dataset.wordIndex ?? '-1', 10);
+                if (spanWordIndex >= 0 && spanWordIndex < resumeIndex) {
+                  span.classList.add('karaoke-word-complete');
+                  span.classList.remove('karaoke-word-active');
+                  span.style.setProperty('--karaoke-fill', '1');
+                }
+              });
+            }
+          });
+          
+          console.log('[KARAOKE RESUME] Restored highlighting on page without resume word', {
+            resumeWordIndex: resumeIndex,
+            slicesProcessed: slices.length
+          });
+        }
+        
+        console.log('[[RESUME]] Resume word not on this page, skipping auto-start', {
           requestedResumeIndex: resumeIndex,
           controllerResumeWordIndex: controller.resumeWordIndex,
+          currentPageSlices: slices.length,
+          note: 'Will resume when user navigates to the correct page'
         });
-        // Don't clear waitingForNextPage if we didn't find the right slice
+        return; // Don't start karaoke on this page
       } else {
         // We found the right slice - clear waiting flag after we start playback
         // (We'll clear it in playSlice after successful start)
@@ -1555,6 +1947,56 @@ export const PageReader = ({
     const finalResumeWordIndex = typeof controller.resumeWordIndex === 'number' ? controller.resumeWordIndex : resumeWordIndex;
     const finalResumeTime = controller.resumeTime !== null ? controller.resumeTime : null;
     
+    // If we have resume state, restore highlighting for all slices before resuming
+    if (typeof finalResumeWordIndex === 'number' && finalResumeTime !== null) {
+      const sourceForHighlighting = karaokeSourcesRef.current[firstKaraokeId];
+      const resumeWordMeta = sourceForHighlighting?.wordCharRanges?.[finalResumeWordIndex];
+      
+      if (resumeWordMeta) {
+        // Restore highlighting for all slices of this karaoke block
+        const allSlices = document.querySelectorAll(`[data-karaoke-id="${firstKaraokeId}"].karaoke-slice`);
+        allSlices.forEach((slice) => {
+          const sliceStart = parseInt(slice.getAttribute('data-karaoke-start') || '0', 10);
+          const sliceEnd = parseInt(slice.getAttribute('data-karaoke-end') || '0', 10);
+          const resumeCharStart = resumeWordMeta.charStart;
+          const resumeCharEnd = resumeWordMeta.charEnd;
+          
+          const wordSpans = slice.querySelectorAll('.karaoke-word');
+          wordSpans.forEach((span) => {
+            const spanWordIndex = parseInt(span.dataset.wordIndex ?? '-1', 10);
+            if (spanWordIndex < 0) return;
+            
+            if (spanWordIndex < finalResumeWordIndex) {
+              // Word is before resume point - mark as complete
+              span.classList.add('karaoke-word-complete');
+              span.classList.remove('karaoke-word-active');
+              span.style.setProperty('--karaoke-fill', '1');
+            } else if (spanWordIndex === finalResumeWordIndex) {
+              // Resume word - set fill based on resume time
+              const wordStart = resumeWordMeta.start;
+              const wordEnd = resumeWordMeta.end;
+              if (typeof wordStart === 'number' && typeof wordEnd === 'number') {
+                const duration = Math.max(wordEnd - wordStart, 0.001);
+                const fillValue = Math.min(Math.max((finalResumeTime - wordStart) / duration, 0), 1);
+                span.style.setProperty('--karaoke-fill', fillValue.toFixed(3));
+                if (fillValue > 0) {
+                  span.classList.add('karaoke-word-active');
+                  span.classList.remove('karaoke-word-complete');
+                }
+              }
+            }
+            // Words after resume point are left unhighlighted (will be highlighted during playback)
+          });
+        });
+        
+        console.log('[KARAOKE RESUME] Restored highlighting state', {
+          resumeWordIndex: finalResumeWordIndex,
+          resumeTime: finalResumeTime,
+          slicesProcessed: allSlices.length
+        });
+      }
+    }
+    
     // Start playback – if we have a resumeWordIndex, use it to start mid-slice
 // console.log('[[PLAY]] Starting karaoke playback', { 
 //      resumeWordIndex: finalResumeWordIndex, 
@@ -1566,6 +2008,15 @@ export const PageReader = ({
       typeof finalResumeWordIndex === 'number' && finalResumeTime !== null
         ? { resumeWordIndex: finalResumeWordIndex, resumeTime: finalResumeTime }
         : {};
+
+    console.log('[KARAOKE RESUME] About to start playback', {
+      hasResumeState: typeof finalResumeWordIndex === 'number' && finalResumeTime !== null,
+      resumeWordIndex: finalResumeWordIndex,
+      resumeTime: finalResumeTime,
+      targetStartChar,
+      targetEndChar,
+      playOptions
+    });
 
     controller.playSlice(targetSlice, targetStartChar, targetEndChar, playOptions);
     currentKaraokeSliceRef.current = {
@@ -1603,16 +2054,16 @@ export const PageReader = ({
       if (pages.length > 0) {
         const firstPage = pages.find(p => p.isFirstPage);
         if (firstPage) {
-          setIsTransitioning(true);
+        setIsTransitioning(true);
           setCurrentChapterIndex(firstPage.chapterIndex);
           setCurrentPageIndex(firstPage.pageIndex);
+        requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              setIsTransitioning(false);
-            });
+            setIsTransitioning(false);
           });
+        });
           if (onPageChange) {
-            onPageChange({
+          onPageChange({
               chapterId: firstPage.chapterId,
               pageIndex: firstPage.pageIndex,
             });
@@ -1733,6 +2184,8 @@ export const PageReader = ({
             // Sort by pageIndex to get the first page
             pagesOfFirstChapter.sort((a, b) => a.pageIndex - b.pageIndex);
             const firstPageOfFirstChapter = pagesOfFirstChapter[0];
+            // Q2: Pause karaoke when navigating from cover to first chapter (skipping pages)
+            pauseAllKaraoke();
             setIsTransitioning(true);
             setTimeout(() => {
               setDisplayPage(firstPageOfFirstChapter);
@@ -1763,31 +2216,33 @@ export const PageReader = ({
         return;
       }
       const nextChapterIndex = sortedChapterIndices[currentIdxInSorted + 1];
-      const firstPageOfNextChapter = pages.find(
+        const firstPageOfNextChapter = pages.find(
         (p) => !p.isCover && !p.isFirstPage && p.chapterIndex === nextChapterIndex && p.pageIndex === 0
-      );
-      if (firstPageOfNextChapter) {
-        setIsTransitioning(true);
-        // Wait for fade-out to complete (1s), then update content and fade in
-        setTimeout(() => {
-          // Update both displayPage and indices together
-          setDisplayPage(firstPageOfNextChapter);
+        );
+        if (firstPageOfNextChapter) {
+          // Q2: Pause karaoke when skipping to a different chapter (user skipped pages)
+          pauseAllKaraoke();
+          setIsTransitioning(true);
+          // Wait for fade-out to complete (1s), then update content and fade in
+          setTimeout(() => {
+            // Update both displayPage and indices together
+            setDisplayPage(firstPageOfNextChapter);
           setCurrentChapterIndex(nextChapterIndex);
-          setCurrentPageIndex(0);
-          // Wait for DOM to update and ink effect to be applied before starting fade-in
-          requestAnimationFrame(() => {
+            setCurrentPageIndex(0);
+            // Wait for DOM to update and ink effect to be applied before starting fade-in
             requestAnimationFrame(() => {
-              setIsTransitioning(false);
+              requestAnimationFrame(() => {
+                setIsTransitioning(false);
+              });
             });
-          });
-        }, 1000); // Wait for full fade-out duration
+          }, 1000); // Wait for full fade-out duration
 
-        if (onPageChange) {
-          onPageChange({
+          if (onPageChange) {
+            onPageChange({
             chapterId: firstPageOfNextChapter.chapterId,
-            pageIndex: 0,
-            subchapterId: firstPageOfNextChapter.subchapterId,
-          });
+              pageIndex: 0,
+              subchapterId: firstPageOfNextChapter.subchapterId,
+            });
         }
       }
     }
@@ -1841,7 +2296,7 @@ export const PageReader = ({
     if (deltaY > 0) {
       e.preventDefault();
     }
-    
+      
     // Track vertical swipe down for TOC drag
     if (!isTOCOpen && Math.abs(deltaY) > Math.abs(deltaX) && deltaY > 0) {
       // Swiping down - track the drag progress
@@ -1941,6 +2396,9 @@ export const PageReader = ({
           return; // Don't proceed if no content
         }
         
+        // Q1: Pause karaoke when swiping backward (user can resume when swiping forward again)
+        pauseAllKaraoke();
+        
         setIsTransitioning(true);
         // Wait for fade-out to complete (1s), then update content and fade in
         setTimeout(() => {
@@ -1973,6 +2431,8 @@ export const PageReader = ({
       if (currentChapterIndex === -1) {
         const firstPage = pages.find(p => p.isFirstPage && p.chapterIndex === -2);
         if (firstPage) {
+          // Q1: Pause karaoke when navigating from cover to first page (backward navigation)
+          pauseAllKaraoke();
           setIsTransitioning(true);
           setTimeout(() => {
             setDisplayPage(firstPage);
@@ -2024,32 +2484,34 @@ export const PageReader = ({
         return;
       }
       const prevChapterIndex = sortedChapterIndices[currentIdxInSorted - 1];
-      const lastPageOfPrevChapter = pages
+          const lastPageOfPrevChapter = pages
         .filter((p) => !p.isCover && !p.isFirstPage && p.chapterIndex === prevChapterIndex)
-        .sort((a, b) => b.pageIndex - a.pageIndex)[0];
+            .sort((a, b) => b.pageIndex - a.pageIndex)[0];
 
       if (lastPageOfPrevChapter) {
+        // Q1: Pause karaoke when navigating to previous chapter (backward navigation)
+        pauseAllKaraoke();
         setIsTransitioning(true);
-        // Wait for fade-out to complete (1s), then update content and fade in
-        setTimeout(() => {
-          // Update both displayPage and indices together
-          setDisplayPage(lastPageOfPrevChapter);
+            // Wait for fade-out to complete (1s), then update content and fade in
+            setTimeout(() => {
+              // Update both displayPage and indices together
+              setDisplayPage(lastPageOfPrevChapter);
           setCurrentChapterIndex(prevChapterIndex);
-          setCurrentPageIndex(lastPageOfPrevChapter.pageIndex);
-          // Wait for DOM to update and ink effect to be applied before starting fade-in
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              setIsTransitioning(false);
-            });
-          });
-        }, 1000); // Wait for full fade-out duration
+              setCurrentPageIndex(lastPageOfPrevChapter.pageIndex);
+              // Wait for DOM to update and ink effect to be applied before starting fade-in
+              requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                  setIsTransitioning(false);
+                });
+              });
+            }, 1000); // Wait for full fade-out duration
 
-        if (onPageChange) {
-          onPageChange({
+            if (onPageChange) {
+              onPageChange({
             chapterId: lastPageOfPrevChapter.chapterId,
-            pageIndex: lastPageOfPrevChapter.pageIndex,
-            subchapterId: lastPageOfPrevChapter.subchapterId,
-          });
+                pageIndex: lastPageOfPrevChapter.pageIndex,
+                subchapterId: lastPageOfPrevChapter.subchapterId,
+              });
         }
       }
     }
@@ -2586,8 +3048,8 @@ export const PageReader = ({
   useEffect(() => {
     prevIsTOCOpenRef.current = isTOCOpen;
     isTOCClosingRef.current = false;
-    if (restoreTimeoutRef.current) {
-      clearTimeout(restoreTimeoutRef.current);
+      if (restoreTimeoutRef.current) {
+        clearTimeout(restoreTimeoutRef.current);
       restoreTimeoutRef.current = null;
     }
   }, [isTOCOpen]);
@@ -2703,11 +3165,11 @@ export const PageReader = ({
     pageContentRef.current = node;
     if (!node || !node.isConnected) return;
     
-    // Get current page key to track which page this HTML belongs to
-    const currentPageKey = pageToDisplay 
-      ? `page-${pageToDisplay.chapterIndex}-${pageToDisplay.pageIndex}`
-      : null;
-    
+      // Get current page key to track which page this HTML belongs to
+      const currentPageKey = pageToDisplay 
+        ? `page-${pageToDisplay.chapterIndex}-${pageToDisplay.pageIndex}`
+        : null;
+      
     if (!currentPageKey) return;
     
     console.log('[PAGE CONTENT CALLBACK] Node connected', {
@@ -2757,7 +3219,7 @@ export const PageReader = ({
       
       // Small delay to ensure layout is stable
       await new Promise(resolve => {
-        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             setTimeout(resolve, 100);
           });
@@ -2805,6 +3267,47 @@ export const PageReader = ({
     // -------------------------------
     
   }, [pageToDisplay, isTransitioningRef, hasInitializedKaraoke, hasInkEffect, preservePageContent, restorePageContent, processKaraokeContent, processNormalTextContent, ensureContentSet, initializeKaraokeSlices]);
+
+  // Q5: Pause karaoke when tab goes to background
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Tab went to background - pause all karaoke
+        pauseAllKaraoke();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [pauseAllKaraoke]);
+
+  // Q6: Stop karaoke when device goes to sleep
+  useEffect(() => {
+    const handlePageHide = () => {
+      // Device going to sleep or page unloading - stop all karaoke
+      stopAllKaraoke();
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, [stopAllKaraoke]);
+
+  // Q9: Stop karaoke on browser navigation (back/forward)
+  useEffect(() => {
+    const handlePopState = () => {
+      // Browser navigation occurred - stop all karaoke
+      stopAllKaraoke();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [stopAllKaraoke]);
 
   // Prevent pull-to-refresh on mobile - use document-level listener with passive: false
   // This is necessary because React's onTouchMove may be passive, preventing preventDefault
@@ -3078,9 +3581,9 @@ export const PageReader = ({
               (p) => p.chapterIndex === page.chapterIndex && p.pageIndex === page.pageIndex
             ) + 1;
             const shouldShowTopBar = page && !page.hasHeading && !page.isEpigraph && !page.isCover && !page.isFirstPage && page.pageIndex > 0;
-            
-            return (
-              <div
+
+  return (
+    <div
                 key={pageKey}
                 id={`pdf-page-${index}`}
                 className="pdf-page-wrapper"
@@ -3093,7 +3596,7 @@ export const PageReader = ({
               >
                 <article className={`page-sheet content-page ${page?.isEpigraph ? 'epigraph-page' : ''} ${page?.isVideo ? 'video-page' : ''} ${page?.isCover ? 'cover-page' : ''} ${page?.isFirstPage ? 'first-page' : ''}`}>
                   {/* Background videos disabled in desktop PDF viewer for now */}
-                  <section className="page-body content-body">
+          <section className="page-body content-body">
                     {page?.isCover ? (
                       <div 
                         className="page-content"
@@ -3280,14 +3783,14 @@ export const PageReader = ({
     <>
       {backgroundImage}
       {pageToDisplay.backgroundVideo && (
-        <video
-          ref={backgroundVideoRef}
-          src={pageToDisplay.backgroundVideo}
-          loop
-          muted
-          playsInline
-          preload="auto"
-          className="background-video"
+                <video
+                  ref={backgroundVideoRef}
+                  src={pageToDisplay.backgroundVideo}
+                  loop
+                  muted
+                  playsInline
+                  preload="auto"
+                  className="background-video"
           style={{
             position: 'fixed',
             top: 0,
@@ -3375,18 +3878,18 @@ export const PageReader = ({
               </div>
              ) : pageToDisplay && !pageToDisplay.isCover && !pageToDisplay.isFirstPage && (
               <div 
-                  key={pageKey}
-                  ref={pageContentRefCallback} 
-                  className={`page-content ${pageToDisplay.backgroundVideo ? 'background-video-text' : ''}`}
+                key={pageKey}
+                ref={pageContentRefCallback} 
+                className={`page-content ${pageToDisplay.backgroundVideo ? 'background-video-text' : ''}`}
                   dangerouslySetInnerHTML={{ __html: pageToDisplay.content || '' }} 
                   style={pageToDisplay.backgroundVideo ? { position: 'relative', zIndex: 1 } : {}}
-                />
+              />
             )}
           </section>
         </article>
       </div>
        {pageToDisplay && !pageToDisplay.isFirstPage && !pageToDisplay.isCover && typeof document !== 'undefined' && createPortal(
-         <div className="page-number">
+      <div className="page-number">
            {currentPageNumber || '?'}
          </div>,
          document.body
@@ -3398,7 +3901,7 @@ export const PageReader = ({
              className="chapter-progress-fill" 
              style={{ width: `${chapterProgress * 100}%` }}
            />
-         </div>
+      </div>
        )}
       {shouldShowTopBar && pageToDisplay && (
         <ReaderTopBar
