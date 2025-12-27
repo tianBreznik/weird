@@ -9,7 +9,7 @@ import 'simplebar-react/dist/simplebar.min.css';
 import { TextSelection } from 'prosemirror-state';
 import { uploadImageToStorage, uploadVideoToStorage } from '../services/storage';
 import { generateWordTimingsWithDeepgram } from '../services/autoTiming';
-import { KaraokeBlock, Dinkus, Highlight, TextColor, Underline, FootnoteRef, Indent, Video, CustomImage, InlineImage, Poetry } from '../extensions/tiptapExtensions.js';
+import { KaraokeBlock, Dinkus, Highlight, TextColor, Underline, FootnoteRef, Indent, Video, CustomImage, InlineImage, Poetry, FieldNotesBlock } from '../extensions/tiptapExtensions.js';
 import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import { FootnotePlugin } from '../extensions/footnotePlugin.js';
@@ -49,6 +49,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   const imageInputRef = useRef(null);
   const inlineImageInputRef = useRef(null);
   const videoFileInputRef = useRef(null);
+  const fieldNotesImageInputRef = useRef(null);
   const autosaveTimerRef = useRef(null);
   const colorInputRef = useRef(null);
   const highlightInputRef = useRef(null);
@@ -67,6 +68,8 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   const [karaokeTimingFile, setKaraokeTimingFile] = useState(null);
   const [karaokeTimingMethod, setKaraokeTimingMethod] = useState('upload'); // 'upload' or 'auto'
   const [generatingTimings, setGeneratingTimings] = useState(false);
+  const [fieldNotesImageFile, setFieldNotesImageFile] = useState(null);
+  const [uploadingFieldNotes, setUploadingFieldNotes] = useState(false);
   const [showEpigraphDialog, setShowEpigraphDialog] = useState(false);
   const [epigraphDraft, setEpigraphDraft] = useState({
     text: '',
@@ -128,6 +131,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       // FootnotePlugin, // DISABLED: InputRule interferes with typing - using manual conversion instead
       // Adding back KaraokeBlock
       KaraokeBlock,
+      FieldNotesBlock,
     ],
     content: '',
     editable: true, // Explicitly enable editing
@@ -2290,7 +2294,56 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     setKaraokeAudioUrl('');
     setKaraokeTimingFile(null);
     setGeneratingTimings(false);
-    setPendingInsertTick((tick) => tick + 1);
+  };
+
+  const handleInsertFieldNotes = async (file = null) => {
+    const imageFile = file || fieldNotesImageFile;
+    if (!imageFile) {
+      alert('Please select an image file for the field notes.');
+      return;
+    }
+    
+    if (!editor) return;
+    
+    setUploadingFieldNotes(true);
+    setImageUploadProgress(0);
+    
+    try {
+      // Upload image to Firebase Storage
+      const downloadURL = await uploadImageToStorage(imageFile, {
+        onProgress: (progress) => {
+          setImageUploadProgress(progress);
+        },
+      });
+      
+      if (!downloadURL) {
+        alert('Failed to upload image.');
+        setUploadingFieldNotes(false);
+        return;
+      }
+      
+      // Create field notes block
+      const fieldNotesId = `field-notes-${Date.now()}`;
+      
+      // Use TipTap's insertContent to insert FieldNotesBlock node
+      editor.chain().focus().insertContent({
+        type: 'fieldNotesBlock',
+        attrs: {
+          id: fieldNotesId,
+          imageUrl: downloadURL,
+        },
+      }).run();
+      
+      // Reset form
+      setFieldNotesImageFile(null);
+      setUploadingFieldNotes(false);
+      setImageUploadProgress(0);
+    } catch (err) {
+      console.error('Failed to insert field notes:', err);
+      alert('Failed to upload image: ' + err.message);
+      setUploadingFieldNotes(false);
+      setImageUploadProgress(0);
+    }
   };
 
   const handleImageSelected = async (e) => {
@@ -2465,6 +2518,37 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                 >
                   🎤
                 </button>
+                <button
+                  onClick={() => {
+                    if (fieldNotesImageInputRef.current) {
+                      fieldNotesImageInputRef.current.click();
+                    }
+                  }}
+                  className={`toolbar-btn ${uploadingFieldNotes ? 'uploading' : ''}`}
+                  title={uploadingFieldNotes ? "Nalaganje..." : "Vstavi zapiske s polja (skenirane strani)"}
+                  disabled={uploadingFieldNotes}
+                >
+                  <span className="toolbar-btn-icon">📝</span>
+                  {uploadingFieldNotes && <div className="toolbar-btn-progress" />}
+                </button>
+                <input 
+                  ref={fieldNotesImageInputRef} 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setFieldNotesImageFile(file);
+                      // Auto-upload and insert when file is selected
+                      // Pass file directly to avoid async state update issues
+                      handleInsertFieldNotes(file);
+                    }
+                    // Reset input so same file can be selected again
+                    e.target.value = '';
+                  }} 
+                  style={{ display: 'none' }} 
+                  disabled={uploadingFieldNotes} 
+                />
                 <button
                   onClick={() => {
                     if (!editor) {

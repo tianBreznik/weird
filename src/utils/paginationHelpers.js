@@ -990,7 +990,7 @@ export const determineChapterIndex = (chapter, chapterIdx) => {
 /**
  * Create empty page for special pages (first page, cover)
  */
-export const createEmptyPage = (chapter, chapterIndex, chapterPageIndex) => {
+export const createEmptyPage = (chapter, chapterIndex, chapterPageIndex, hasFieldNotes = false) => {
   return {
     chapterIndex: chapterIndex,
     chapterId: chapter.id,
@@ -999,6 +999,7 @@ export const createEmptyPage = (chapter, chapterIndex, chapterPageIndex) => {
     subchapterTitle: null,
     pageIndex: chapterPageIndex,
     hasHeading: false,
+    hasFieldNotes: hasFieldNotes,
     content: '',
     footnotes: [],
     backgroundImageUrl: chapter.backgroundImageUrl || null,

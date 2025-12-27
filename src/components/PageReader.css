@@ -80,22 +80,25 @@
   touch-action: none;
 }
 
-/* Remove transform/isolation for background video pages so fixed positioning works relative to viewport */
-.page-container:has(.background-video-page) {
+/* Remove transform/isolation for background video pages and field notes pages so fixed positioning works relative to viewport */
+.page-container:has(.background-video-page),
+.page-container:has(.field-notes-page) {
   transform: none;
   -webkit-transform: none;
   isolation: auto;
 }
 
-/* Remove padding for video pages */
-.page-container:has(.video-page) {
+/* Remove padding for video pages and field notes pages */
+.page-container:has(.video-page),
+.page-container:has(.field-notes-page) {
   padding: 0;
 }
 
-/* Allow background videos to break out of page-container */
-.page-container:has(.background-video-page) {
+/* Allow background videos and field notes to break out of page-container */
+.page-container:has(.background-video-page),
+.page-container:has(.field-notes-page) {
   overflow: visible;
-  /* Keep original padding and width - video breaks out via position: fixed */
+  /* Keep original padding and width - video/field notes break out via position: fixed */
 }
 
 /* Background video breaks out via position: fixed - no need to change page-sheet width */
@@ -1059,6 +1062,12 @@
   /* Preserve text shadows during overlays - create isolated compositing layer */
   transform: translateZ(0);
   -webkit-transform: translateZ(0);
+}
+
+/* Remove transform for field notes pages so fixed positioning works relative to viewport */
+.page-container .page-sheet.field-notes-page {
+  transform: none !important;
+  -webkit-transform: none !important;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
   isolation: isolate;
@@ -1470,6 +1479,50 @@
   font-style: normal; /* Number should not be italic */
 }
 
+/* Field Notes Pages - Scanned journal pages as background images */
+/* Field notes pages should fill the entire viewport - use same approach as normal background images */
+
+/* Make page-sheet full width for field notes and remove any transforms */
+.content-page.field-notes-page {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  transform: none !important;
+  -webkit-transform: none !important;
+}
+
+/* Remove all padding from page-body for field notes */
+.content-page.field-notes-page .page-body {
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.field-notes-content {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  position: relative;
+}
+
+.field-notes-page {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: left center; /* Match normal background images */
+  z-index: 0;
+  pointer-events: none;
+  margin: 0;
+  padding: 0;
+}
+
 .inline-footnote-text {
   font-style: italic; /* Only the text should be italic */
   /* Text will be typed out character by character */
@@ -1491,13 +1544,32 @@
 /* Chapter Progress Bar - Kindle-like thin gray progress bar */
 .chapter-progress-bar {
   position: fixed;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 2.5rem); /* Moved up to avoid Safari bottom banner */
+  bottom: env(safe-area-inset-bottom, 0px); /* Sit at the very bottom, accounting for safe area */
   left: 0;
   right: 0;
   height: 3.5px;
   background-color: rgba(0, 0, 0, 0.1);
-  z-index: 10;
+  z-index: 100000; /* Higher than page number to ensure visibility */
   width: 100%;
+  /* Ensure visibility on all devices */
+  display: block !important;
+  visibility: visible !important;
+  pointer-events: none; /* Don't interfere with touch events */
+}
+
+/* Ensure progress bar is visible on iPhone SE - keep same positioning */
+@media screen and (max-height: 667px) and (max-width: 400px) {
+  .chapter-progress-bar {
+    bottom: env(safe-area-inset-bottom, 0px) !important; /* Same bottom positioning */
+    z-index: 100000 !important;
+    display: block !important;
+    visibility: visible !important;
+    height: 4px !important; /* Slightly thicker on small screens for better visibility */
+  }
+  
+  .chapter-progress-fill {
+    background-color: rgba(0, 0, 0, 0.4) !important; /* Darker on small screens for better visibility */
+  }
 }
 
 .chapter-progress-fill {

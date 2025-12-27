@@ -2110,7 +2110,7 @@ export const PageReader = ({
       return;
     }
 
-    // Check if there's a next page in current chapter (exclude special pages from regular navigation)
+    // Check if there's a next page in current chapter (exclude special pages from regular navigation, include field notes)
     const nextPageInChapter = pages.find(
       (p) =>
         !p.isCover && !p.isFirstPage &&
@@ -2374,7 +2374,7 @@ export const PageReader = ({
 
     // Check if there's a previous page in current chapter
     if (currentPageIndex > 0) {
-      // Previous page in same chapter (exclude special pages)
+      // Previous page in same chapter (exclude special pages, include field notes)
       const prevPage = pages.find(
         (p) =>
           !p.isCover && !p.isFirstPage &&
@@ -3243,6 +3243,13 @@ export const PageReader = ({
         return;
       }
       
+      // Skip processing for field notes pages - they only have background images, no text/karaoke
+      if (pageToDisplay?.hasFieldNotes) {
+        // Field notes pages are simple - just preserve the content as-is
+        preservePageContent(node, currentPageKey);
+        return;
+      }
+      
       // Process in order: Karaoke first, then normal text
       // This ensures karaoke structure is ready before normal text processing
       await processKaraokeContent(node);
@@ -3580,7 +3587,7 @@ export const PageReader = ({
             const displayPageNumber = (page.isFirstPage || page.isCover) ? 0 : regularPages.findIndex(
               (p) => p.chapterIndex === page.chapterIndex && p.pageIndex === page.pageIndex
             ) + 1;
-            const shouldShowTopBar = page && !page.hasHeading && !page.isEpigraph && !page.isCover && !page.isFirstPage && page.pageIndex > 0;
+            const shouldShowTopBar = page && !page.hasHeading && !page.isEpigraph && !page.isCover && !page.isFirstPage && !page.hasFieldNotes && page.pageIndex > 0;
 
   return (
     <div
@@ -3594,7 +3601,7 @@ export const PageReader = ({
                   width: '100%'
                 }}
               >
-                <article className={`page-sheet content-page ${page?.isEpigraph ? 'epigraph-page' : ''} ${page?.isVideo ? 'video-page' : ''} ${page?.isCover ? 'cover-page' : ''} ${page?.isFirstPage ? 'first-page' : ''}`}>
+                <article className={`page-sheet content-page ${page?.isEpigraph ? 'epigraph-page' : ''} ${page?.isVideo ? 'video-page' : ''} ${page?.isCover ? 'cover-page' : ''} ${page?.isFirstPage ? 'first-page' : ''} ${page?.hasFieldNotes ? 'field-notes-page' : ''}`}>
                   {/* Background videos disabled in desktop PDF viewer for now */}
           <section className="page-body content-body">
                     {page?.isCover ? (
@@ -3627,6 +3634,11 @@ export const PageReader = ({
                           className="fullscreen-video"
                         />
                       </div>
+                    ) : page?.hasFieldNotes ? (
+                      <div 
+                        className="page-content field-notes-content"
+                        dangerouslySetInnerHTML={{ __html: page?.content || '' }} 
+                      />
                     ) : (
                       <div 
                         className="page-content"
@@ -3639,7 +3651,7 @@ export const PageReader = ({
                       {displayPageNumber}
                     </div>
                   )}
-                  {shouldShowTopBar && (
+                  {shouldShowTopBar && !page.hasFieldNotes && (
                     <ReaderTopBar
                       chapterTitle={page.chapterTitle}
                       subchapterTitle={page.subchapterTitle}
@@ -3777,7 +3789,7 @@ export const PageReader = ({
     currentPageNumber = pageIndex >= 0 ? pageIndex + 1 : 0;
     totalPages = regularPages.length;
   }
-  const shouldShowTopBar = !pageToDisplay.hasHeading && !pageToDisplay.isEpigraph && !pageToDisplay.isCover && !pageToDisplay.isFirstPage && pageToDisplay.pageIndex > 0;
+  const shouldShowTopBar = !pageToDisplay.hasHeading && !pageToDisplay.isEpigraph && !pageToDisplay.isCover && !pageToDisplay.isFirstPage && !pageToDisplay.hasFieldNotes && pageToDisplay.pageIndex > 0;
 
   const pageContent = (
     <>
@@ -3818,7 +3830,7 @@ export const PageReader = ({
           ref={pageContainerRef}
           className={`page-container ${isTransitioning ? 'transitioning' : ''}`}
         >
-        <article className={`page-sheet content-page ${pageToDisplay?.isEpigraph ? 'epigraph-page' : ''} ${pageToDisplay?.isVideo ? 'video-page' : ''} ${pageToDisplay?.backgroundVideo ? 'background-video-page' : ''} ${pageToDisplay?.isCover ? 'cover-page' : ''} ${pageToDisplay?.isFirstPage ? 'first-page' : ''}`}>
+        <article className={`page-sheet content-page ${pageToDisplay?.isEpigraph ? 'epigraph-page' : ''} ${pageToDisplay?.isVideo ? 'video-page' : ''} ${pageToDisplay?.backgroundVideo ? 'background-video-page' : ''} ${pageToDisplay?.isCover ? 'cover-page' : ''} ${pageToDisplay?.isFirstPage ? 'first-page' : ''} ${pageToDisplay?.hasFieldNotes ? 'field-notes-page' : ''}`}>
           <section className="page-body content-body">
             {pageToDisplay?.isCover ? (
               <div 
@@ -3876,7 +3888,14 @@ export const PageReader = ({
                   </button>
                 )}
               </div>
-             ) : pageToDisplay && !pageToDisplay.isCover && !pageToDisplay.isFirstPage && (
+            ) : pageToDisplay?.hasFieldNotes ? (
+              <div 
+                key={pageKey}
+                ref={pageContentRefCallback}
+                className="page-content field-notes-content"
+                dangerouslySetInnerHTML={{ __html: pageToDisplay?.content || '' }} 
+              />
+            ) : pageToDisplay && !pageToDisplay.isCover && !pageToDisplay.isFirstPage && (
               <div 
                 key={pageKey}
                 ref={pageContentRefCallback} 
@@ -3895,15 +3914,16 @@ export const PageReader = ({
          document.body
        )}
        {/* Chapter progress bar - Kindle-like thin gray bar */}
-       {pageToDisplay && !pageToDisplay.isFirstPage && !pageToDisplay.isCover && chapterProgress > 0 && (
+       {pageToDisplay && !pageToDisplay.isFirstPage && !pageToDisplay.isCover && chapterProgress > 0 && typeof document !== 'undefined' && createPortal(
          <div className="chapter-progress-bar">
            <div 
              className="chapter-progress-fill" 
              style={{ width: `${chapterProgress * 100}%` }}
            />
-      </div>
+         </div>,
+         document.body
        )}
-      {shouldShowTopBar && pageToDisplay && (
+      {shouldShowTopBar && pageToDisplay && !pageToDisplay.hasFieldNotes && (
         <ReaderTopBar
           chapterTitle={pageToDisplay.chapterTitle}
           subchapterTitle={pageToDisplay.subchapterTitle}

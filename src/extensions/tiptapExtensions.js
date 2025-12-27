@@ -1732,3 +1732,106 @@ export const Poetry = Node.create({
   },
 });
 
+// Custom block node for field notes (scanned journal pages)
+export const FieldNotesBlock = Node.create({
+  name: 'fieldNotesBlock',
+  group: 'block',
+  atom: true, // Cannot be split
+  draggable: true,
+  
+  addAttributes() {
+    return {
+      id: {
+        default: null,
+      },
+      imageUrl: {
+        default: null,
+      },
+    };
+  },
+
+  parseHTML() {
+    return [
+      {
+        tag: 'div[data-field-notes-block="true"]',
+        getAttrs: (node) => {
+          const fieldNotesId = node.getAttribute('data-field-notes-id');
+          const imageUrl = node.getAttribute('data-image-url') || 
+                          node.querySelector('img')?.getAttribute('src') || 
+                          '';
+          
+          return {
+            id: fieldNotesId || `field-notes-${Date.now()}`,
+            imageUrl: imageUrl,
+          };
+        },
+      },
+    ];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    return [
+      'div',
+      {
+        class: 'field-notes-block field-notes-editor-marker',
+        'data-field-notes-block': 'true',
+        'data-field-notes-id': HTMLAttributes.id || `field-notes-${Date.now()}`,
+        'data-image-url': HTMLAttributes.imageUrl || '',
+        contenteditable: 'false',
+        style: HTMLAttributes.imageUrl 
+          ? `background-image: url('${HTMLAttributes.imageUrl}'); background-size: contain; background-repeat: no-repeat; background-position: center; min-height: 400px; width: 100%;`
+          : 'min-height: 400px; width: 100%; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center;',
+      },
+      HTMLAttributes.imageUrl 
+        ? ['img', { src: HTMLAttributes.imageUrl, alt: 'Field Notes', style: 'max-width: 100%; height: auto; display: block;' }]
+        : ['span', { style: 'color: #999;' }, 'Field Notes Image'],
+    ];
+  },
+
+  addNodeView() {
+    return ({ node }) => {
+      const container = document.createElement('div');
+      container.className = 'field-notes-block field-notes-editor-marker';
+      container.setAttribute('data-field-notes-block', 'true');
+      container.setAttribute('data-field-notes-id', node.attrs.id || `field-notes-${Date.now()}`);
+      container.setAttribute('contenteditable', 'false');
+      
+      const imageUrl = node.attrs.imageUrl;
+      
+      if (imageUrl) {
+        container.setAttribute('data-image-url', imageUrl);
+        container.style.backgroundImage = `url('${imageUrl}')`;
+        container.style.backgroundSize = 'contain';
+        container.style.backgroundRepeat = 'no-repeat';
+        container.style.backgroundPosition = 'center';
+        container.style.minHeight = '400px';
+        container.style.width = '100%';
+        
+        const img = document.createElement('img');
+        img.src = imageUrl;
+        img.alt = 'Field Notes';
+        img.style.maxWidth = '100%';
+        img.style.height = 'auto';
+        img.style.display = 'block';
+        container.appendChild(img);
+      } else {
+        container.style.minHeight = '400px';
+        container.style.width = '100%';
+        container.style.border = '2px dashed #ccc';
+        container.style.display = 'flex';
+        container.style.alignItems = 'center';
+        container.style.justifyContent = 'center';
+        
+        const placeholder = document.createElement('span');
+        placeholder.textContent = 'Field Notes Image';
+        placeholder.style.color = '#999';
+        container.appendChild(placeholder);
+      }
+      
+      return {
+        dom: container,
+      };
+    };
+  },
+});
+

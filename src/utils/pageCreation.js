@@ -131,6 +131,7 @@ export const createPageFromElements = ({
   currentPageFootnotes,
   footnoteContentToNumber,
   allFootnotes,
+  hasFieldNotes = false,
   measure,
   backgroundVideosByPage,
   isDesktop,
@@ -188,6 +189,7 @@ export const createPageFromElements = ({
     subchapterTitle: blockMeta.type === 'subchapter' ? blockMeta.title : null,
     pageIndex: chapterPageIndex,
     hasHeading: pageHasHeading,
+    hasFieldNotes: hasFieldNotes || false,
     content: contentWrapper,
     footnotes: pageFootnotes, // Store footnotes for this page
     backgroundVideo: backgroundVideoSrc,

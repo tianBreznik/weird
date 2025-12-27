@@ -6,6 +6,7 @@ import { sortChapters, determineChapterIndex, createEmptyPage, createEpigraphPag
 import { initializeNewPage, createPageFromElements } from '../utils/pageCreation';
 import { processHTMLContent, buildChapterContentBlocks } from '../utils/contentProcessing';
 import { handleKaraokeElement } from '../utils/karaokePagination';
+import { handleFieldNotesElement, hasFieldNotesBlocks } from '../utils/fieldNotesPagination';
 import { paginateElement } from '../utils/elementPagination';
 import { finalizePages, applyHyphenationToPages, restoreInitialPosition } from '../utils/postProcessing';
 import { extractFootnotesFromContent, measureFootnotesHeight, applyParagraphStylesToContainer, isAtomicElement, splitTextAtSentenceBoundary, splitTextAtWordBoundary } from '../utils/paginationHelpers';
@@ -92,6 +93,11 @@ export const usePagePagination = ({
       
       // Build content array: chapter content + all subchapter content
       const contentBlocks = buildChapterContentBlocks(chapter);
+      
+      // Check if chapter has field notes blocks (to hide title)
+      const chapterHasFieldNotes = contentBlocks.some(block => 
+        hasFieldNotesBlocks(block.content)
+      );
 
       // Special pages (first page, cover) should always create at least one page, even if empty
       // Regular chapters with no content are skipped
@@ -105,7 +111,7 @@ export const usePagePagination = ({
             isCover: chapter.isCover,
             chapterIndex: chapterIndex
           });
-          const emptyPage = createEmptyPage(chapter, chapterIndex, 0);
+          const emptyPage = createEmptyPage(chapter, chapterIndex, 0, chapterHasFieldNotes);
           newPages.push(emptyPage);
         } else {
           console.log('[PageOrder] Skipping chapter with no content:', {
@@ -137,6 +143,22 @@ export const usePagePagination = ({
       const pushPage = (blockMeta) => {
         if (!currentPageElements.length) return;
         
+        // For field-notes-only chapters, we should NOT be pushing regular content pages
+        // This is a safeguard - if chapter has field notes and we're trying to push,
+        // it means there's mixed content (which is fine), but we should be careful
+        if (chapterHasFieldNotes) {
+          // Check if elements are actually non-empty (not just whitespace)
+          const hasRealContent = currentPageElements.some(el => {
+            const trimmed = el.trim();
+            // Check if it's not just empty tags or whitespace
+            return trimmed.length > 0 && !/^<[^>]+>\s*<\/[^>]+>$/i.test(trimmed);
+          });
+          if (!hasRealContent) {
+            // No real content, don't push empty page
+            return;
+          }
+        }
+        
         const newPage = createPageFromElements({
           elements: currentPageElements,
           blockMeta,
@@ -150,7 +172,8 @@ export const usePagePagination = ({
           measure,
           backgroundVideosByPage,
           isDesktop,
-          pageWidth
+          pageWidth,
+          hasFieldNotes: chapterHasFieldNotes
         });
         
         if (newPage) {
@@ -193,10 +216,20 @@ export const usePagePagination = ({
         });
 
         // Main pagination loop: process each element
+        let lastElementWasFieldNotes = false;
         for (let elementIndex = 0; elementIndex < elements.length; elementIndex++) {
           const element = elements[elementIndex];
           const isHeadingElement = /^H[1-6]$/i.test(element.tagName || '');
           const isSubchapterTitle = /^H[4-6]$/i.test(element.tagName || '');
+          
+          // Skip heading elements if chapter has field notes (title should be hidden)
+          if (chapterHasFieldNotes && isHeadingElement) {
+            continue; // Don't reset flag on skipped elements
+          }
+          
+          // Reset flag only when we actually process a non-field-notes element
+          // (We'll set it to true if this element is field notes)
+          lastElementWasFieldNotes = false;
           
           // Update heading state if needed (affects available height)
           if (isSubchapterTitle && !pageHasHeading) {
@@ -256,6 +289,37 @@ export const usePagePagination = ({
             }
           }
 
+          // Handle field notes elements (one page per block)
+          if (element.hasAttribute('data-field-notes-block')) {
+            // Save current state before processing field notes
+            const hadContentBefore = currentPageElements.length > 0;
+            
+            const fieldNotesPage = handleFieldNotesElement({
+              element,
+              blockMeta: block,
+              chapter,
+              chapterIndex,
+              chapterPageIndex,
+              pushPage: () => pushPage(block),
+              startNewPage: () => startNewPage(false),
+              getCurrentPageElements: () => currentPageElements, // Pass function to check current elements
+              chapterHasFieldNotes: chapterHasFieldNotes // Pass flag to know if chapter only has field notes
+            });
+            
+            if (fieldNotesPage) {
+              newPages.push(fieldNotesPage);
+              chapterPageIndex += 1;
+              // handleFieldNotesElement already called startNewPage, which cleared currentPageElements
+              // CRITICAL: Ensure it stays empty to prevent empty page at end
+              // Also ensure pageHasHeading is reset since field notes pages don't have headings
+              currentPageElements = [];
+              currentPageFootnotes.clear();
+              pageHasHeading = false; // Reset heading state
+              lastElementWasFieldNotes = true; // Mark that last element was field notes
+              continue;
+            }
+          }
+
           // Paginate regular elements
           // Note: paginateElement mutates currentPageElements and currentPageFootnotes directly
           const result = paginateElement({
@@ -292,9 +356,28 @@ export const usePagePagination = ({
         }
 
         // Finalize last page of block
-        if (currentPageElements.length > 0) {
+        // For chapters with ONLY field notes, we should ONLY have field notes pages (no regular content pages)
+        // CRITICAL: If chapter has field notes and last element was field notes, NEVER push a final page
+        if (lastElementWasFieldNotes) {
+          // Field notes element already created its page, ensure no leftover content
+          currentPageElements = [];
+          currentPageFootnotes.clear();
+          // Don't push - field notes already created its own page
+        } else if (chapterHasFieldNotes) {
+          // Chapter has field notes
+          // Only push if there's actual content AND it's not empty
+          // But be very careful - if we only have field notes, currentPageElements should be empty
+          if (currentPageElements.length > 0) {
+            // There's regular content mixed with field notes, so push it
+            pushPage(block);
+          }
+          // If empty, don't push - field notes pages were already added individually
+        } else if (currentPageElements.length > 0) {
+          // Regular chapter without field notes - push if there's content
           pushPage(block);
         }
+        // If currentPageElements is empty and last wasn't field notes and chapter doesn't have field notes,
+        // that's fine - nothing to push (empty chapter)
       }
     }
 
