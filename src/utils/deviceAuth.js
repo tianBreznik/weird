@@ -1,29 +1,103 @@
 import { db } from '../firebase';
 import { collection, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
 
-// Generate or retrieve a unique device ID
-export const getDeviceId = () => {
-  const DEVICE_ID_KEY = 'overstimulata_device_id';
-  
-  // Check if device ID already exists
-  let deviceId = localStorage.getItem(DEVICE_ID_KEY);
-  
-  if (!deviceId) {
-    // Generate a new unique device ID
-    deviceId = generateUniqueId();
-    localStorage.setItem(DEVICE_ID_KEY, deviceId);
+// Simple hash function (djb2)
+const hashString = (str) => {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) ^ str.charCodeAt(i);
   }
-  
-  // Log device ID to console for whitelist setup
-  
-  return deviceId;
+  return (hash >>> 0).toString(36);
 };
 
-// Generate a unique ID based on timestamp and random string
-const generateUniqueId = () => {
-  const timestamp = Date.now().toString(36);
-  const randomStr = Math.random().toString(36).substring(2, 15);
-  return `${timestamp}-${randomStr}`;
+// Get canvas fingerprint
+const getCanvasFingerprint = () => {
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 200;
+    canvas.height = 50;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return 'no-canvas';
+    
+    // Draw text with specific styling
+    ctx.textBaseline = 'top';
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#f60';
+    ctx.fillRect(125, 1, 62, 20);
+    ctx.fillStyle = '#069';
+    ctx.fillText('Overstimulata', 2, 15);
+    ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
+    ctx.fillText('Device ID', 4, 17);
+    
+    // Get data URL and hash it
+    return hashString(canvas.toDataURL());
+  } catch (e) {
+    return 'canvas-error';
+  }
+};
+
+// Get WebGL fingerprint
+const getWebGLFingerprint = () => {
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (!gl) return 'no-webgl';
+    
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    if (!debugInfo) return 'no-debug-info';
+    
+    const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || '';
+    const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || '';
+    return hashString(vendor + renderer);
+  } catch (e) {
+    return 'webgl-error';
+  }
+};
+
+// Generate device fingerprint from hardware/browser characteristics
+const generateDeviceFingerprint = () => {
+  const components = [
+    // Screen characteristics
+    screen.width,
+    screen.height,
+    screen.colorDepth,
+    window.devicePixelRatio || 1,
+    
+    // Timezone
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+    new Date().getTimezoneOffset(),
+    
+    // Language and platform
+    navigator.language,
+    navigator.platform,
+    
+    // Hardware hints
+    navigator.hardwareConcurrency || 0,
+    navigator.deviceMemory || 0,
+    navigator.maxTouchPoints || 0,
+    
+    // Canvas fingerprint
+    getCanvasFingerprint(),
+    
+    // WebGL fingerprint
+    getWebGLFingerprint(),
+  ];
+  
+  const fingerprintString = components.join('|');
+  return 'fp-' + hashString(fingerprintString);
+};
+
+// Cached fingerprint (computed once per page load)
+let cachedFingerprint = null;
+
+// Generate or retrieve a unique device ID based on fingerprinting
+export const getDeviceId = () => {
+  if (cachedFingerprint) {
+    return cachedFingerprint;
+  }
+  
+  cachedFingerprint = generateDeviceFingerprint();
+  return cachedFingerprint;
 };
 
 // Cache keys
@@ -117,24 +191,9 @@ export const isEditorDeviceSync = () => {
     return cached.isAuthorized;
   }
   
-  // Fallback to hardcoded list if no cache (for backwards compatibility during migration)
-  const FALLBACK_WHITELIST = [
-  'mgjxds3q-1rekdb1eb7y',
-  'mi1jtuuj-9x6z4uj4kh',
-  'mi37kcqh-j4cmiln4r1l',
-  'mi38utyt-9colfarywk7',
-  'mi3iteoy-2j8voox4ec6',
-  'mi3jjwma-qsglzpy5daa',
-  'mi4yemvc-xp6j3uu12x',
-  'miiq366c-exsxgdbmp6m',
-  'mj025jwg-sdmgx7121dc',
-  'mj8ier44-uoqhx79db2n',
-  'mihhv6f0-5rzg6xc3zbq',
-    'mk753qdp-b3p5uladgdu',
-    'mk8c3f8f-t993ymje23c'
-  ];
-  
-  return FALLBACK_WHITELIST.includes(deviceId);
+  // No fallback - fingerprint-based IDs are checked against Firestore only
+  // Users with allowed emails will auto-whitelist on sign-in
+  return false;
 };
 
 // Add a new device to Firestore whitelist
