@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useEditorMode } from '../hooks/useEditorMode';
-import { DndContext, closestCenter } from '@dnd-kit/core';
+import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import './MobileTOC.css';
@@ -28,6 +28,16 @@ export const MobileTOC = ({
   const { isEditor, canToggleEditorMode, previewingAsReader } = useEditorMode();
   const [expandedChapters, setExpandedChapters] = useState(new Set());
   const [isClosing, setIsClosing] = useState(false);
+  
+  // Configure drag sensors for touch devices
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 150, tolerance: 5 },
+    })
+  );
   const [showSettingsButton, setShowSettingsButton] = useState(false);
   // Track double-tap state
   const lastTapRef = useRef({ time: 0, chapterId: null });
@@ -380,44 +390,43 @@ export const MobileTOC = ({
           color: textColor
         }}
       >
-        <div className="mobile-toc-header">
-          <h2 
-            className="mobile-toc-title"
-            style={{ visibility: 'hidden', height: 0, margin: 0, padding: 0 }}
-            onTouchStart={(e) => {
-              // Triple tap detection for revealing settings button
-              const now = Date.now();
-              const taps = tripleTapRef.current.taps;
+        <div 
+          className="mobile-toc-header"
+          onTouchStart={(e) => {
+            // Triple tap detection for revealing settings button
+            // Only trigger on the header area, not the close button
+            if (e.target.closest('.mobile-toc-close')) return;
+            
+            const now = Date.now();
+            const taps = tripleTapRef.current.taps;
+            
+            // Clear existing timeout
+            if (tripleTapRef.current.timeout) {
+              clearTimeout(tripleTapRef.current.timeout);
+            }
+            
+            // Check if this is a new tap (within 500ms of last tap)
+            if (taps === 0 || (now - tripleTapRef.current.lastTapTime) < 500) {
+              tripleTapRef.current.taps = taps + 1;
+              tripleTapRef.current.lastTapTime = now;
               
-              // Clear existing timeout
-              if (tripleTapRef.current.timeout) {
-                clearTimeout(tripleTapRef.current.timeout);
-              }
-              
-              // Check if this is a new tap (within 500ms of last tap)
-              if (taps === 0 || (now - tripleTapRef.current.lastTapTime) < 500) {
-                tripleTapRef.current.taps = taps + 1;
-                tripleTapRef.current.lastTapTime = now;
-                
-                // If we've reached 3 taps, reveal settings button
-                if (tripleTapRef.current.taps >= 3) {
-                  setShowSettingsButton(true);
-                  tripleTapRef.current.taps = 0;
-                } else {
-                  // Set timeout to reset tap count
-                  tripleTapRef.current.timeout = setTimeout(() => {
-                    tripleTapRef.current.taps = 0;
-                  }, 500);
-                }
+              // If we've reached 3 taps, reveal settings button
+              if (tripleTapRef.current.taps >= 3) {
+                setShowSettingsButton(true);
+                tripleTapRef.current.taps = 0;
               } else {
-                // Reset if too much time passed
-                tripleTapRef.current.taps = 1;
-                tripleTapRef.current.lastTapTime = now;
+                // Set timeout to reset tap count
+                tripleTapRef.current.timeout = setTimeout(() => {
+                  tripleTapRef.current.taps = 0;
+                }, 500);
               }
-            }}
-          >
-            {/* Hidden - kept for triple tap functionality */}
-          </h2>
+            } else {
+              // Reset if too much time passed
+              tripleTapRef.current.taps = 1;
+              tripleTapRef.current.lastTapTime = now;
+            }
+          }}
+        >
           <button className="mobile-toc-close" onClick={handleClose}>
             ×
           </button>
@@ -498,13 +507,14 @@ export const MobileTOC = ({
                 )}
           {isEditor && onReorderChapters ? (
             <DndContext
+              sensors={sensors}
               collisionDetection={closestCenter}
               onDragEnd={async ({ active, over }) => {
                 if (!over || active.id === over.id) return;
-                const oldIndex = chapters.findIndex(c => c.id === active.id);
-                const newIndex = chapters.findIndex(c => c.id === over.id);
+                const oldIndex = regularChapters.findIndex(c => c.id === active.id);
+                const newIndex = regularChapters.findIndex(c => c.id === over.id);
                 if (oldIndex === -1 || newIndex === -1) return;
-                const reordered = arrayMove(chapters, oldIndex, newIndex);
+                const reordered = arrayMove(regularChapters, oldIndex, newIndex);
                 const orderedIds = reordered.map(c => c.id);
                 if (onReorderChapters) {
                   await onReorderChapters(orderedIds);

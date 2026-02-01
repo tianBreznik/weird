@@ -132,6 +132,13 @@
   justify-content: center;
   color: #999;
   cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.chapter-header [aria-label="Drag handle"]:active {
+  cursor: grabbing;
 }
 
 .chapter-header [aria-label="Drag handle"]:hover {

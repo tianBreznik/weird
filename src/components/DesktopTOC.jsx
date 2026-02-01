@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useEditorMode } from '../hooks/useEditorMode';
-import { DndContext, closestCenter } from '@dnd-kit/core';
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import './DesktopTOC.css';
@@ -21,6 +21,15 @@ export const DesktopTOC = ({
 }) => {
   const { isEditor } = useEditorMode();
   const [expandedChapters, setExpandedChapters] = useState(new Set());
+
+  // Configure drag sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  );
 
   // Find page number for a chapter or subchapter (global page number in the pages array)
   const findPageNumber = (chapterId, subchapterId = null) => {
@@ -57,7 +66,7 @@ export const DesktopTOC = ({
     return globalIndex >= 0 ? globalIndex + 1 : null;
   };
 
-  // Toggle chapter expansion
+  // Toggle chapter expansion (kept for mobile, not used on desktop anymore)
   const toggleChapter = (chapterId) => {
     const newExpanded = new Set(expandedChapters);
     if (newExpanded.has(chapterId)) {
@@ -90,21 +99,12 @@ export const DesktopTOC = ({
     }
   };
 
-  // Handle chapter click
+  // Handle chapter click - always jump to chapter
   const handleChapterClick = (chapter) => {
-    const hasSubchapters = chapter.children && chapter.children.length > 0;
-    
-    // If chapter has no subchapters, click jumps directly
-    if (!hasSubchapters) {
-      jumpToChapter(chapter);
-      return;
-    }
-
-    // For chapters with subchapters: click toggles expand/collapse
-    toggleChapter(chapter.id);
+    jumpToChapter(chapter);
   };
 
-  // Handle chapter double-click (jump even if expanded)
+  // Handle chapter double-click (same as single click now)
   const handleChapterDoubleClick = (chapter) => {
     jumpToChapter(chapter);
   };
@@ -175,13 +175,10 @@ export const DesktopTOC = ({
     return (
       <div ref={setNodeRef} style={style} className="desktop-toc-chapter-row">
         <div
-          className={`desktop-toc-chapter-item ${isCurrent ? 'desktop-toc-current' : ''} ${isExpanded ? 'desktop-toc-expanded' : ''}`}
+          className={`desktop-toc-chapter-item ${isCurrent ? 'desktop-toc-current' : ''}`}
           onClick={() => handleChapterClick(chapter)}
           onDoubleClick={() => handleChapterDoubleClick(chapter)}
         >
-          {hasSubchapters && (
-            <span className="desktop-toc-expand-icon">{isExpanded ? '▼' : '▶'}</span>
-          )}
           <span className="desktop-toc-chapter-title">{chapter.title}</span>
           {isEditor && (
             <div className="desktop-toc-editor-controls">
@@ -230,7 +227,7 @@ export const DesktopTOC = ({
           )}
         </div>
 
-        {isExpanded && hasSubchapters && (
+        {hasSubchapters && (
           <div className="desktop-toc-subchapters">
             {chapter.children.map((subchapter) => {
               const isCurrentSub = isCurrentSubchapter(subchapter.id);
@@ -354,6 +351,7 @@ export const DesktopTOC = ({
         )}
         {isEditor && onReorderChapters ? (
           <DndContext
+            sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={async ({ active, over }) => {
               if (!over || active.id === over.id) return;
@@ -406,13 +404,10 @@ export const DesktopTOC = ({
             return (
               <div key={chapter.id} className="desktop-toc-chapter-row">
                 <div
-                  className={`desktop-toc-chapter-item ${isCurrent ? 'desktop-toc-current' : ''} ${isExpanded ? 'desktop-toc-expanded' : ''}`}
+                  className={`desktop-toc-chapter-item ${isCurrent ? 'desktop-toc-current' : ''}`}
                   onClick={() => handleChapterClick(chapter)}
                   onDoubleClick={() => handleChapterDoubleClick(chapter)}
                 >
-                  {hasSubchapters && (
-                    <span className="desktop-toc-expand-icon">{isExpanded ? '▼' : '▶'}</span>
-                  )}
                   <span className="desktop-toc-chapter-title">{chapter.title}</span>
                   {isEditor && (
                     <div className="desktop-toc-editor-controls">
@@ -453,7 +448,7 @@ export const DesktopTOC = ({
                   )}
                 </div>
 
-                {isExpanded && hasSubchapters && (
+                {hasSubchapters && (
                   <div className="desktop-toc-subchapters">
                     {chapter.children.map((subchapter) => {
                       const isCurrentSub = isCurrentSubchapter(subchapter.id);

@@ -23,7 +23,7 @@
 .desktop-toc-chapter-item {
   display: flex;
   align-items: center;
-  padding: 0;
+  padding: 0.15rem 0;
   cursor: pointer;
   user-select: none;
   border-radius: 2px;
@@ -103,7 +103,7 @@
 .desktop-toc-subchapter-item {
   display: flex;
   align-items: center;
-  padding: 0;
+  padding: 0.15rem 0;
   cursor: pointer;
   user-select: none;
   border-radius: 2px;
@@ -139,7 +139,7 @@
 /* Subchapter Title */
 .desktop-toc-subchapter-title {
   font-family: 'Times New Roman', serif;
-  font-size: 1rem;
+  font-size: 1.4rem;
   line-height: 1.1;
   font-weight: bold;
   text-shadow: 0 0.6px 1.2px rgba(0, 0, 0, 0.15), 0 0.4px 0.8px rgba(0, 0, 0, 0.12);

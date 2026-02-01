@@ -6,7 +6,7 @@ import { useEditorMode } from './hooks/useEditorMode';
 import { getChapters, getSubchapters, addChapter, addSubchapter, updateChapter, updateSubchapter, deleteChapter, deleteSubchapter, getChapterById, getSubchapterById, reorderChapters } from './services/firestore';
 import './App.css';
 import { getBookmark } from './utils/bookmark';
-import { DndContext, closestCenter } from '@dnd-kit/core';
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { DraggableChapter } from './components/DraggableChapter';
 import { PageReader } from './components/PageReader';
@@ -35,6 +35,15 @@ function App() {
   const { position: readingPosition, savePosition } = useReadingPosition();
   const bookConceptRef = useRef(null);
   const settingsButtonRef = useRef(null);
+
+  // Configure drag sensors with activation constraint
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 8px movement required before drag starts
+      },
+    })
+  );
 
   // Add/remove body class when editor opens/closes to hide flower image
   useEffect(() => {
@@ -306,19 +315,54 @@ function App() {
           onEditChapter={openEditorWithLatest}
           onAddSubchapter={(chapter) => setParentChapterForNewSub(chapter)}
           onDeleteChapter={async (chapterId) => {
-            await deleteChapter(BOOK_ID, chapterId);
-            await refresh();
+            // Update local state immediately for real-time UI
+            setChapters(prev => prev.filter(chapter => chapter.id !== chapterId));
+            // Persist to Firestore
+            try {
+              await deleteChapter(BOOK_ID, chapterId);
+            } catch (err) {
+              // On error, refresh to get correct state
+              await refresh();
+            }
           }}
           onEditSubchapter={openEditorWithLatest}
           onDeleteSubchapter={async (subchapterId, parentChapterId) => {
-            await deleteSubchapter(BOOK_ID, parentChapterId, subchapterId);
-            await refresh();
+            // Update local state immediately for real-time UI
+            setChapters(prev => prev.map(chapter => {
+              if (chapter.id === parentChapterId) {
+                return {
+                  ...chapter,
+                  children: (chapter.children || []).filter(sub => sub.id !== subchapterId)
+                };
+              }
+              return chapter;
+            }));
+            // Persist to Firestore
+            try {
+              await deleteSubchapter(BOOK_ID, parentChapterId, subchapterId);
+            } catch (err) {
+              // On error, refresh to get correct state
+              await refresh();
+            }
           }}
           onReorderChapters={async (orderedIds) => {
             try {
+              // Update local state immediately for real-time UI update
+              setChapters(prev => {
+                // Keep special pages (front/cover) separate
+                const specialPages = prev.filter(c => c.isFirstPage || c.isCover);
+                // Reorder only the regular chapters based on orderedIds
+                const reorderedRegular = orderedIds
+                  .map(id => prev.find(c => c.id === id))
+                  .filter(Boolean);
+                // Combine: special pages first, then reordered regular chapters
+                return [...specialPages, ...reorderedRegular];
+              });
+              // Persist to Firestore
               await reorderChapters(BOOK_ID, orderedIds);
             } catch (err) {
-
+              // On error, refresh to get correct order from server
+              await refresh();
             }
           }}
           onOpenSettings={() => setShowSetup(true)}
@@ -380,15 +424,15 @@ function App() {
               <p>No chapters yet (book: {BOOK_ID}).</p>
             )}
             <DndContext 
+              sensors={sensors}
               collisionDetection={closestCenter}
               onDragEnd={async (event) => {
                 const { active, over } = event;
                 if (!over || active.id === over.id) return;
                 const oldIndex = chapters.findIndex(c => c.id === active.id);
                 const newIndex = chapters.findIndex(c => c.id === over.id);
-                const reordered = arrayMove(chapters, oldIndex, newIndex);
+                const reordered = arrayMove([...chapters], oldIndex, newIndex);
                 setChapters(reordered);
-                // Persist order
                 const orderedIds = reordered.map(c => c.id);
                 try { await reorderChapters(BOOK_ID, orderedIds); } catch {}
               }}
@@ -458,7 +502,7 @@ function App() {
       {(editingChapter || showNewChapterEditor || parentChapterForNewSub) && (
         <ChapterEditor
           chapter={editingChapter}
-          parentChapter={parentChapterForNewSub}
+          parentChapter={parentChapterForNewSub || (editingChapter?.parentChapterId ? chapters.find(c => c.id === editingChapter.parentChapterId) : null)}
           onSave={async (payload) => {
             try {
               if (editingChapter) {

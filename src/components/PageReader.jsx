@@ -483,6 +483,9 @@ export const PageReader = ({
   const backgroundVideoRef = useRef(null);
   const blankPageVideoRef = useRef(null);
   const [videoUnmuted, setVideoUnmuted] = useState(false);
+  
+  // Track chapter order to detect reordering
+  const prevChapterOrderRef = useRef(null);
 
   // Calculate pages for all chapters based on actual content height
   // Includes subchapters in the flow
@@ -504,7 +507,74 @@ export const PageReader = ({
       return;
     }
 
-    // Don't recalculate if pages already exist (unless chapters changed)
+    // Check if chapter order changed (for reordering support)
+    const currentOrder = chapters.map(c => c.id).join(',');
+    const orderChanged = prevChapterOrderRef.current !== null && 
+                         prevChapterOrderRef.current !== currentOrder;
+    prevChapterOrderRef.current = currentOrder;
+
+    // Check if any chapters or subchapters were deleted
+    if (pages.length > 0) {
+      // Get all valid chapter and subchapter IDs
+      const validChapterIds = new Set(chapters.map(c => c.id));
+      const validSubchapterIds = new Set();
+      chapters.forEach(c => {
+        if (c.children) {
+          c.children.forEach(sub => validSubchapterIds.add(sub.id));
+        }
+      });
+      
+      // Filter out pages from deleted chapters or subchapters
+      const filteredPages = pages.filter(page => {
+        // Page must belong to a valid chapter
+        if (!validChapterIds.has(page.chapterId)) return false;
+        // If page has a subchapterId, it must be valid
+        if (page.subchapterId && !validSubchapterIds.has(page.subchapterId)) return false;
+        return true;
+      });
+      
+      // If pages were removed, update state
+      if (filteredPages.length !== pages.length) {
+        setPages(filteredPages);
+        return;
+      }
+    }
+
+    // If order changed, reorder existing pages without recalculating
+    if (orderChanged && pages.length > 0) {
+      // Build new chapter order map: chapterId -> new chapterIndex
+      const chapterOrderMap = new Map();
+      chapters.forEach((c, idx) => {
+        chapterOrderMap.set(c.id, idx);
+      });
+      
+      // Group pages by chapterId
+      const pagesByChapter = new Map();
+      pages.forEach(page => {
+        const cid = page.chapterId;
+        if (!pagesByChapter.has(cid)) {
+          pagesByChapter.set(cid, []);
+        }
+        pagesByChapter.get(cid).push(page);
+      });
+      
+      // Rebuild pages array in new chapter order
+      const reorderedPages = [];
+      chapters.forEach((chapter, newChapterIndex) => {
+        const chapterPages = pagesByChapter.get(chapter.id) || [];
+        chapterPages.forEach(page => {
+          reorderedPages.push({
+            ...page,
+            chapterIndex: newChapterIndex
+          });
+        });
+      });
+      
+      setPages(reorderedPages);
+      return;
+    }
+
+    // Don't recalculate if pages already exist
     if (pages.length > 0) return;
 
     // Start calculation immediately but use requestAnimationFrame to ensure DOM is ready
