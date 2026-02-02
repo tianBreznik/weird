@@ -561,28 +561,52 @@ function App() {
                   }
                 }
               } else if (parentChapterForNewSub) {
-                await addSubchapter(BOOK_ID, parentChapterForNewSub.id, payload);
+                const subRef = await addSubchapter(BOOK_ID, parentChapterForNewSub.id, payload);
+                const newSub = {
+                  id: subRef.id,
+                  title: payload.title ?? '',
+                  contentHtml: payload.contentHtml ?? '',
+                  content: payload.contentHtml ?? '',
+                  epigraph: payload.epigraph ?? '',
+                  order: 999999,
+                  children: undefined,
+                  backgroundImageUrl: payload.backgroundImageUrl ?? null,
+                  pageBorder: !!payload.pageBorder,
+                  pageBorderImageUrl: payload.pageBorderImageUrl ?? null,
+                  pageBorderWidth: payload.pageBorderWidth ?? null,
+                  pageBorderSlicePercent: payload.pageBorderSlicePercent ?? null,
+                  version: 0,
+                };
+                setChapters((prev) =>
+                  prev.map((ch) =>
+                    ch.id === parentChapterForNewSub.id
+                      ? { ...ch, children: [...(ch.children || []), newSub] }
+                      : ch
+                  )
+                );
               } else {
-                await addChapter(BOOK_ID, payload);
+                const chapterRef = await addChapter(BOOK_ID, payload);
+                const newChapter = {
+                  id: chapterRef.id,
+                  title: payload.title ?? '',
+                  contentHtml: payload.contentHtml ?? '',
+                  content: payload.contentHtml ?? '',
+                  epigraph: payload.epigraph ?? '',
+                  order: 999999,
+                  children: [],
+                  isFirstPage: false,
+                  isCover: false,
+                  backgroundImageUrl: payload.backgroundImageUrl ?? null,
+                  pageBorder: !!payload.pageBorder,
+                  pageBorderImageUrl: payload.pageBorderImageUrl ?? null,
+                  pageBorderWidth: payload.pageBorderWidth ?? null,
+                  pageBorderSlicePercent: payload.pageBorderSlicePercent ?? null,
+                  version: 0,
+                };
+                setChapters((prev) => [...prev, newChapter]);
               }
 
-              const refreshed = await refresh();
-              if (editingChapter && refreshed) {
-                const updatedEntity = refreshed
-                  .flatMap((chapter) => [
-                    { ...chapter, parentChapterId: null },
-                    ...(chapter.children?.map((child) => ({
-                      ...child,
-                      parentChapterId: chapter.id,
-                      isSubchapter: true,
-                    })) ?? []),
-                  ])
-                  .find((entity) => entity.id === editingChapter.id);
-
-                if (updatedEntity) {
-                  setEditingChapter(updatedEntity);
-                }
-              }
+              // No refresh - we already updated local state for both edit and add
               setEditingChapter(null);
               setShowNewChapterEditor(false);
               setParentChapterForNewSub(null);

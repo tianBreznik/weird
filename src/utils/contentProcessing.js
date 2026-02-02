@@ -1,3 +1,13 @@
+const escapeHtml = (text) => {
+  const s = String(text || '');
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
 /**
  * Extract blank-page and background videos from HTML content
  * Returns object with:
@@ -157,10 +167,16 @@ export const buildChapterContentBlocks = (chapter) => {
     let isFirstSubchapter = true;
     chapter.children.forEach((subchapter) => {
       if (subchapter.contentHtml || subchapter.content) {
+        let content = subchapter.contentHtml || subchapter.content;
+        // Ensure subchapter title appears on page: if content has no h4 heading, prepend it
+        const hasH4 = /<h4[^>]*>[\s\S]*?<\/h4>/i.test(content);
+        if (subchapter.title && !hasH4) {
+          content = `<h4>${escapeHtml(subchapter.title)}</h4>${content}`;
+        }
         contentBlocks.push({
           type: 'subchapter',
           title: subchapter.title,
-          content: subchapter.contentHtml || subchapter.content,
+          content,
           epigraph: subchapter.epigraph ?? null,
           chapterId: chapter.id,
           subchapterId: subchapter.id,

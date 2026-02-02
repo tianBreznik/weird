@@ -486,6 +486,8 @@ export const PageReader = ({
   
   // Track chapter order to detect reordering
   const prevChapterOrderRef = useRef(null);
+  // Track content to detect edits (chapter/subchapter content changed)
+  const prevContentSigRef = useRef(null);
 
   // Calculate pages for all chapters based on actual content height
   // Includes subchapters in the flow
@@ -507,8 +509,11 @@ export const PageReader = ({
       return;
     }
 
-    // Check if chapter order changed (for reordering support)
-    const currentOrder = chapters.map(c => c.id).join(',');
+    // Check if chapter/subchapter order or content changed (reordering, add, delete)
+    const currentOrder = chapters.flatMap(c => [
+      c.id,
+      ...(c.children || []).map(s => s.id)
+    ]).join(',');
     const orderChanged = prevChapterOrderRef.current !== null && 
                          prevChapterOrderRef.current !== currentOrder;
     prevChapterOrderRef.current = currentOrder;
@@ -540,8 +545,30 @@ export const PageReader = ({
       }
     }
 
-    // If order changed, reorder existing pages without recalculating
+    // If order changed, either reorder or recalculate (when new chapter/subchapter was added)
     if (orderChanged && pages.length > 0) {
+      // Check if we have pages for every chapter (and subchapter) - if not, new content was added, need full recalc
+      const pageChapterIds = new Set(pages.map(p => p.chapterId));
+      const pageSubchapterIds = new Set(pages.filter(p => p.subchapterId).map(p => p.subchapterId));
+      let needRecalc = false;
+      for (const ch of chapters) {
+        if (!pageChapterIds.has(ch.id)) {
+          needRecalc = true;
+          break;
+        }
+        for (const sub of ch.children || []) {
+          if (!pageSubchapterIds.has(sub.id)) {
+            needRecalc = true;
+            break;
+          }
+        }
+      }
+      if (needRecalc) {
+        // Recalculate without clearing - old pages stay visible until new ones are ready
+        calculatePages().catch(() => {});
+        return;
+      }
+
       // Build new chapter order map: chapterId -> new chapterIndex
       const chapterOrderMap = new Map();
       chapters.forEach((c, idx) => {
@@ -571,6 +598,21 @@ export const PageReader = ({
       });
       
       setPages(reorderedPages);
+      return;
+    }
+
+    // If order didn't change but content changed (edit), recalculate pages
+    const contentSig = chapters.flatMap(c => [
+      c.id,
+      (c.contentHtml || c.content || '').length,
+      ...(c.children || []).flatMap(s => [s.id, (s.contentHtml || s.content || '').length])
+    ]).join('|');
+    const contentChanged = prevContentSigRef.current !== null && 
+                           prevContentSigRef.current !== contentSig;
+    prevContentSigRef.current = contentSig;
+
+    if (!orderChanged && contentChanged && pages.length > 0) {
+      calculatePages().catch(() => {});
       return;
     }
 
