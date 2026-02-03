@@ -7,7 +7,7 @@ import { initializeNewPage, createPageFromElements } from '../utils/pageCreation
 import { processHTMLContent, buildChapterContentBlocks } from '../utils/contentProcessing';
 import { handleKaraokeElement } from '../utils/karaokePagination';
 import { handleFieldNotesElement, hasFieldNotesBlocks } from '../utils/fieldNotesPagination';
-import { paginateElement } from '../utils/elementPagination';
+import { paginateElement, calculateRemainingHeight } from '../utils/elementPagination';
 import { finalizePages, applyHyphenationToPages, restoreInitialPosition } from '../utils/postProcessing';
 import { extractFootnotesFromContent, measureFootnotesHeight, applyParagraphStylesToContainer, isAtomicElement, splitTextAtSentenceBoundary, splitTextAtWordBoundary } from '../utils/paginationHelpers';
 
@@ -119,6 +119,10 @@ export const usePagePagination = ({
         measure.setHeading(initialHeading);
       };
 
+      // When true, the next push is the "shared" page (chapter end + subchapter start);
+      // we label it as the chapter's last page for TOC (subchapter starts on the next page).
+      let nextPushIsSharedPage = false;
+
       const pushPage = (blockMeta) => {
         if (!currentPageElements.length) return;
         
@@ -137,10 +141,19 @@ export const usePagePagination = ({
             return;
           }
         }
+
+        // Shared page: chapter end + subchapter start on one page → label as chapter's last page
+        // so TOC shows chapter ending here and subchapter starting on the next page.
+        const metaToUse = (nextPushIsSharedPage && blockMeta.type === 'subchapter')
+          ? contentBlocks[0]
+          : blockMeta;
+        if (nextPushIsSharedPage && blockMeta.type === 'subchapter') {
+          nextPushIsSharedPage = false;
+        }
         
         const newPage = createPageFromElements({
           elements: currentPageElements,
-          blockMeta,
+          blockMeta: metaToUse,
           chapter,
           chapterIndex,
           chapterPageIndex,
@@ -354,7 +367,33 @@ export const usePagePagination = ({
           // If empty, don't push - field notes pages were already added individually
         } else if (currentPageElements.length > 0) {
           // Regular chapter without field notes - push if there's content
-          pushPage(block);
+          // Unless: next block is subchapter AND >= 45% of page is free - flow subchapter onto same page
+          const nextBlock = contentBlocks[blockIdx + 1];
+          const canFlowSubchapter = block.type === 'chapter' && nextBlock?.type === 'subchapter';
+          let skipPushForFlow = false;
+          if (canFlowSubchapter) {
+            const isStandaloneFirstPage = chapter.isFirstPage && chapterPageIndex === 0;
+            const footnotesHeight = currentPageFootnotes.size > 0
+              ? measureFootnotesHeight(currentPageFootnotes, measure.body, allFootnotes, isDesktop, pageWidth)
+              : 0;
+            const contentAvailableHeight = measure.getAvailableHeight(footnotesHeight, isStandaloneFirstPage);
+            const { remainingContentHeight } = calculateRemainingHeight({
+              currentPageElements,
+              contentAvailableHeight,
+              contentWidth,
+              isDesktop,
+              measure,
+              applyParagraphStylesToContainer
+            });
+            const freePercent = contentAvailableHeight > 0 ? remainingContentHeight / contentAvailableHeight : 0;
+            skipPushForFlow = freePercent >= 0.45;
+          }
+          if (!skipPushForFlow) {
+            pushPage(block);
+          } else {
+            // Next push will be the shared page (chapter end + subchapter start); label it as chapter's last page.
+            nextPushIsSharedPage = true;
+          }
         }
         // If currentPageElements is empty and last wasn't field notes and chapter doesn't have field notes,
         // that's fine - nothing to push (empty chapter)

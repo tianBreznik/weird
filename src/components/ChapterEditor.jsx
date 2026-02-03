@@ -27,6 +27,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   const [hideTitle, setHideTitle] = useState(!!chapter?.hideTitle);
   const [saving, setSaving] = useState(false);
   const [autosaveStatus, setAutosaveStatus] = useState('Ready');
+  // Highlight swatch: either (1) highlight mark at cursor from doc, or (2) last color chosen in picker until next cursor move (see userChangedHighlightRef).
   const [highlightColor, setHighlightColor] = useState('#ffeb3b');
   const [textColor, setTextColor] = useState('#000000');
   const [fontSize, setFontSize] = useState('16');
@@ -162,6 +163,8 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       const isInHeading = currentNode.type.name === 'heading' && currentNode.attrs.level === headingLevel;
 
       setActiveFormats(prev => ({ ...prev, isHeading: isInHeading }));
+      // Sync toolbar (bold/italic/highlight color/etc.) to current cursor/selection
+      refreshToolbarState();
     },
     onCreate: () => {},
     parseOptions: {
@@ -324,50 +327,63 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     return '#000000';
   };
 
+  // Get highlight color from DOM (mirrors getColorFromElement but for background-color).
+  // Text color works because it walks the DOM; ProseMirror marks at cursor can give wrong
+  // color at boundaries. Reading background-color from the element under the cursor matches
+  // what the user sees.
+  const getHighlightFromElement = (element) => {
+    if (!element || !editor) return null;
+    const editorEl = editor.view?.dom;
+    if (!editorEl) return null;
+    let current = element;
+    while (current && current !== editorEl) {
+      const styleAttr = current.getAttribute?.('style') || '';
+      const bgMatch = styleAttr.match(/background-color\s*:\s*([^;]+)/i);
+      const inlineBg = bgMatch?.[1]?.trim() || (current.style?.backgroundColor || '');
+      if (inlineBg && inlineBg !== 'transparent' && inlineBg !== 'rgba(0, 0, 0, 0)') {
+        return normalizeCssColorToHex(inlineBg, '#ffffff');
+      }
+      const computed = window.getComputedStyle(current);
+      const bgComputed = computed.backgroundColor;
+      if (bgComputed && bgComputed !== 'transparent' && bgComputed !== 'rgba(0, 0, 0, 0)') {
+        return normalizeCssColorToHex(bgComputed, '#ffffff');
+      }
+      current = current.parentElement;
+    }
+    return null;
+  };
+
   // Get current font size for toolbar sync.
   // For now, just reflect the current fontSize state; we can make this smarter later.
   const getCurrentFontSize = () => fontSize || '16';
 
-  // Get current highlight color from ProseMirror marks around the caret.
-  //
-  // Behaviour for a collapsed caret:
-  // - ONLY look at the position AT the caret.
-  //   This matches your expectation: if the caret is at the start of a
-  //   non‑highlighted word (even if there is a highlighted word before it),
-  //   we report "no highlight" instead of inheriting the previous color.
+  // Get current highlight color for the toolbar. Uses the same DOM-based approach as
+  // getCurrentTextColor (which works): read background-color from the element under the
+  // cursor. ProseMirror marks at cursor give wrong color at boundaries.
   const getCurrentHighlightFromState = () => {
-    if (!editor) return '#ffffff';
     try {
-      const { state } = editor;
-      const sel = state.selection;
-      if (!sel) return '#ffffff';
+      if (!editor) return '#ffffff';
+      const editorEl = editor.view?.dom;
+      if (!editorEl) return '#ffffff';
 
-      if (sel.from === sel.to) {
-        // Collapsed caret: inspect marks AT the caret only.
-        const posAtCaret = sel.from;
-        if (posAtCaret >= 0 && posAtCaret <= state.doc.content.size) {
-          const $at = state.doc.resolve(posAtCaret);
-          const marksAt = $at.marks();
-          const highlightAt = marksAt.find((m) => m.type.name === 'highlight');
-          if (highlightAt && highlightAt.attrs?.color) {
-            return normalizeCssColorToHex(highlightAt.attrs.color, '#ffffff');
-          }
-        }
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) {
+        const attrs = editor.getAttributes('highlight');
+        if (attrs?.color) return normalizeCssColorToHex(attrs.color, '#ffffff');
         return '#ffffff';
       }
 
-      // Range selection: just check the start position.
-      const pos = sel.from;
-      if (pos < 0 || pos > state.doc.content.size) {
+      const range = selection.getRangeAt(0);
+      let element = range.commonAncestorContainer;
+      if (element.nodeType === Node.TEXT_NODE) {
+        element = element.parentElement;
+      } else if (element.nodeType !== Node.ELEMENT_NODE) {
         return '#ffffff';
       }
-      const $pos = state.doc.resolve(pos);
-      const marks = $pos.marks();
-      const highlightMark = marks.find((m) => m.type.name === 'highlight');
-      if (highlightMark && highlightMark.attrs?.color) {
-        return normalizeCssColorToHex(highlightMark.attrs.color, '#ffffff');
-      }
-      return '#ffffff';
+      if (!element) return '#ffffff';
+
+      const color = getHighlightFromElement(element);
+      return color ?? '#ffffff';
     } catch {
       return '#ffffff';
     }
@@ -1130,7 +1146,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
           break;
         case 'u': 
           e.preventDefault(); 
-          // TODO: implement underline
+          editor.chain().focus().toggleUnderline().run(); 
           refreshToolbarState(); 
           break;
         case 'l': 
@@ -1724,18 +1740,17 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   const handleHighlightColorChange = (e) => {
     const value = e.target.value;
     
-    // Mark that user is manually changing the highlight color
+    // Briefly block toolbar sync so the chosen color doesn't get overwritten by
+    // the next selection update (e.g. focus moving). Keep it short so moving the
+    // cursor to unhighlighted text quickly shows white, not the last picked color.
     userChangedHighlightRef.current = true;
     
-    // Update state immediately so tooltip reflects the change
     setHighlightColor(value);
     
-    // Force immediate visual update of the color picker
     if (highlightInputRef.current) {
       highlightInputRef.current.value = value;
     }
     
-    // Immediately apply new highlight color to selection/caret via TipTap
     if (!editor) return;
     editor
       .chain()
@@ -1743,12 +1758,9 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       .setMark('highlight', { color: value })
       .run();
     
-    // Reset flag after a delay to allow toolbar to sync naturally
     setTimeout(() => {
       userChangedHighlightRef.current = false;
-    }, 500);
-    
-    // Don't call refreshToolbarState here - it would override our manual change
+    }, 150);
   };
 
   const handleApplyHighlightClick = (e) => {
@@ -2742,8 +2754,13 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                     title="Barva besedila"
                   />
                 </div>
-                {/* Highlight H-swatch next to text color */}
+                {/* Highlight H-swatch: state-driven swatch so it always shows current cursor highlight (native input doesn't repaint on programmatic value change) */}
                 <div className="highlight-picker-container" title="Označi (klikni za uporabo, Alt+klik za brisanje)">
+                  <div
+                    className="highlight-swatch"
+                    style={{ backgroundColor: highlightColor }}
+                    aria-hidden
+                  />
                   <input
                     ref={highlightInputRef}
                     type="color"

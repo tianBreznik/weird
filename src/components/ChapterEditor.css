@@ -1398,12 +1398,22 @@
 
 .highlight-picker-container { position: relative; display: inline-block; width: 28px; height: 28px; }
 
-.highlight-picker { width: 28px; height: 28px; border: 1px solid #e8e9ed; border-radius: 6px; cursor: pointer; padding: 0; background: #fdfdfd; appearance: none; -webkit-appearance: none; overflow: hidden; }
+/* State-driven swatch so the visible color always matches cursor highlight (native input often doesn't repaint on value change) */
+.highlight-swatch {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  border: 1px solid #e8e9ed;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.highlight-picker { position: relative; z-index: 1; width: 28px; height: 28px; border: none; border-radius: 6px; cursor: pointer; padding: 0; background: transparent; appearance: none; -webkit-appearance: none; overflow: hidden; opacity: 0; }
 .highlight-picker::-webkit-color-swatch-wrapper { padding: 0; }
 .highlight-picker::-webkit-color-swatch { border: none; border-radius: 6px; }
 .highlight-picker::-moz-color-swatch { border: none; border-radius: 6px; }
 
-.highlight-overlay { position: absolute; top: 0; left: 0; width: 28px; height: 28px; border: none; background: transparent; color: #111; font-weight: 700; font-size: 12px; display: flex; align-items: center; justify-content: center; pointer-events: none; border-radius: 6px; }
+.highlight-overlay { position: absolute; top: 0; left: 0; width: 28px; height: 28px; border: none; background: transparent; color: #111; font-weight: 700; font-size: 12px; display: flex; align-items: center; justify-content: center; pointer-events: none; border-radius: 6px; z-index: 2; }
 
 .highlight-btn {
   background: linear-gradient(to bottom, #ffffff, #f0f0f0);

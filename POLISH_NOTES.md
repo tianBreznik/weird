@@ -1,5 +1,24 @@
 # Polish Notes
 
+## Shared Page (Chapter End + Subchapter Start) — TOC Metadata
+
+### What is a “shared page”?
+When a chapter’s last page has enough free space (≥45% of the content area), the first subchapter is flowed onto that same page instead of starting a new one. The result is one page that contains both the end of the chapter and the start of the first subchapter. That page is the “shared page.”
+
+### How it’s labeled for the TOC
+The shared page is created when we **push** during subchapter processing (we’re in the subchapter block when we call `pushPage`). So without extra logic, that page would be created with `blockMeta` set to the **subchapter**. That would make the page “owned” by the subchapter for metadata (e.g. `subchapterId`, TOC “first page of subchapter”).
+
+**Implemented behavior:** We treat that first shared page as the **chapter’s last page** for metadata. In `usePagePagination.js`, when we skip the chapter push to allow subchapter flow (`skipPushForFlow`), we set `nextPushIsSharedPage = true`. On the next `pushPage` call (from the subchapter block), we use the **chapter** block’s metadata (e.g. `subchapterId: null`) instead of the subchapter’s, so the page appears in the TOC as the chapter’s last page and the subchapter’s first page is the following page.
+
+### Content vs metadata
+- **HTML content** is correct either way: the page always shows chapter end content plus subchapter start content (heading + text).
+- **Metadata** (which block “owns” the page for TOC/navigation) is what we adjust: we assign the shared page to the chapter so that “chapter ends here” and “subchapter starts on next page” match user expectations in the TOC.
+
+### If we ever wanted the opposite
+If we ever needed that first shared page to be labeled as the **subchapter’s first page** in the TOC (e.g. “subchapter starts on this page”), we’d remove or invert the `nextPushIsSharedPage` / `metaToUse` logic so the page keeps the subchapter’s `blockMeta` when it’s the shared page. Right now the design is: shared page = chapter’s last page for TOC.
+
+---
+
 ## Code Quality: Redundant Variables and Constants
 
 ### Problem Summary

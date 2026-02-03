@@ -520,7 +520,6 @@ export const PageReader = ({
 
     // Check if any chapters or subchapters were deleted
     if (pages.length > 0) {
-      // Get all valid chapter and subchapter IDs
       const validChapterIds = new Set(chapters.map(c => c.id));
       const validSubchapterIds = new Set();
       chapters.forEach(c => {
@@ -529,18 +528,16 @@ export const PageReader = ({
         }
       });
       
-      // Filter out pages from deleted chapters or subchapters
-      const filteredPages = pages.filter(page => {
-        // Page must belong to a valid chapter
-        if (!validChapterIds.has(page.chapterId)) return false;
-        // If page has a subchapterId, it must be valid
-        if (page.subchapterId && !validSubchapterIds.has(page.subchapterId)) return false;
-        return true;
-      });
+      const hasDeletedPages = pages.some(page => 
+        !validChapterIds.has(page.chapterId) ||
+        (page.subchapterId && !validSubchapterIds.has(page.subchapterId))
+      );
       
-      // If pages were removed, update state
-      if (filteredPages.length !== pages.length) {
-        setPages(filteredPages);
+      // When something was deleted, recalculate instead of filtering: pages can have
+      // mixed content (e.g. chapter end + subchapter start on one page), so removing
+      // the whole page would drop chapter content. Recalculating repaginates correctly.
+      if (hasDeletedPages) {
+        calculatePages().catch(() => {});
         return;
       }
     }
