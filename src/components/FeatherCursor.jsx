@@ -13,8 +13,6 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
   const currentPositionRef = useRef({ x: 0, y: 0 }); // Current displayed position (for damping)
   const animationFrameRef = useRef(null);
   const particleIdRef = useRef(0);
-  const isHoveringRef = useRef(false);
-  const isClickingRef = useRef(false);
 
   // Configurable tip offset - adjust these values to align the feather tip with cursor
   // Positive X moves right, positive Y moves down
@@ -39,9 +37,8 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
     const preloadImg = new Image();
     preloadImg.src = '/feather.png';
 
-    // Helper function to build transform with tip offset
     const buildTransform = (scale = 1) => {
-      const baseTransform = 'translate(-50%, -50%)'; // Rotation removed for testing
+      const baseTransform = 'translate(-50%, -50%)';
       const tipOffset = TIP_OFFSET_X !== 0 || TIP_OFFSET_Y !== 0 
         ? ` translate(${TIP_OFFSET_X}px, ${TIP_OFFSET_Y}px)`
         : '';
@@ -152,52 +149,10 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
         animationFrameRef.current = requestAnimationFrame(animateCursor);
       }
       
-      // Get element under mouse BEFORE modifying it
+      // Force cursor: none on element under mouse (Safari workaround)
       const target = document.elementFromPoint(e.clientX, e.clientY);
-      
-      // Check if hovering over a clickable or draggable element (BEFORE setting cursor to none)
-      let isHovering = false;
       if (target && target !== document.body && target !== document.documentElement) {
-        // Check computed style BEFORE we modify it
-        const computedStyle = window.getComputedStyle(target);
-        const originalCursor = computedStyle.cursor;
-        
-        // Check if it's an interactive element - use multiple detection methods
-        const isButton = target.tagName === 'BUTTON';
-        const isLink = target.tagName === 'A';
-        const isInput = ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName);
-        const hasOnClick = target.onclick !== null || target.getAttribute('onclick') !== null;
-        const isDraggable = target.draggable === true || target.getAttribute('draggable') === 'true';
-        const hasRoleButton = target.getAttribute('role') === 'button';
-        const hasTabIndex = target.hasAttribute('tabindex') && target.getAttribute('tabindex') !== '-1';
-        const isClickableCursor = originalCursor === 'pointer' || originalCursor === 'grab' || originalCursor === 'grabbing';
-        const hasClickableParent = target.closest('button, a, [role="button"], [onclick], [draggable="true"], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-        
-        // Also check for elements with cursor: pointer in their computed style (even if we haven't set it yet)
-        isHovering = isButton || isLink || isInput || hasOnClick || isDraggable || hasRoleButton || hasTabIndex || isClickableCursor || !!hasClickableParent;
-        
-        // Force cursor: none on element under mouse (Safari workaround)
         target.style.setProperty('cursor', 'none', 'important');
-      }
-      
-      // Update hover state - apply transform directly for reliability
-      if (isHovering !== isHoveringRef.current || true) { // Always update to ensure state is correct
-        isHoveringRef.current = isHovering;
-        if (cursorRef.current) {
-          // Apply transform directly via inline styles for better reliability
-          const scale = isHovering ? 1.3 : 1;
-          const fullTransform = buildTransform(scale);
-          
-          cursorRef.current.style.transform = fullTransform;
-          cursorRef.current.style.webkitTransform = fullTransform;
-          
-          // Also toggle class for CSS transitions
-          if (isHovering) {
-            cursorRef.current.classList.add('feather-cursor-hover');
-          } else {
-            cursorRef.current.classList.remove('feather-cursor-hover');
-          }
-        }
       }
       
       // Create particles periodically (throttle to avoid too many)
@@ -237,45 +192,38 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
       handleMouseMove(e);
     };
 
-    // Handle click animation
     const handleMouseDown = () => {
-      isClickingRef.current = true;
       if (cursorRef.current) {
-        const fullTransform = buildTransform(0.8); // Scale down on click
-        
+        const fullTransform = buildTransform(0.8);
         cursorRef.current.style.transform = fullTransform;
         cursorRef.current.style.webkitTransform = fullTransform;
-        cursorRef.current.classList.add('feather-cursor-click');
       }
     };
 
     const handleMouseUp = () => {
-      isClickingRef.current = false;
       if (cursorRef.current) {
-        // Restore hover state transform
-        const scale = isHoveringRef.current ? 1.3 : 1;
-        const fullTransform = buildTransform(scale);
-        
+        const fullTransform = buildTransform(1);
         cursorRef.current.style.transform = fullTransform;
         cursorRef.current.style.webkitTransform = fullTransform;
-        cursorRef.current.classList.remove('feather-cursor-click');
       }
     };
 
     // Add class to body to trigger global cursor: none CSS rule
     document.body.classList.add('feather-cursor-active');
     
+    // Use document for mousedown/mouseup - more reliable for Shadow DOM (IsolatedButton),
+    // modals, and elements that stop propagation on click
     window.addEventListener('mousemove', handleMouseMoveWithShow);
-    window.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mousedown', handleMouseDown, true);
+    document.addEventListener('mouseup', handleMouseUp, true);
     document.addEventListener('mouseenter', handleMouseEnter);
     document.addEventListener('mouseleave', handleMouseLeave);
 
     return () => {
       document.body.classList.remove('feather-cursor-active');
       window.removeEventListener('mousemove', handleMouseMoveWithShow);
-      window.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousedown', handleMouseDown, true);
+      document.removeEventListener('mouseup', handleMouseUp, true);
       document.removeEventListener('mouseenter', handleMouseEnter);
       document.removeEventListener('mouseleave', handleMouseLeave);
       
