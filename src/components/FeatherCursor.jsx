@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import './FeatherCursor.css';
 
-export const FeatherCursor = ({ children }) => {
+export const FeatherCursor = ({ children, hideCursor = false }) => {
   const [isMobile, setIsMobile] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.innerWidth <= 768;
@@ -400,7 +400,7 @@ export const FeatherCursor = ({ children }) => {
     <>
       <div 
         ref={cursorRef}
-        className="feather-cursor"
+        className={`feather-cursor ${hideCursor ? 'feather-cursor-hidden' : ''}`}
         style={{
           left: `${mousePositionRef.current.x}px`,
           top: `${mousePositionRef.current.y}px`,

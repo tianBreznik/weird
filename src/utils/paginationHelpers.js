@@ -186,6 +186,7 @@ export const applyHyphenationToHTML = (html) => {
 /**
  * Creates a measurement container that matches the real DOM structure exactly.
  * Used for accurate page height calculations during pagination.
+ * Appends to document.body with a .pdf-viewer wrapper (desktop) for CSS inheritance.
  */
 export const createMeasureContainer = (isDesktop, pageWidth, pageHeight) => {
   const container = document.createElement('div');
@@ -262,14 +263,25 @@ export const createMeasureContainer = (isDesktop, pageWidth, pageHeight) => {
   body.appendChild(pageContent);
   
   sheet.appendChild(body);
-  document.body.appendChild(container);
+  // Desktop: wrap in .pdf-viewer so measure container gets same CSS as rendered pages.
+  // Append to document.body to avoid layout interference from viewer flex/overflow.
+  let wrapper = null;
+  if (isDesktop) {
+    wrapper = document.createElement('div');
+    wrapper.className = 'pdf-viewer';
+    wrapper.style.cssText = 'position:absolute;visibility:hidden;left:-9999px;top:0;pointer-events:none';
+    wrapper.appendChild(container);
+    document.body.appendChild(wrapper);
+  } else {
+    document.body.appendChild(container);
+  }
 
   return {
     container,
     sheet,
     body,
     pageContent, // Expose pageContent for content insertion
-    destroy: () => container.remove(),
+    destroy: () => (wrapper ? wrapper.remove() : container.remove()),
     setHeading: (hasHeading) => {
       sheet.classList.remove('page-with-heading', 'page-without-heading');
       sheet.classList.add(hasHeading ? 'page-with-heading' : 'page-without-heading');
@@ -323,7 +335,7 @@ export const applyParagraphStylesToContainer = (container, isDesktop) => {
   // Desktop PDF uses 1.35rem (matches PDFViewer.css), mobile uses 1.3rem
   const desktopFontSize = isDesktop ? '1.35rem' : '1.3rem';
   // Desktop PDF uses 1.62 line-height (matches PDFViewer.css), mobile uses 1.35
-  const desktopLineHeight = isDesktop ? '1.62' : '1.35';
+  const desktopLineHeight = isDesktop ? '1.50' : '1.35';
   
   const paragraphs = container.querySelectorAll('p');
   paragraphs.forEach(p => {
@@ -480,7 +492,7 @@ export const checkContentWithFootnotesFits = (contentElements, footnoteNumbers, 
   // Desktop PDF uses 1.4rem (matches PDFViewer.css), mobile uses 1.3rem
   tempContainer.style.fontFamily = "'Times New Roman', 'Times', 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif";
   tempContainer.style.fontSize = isDesktop ? '1.4rem' : '1.3rem';
-  tempContainer.style.lineHeight = isDesktop ? '1.62' : '1.35';
+  tempContainer.style.lineHeight = isDesktop ? '1.50' : '1.35';
   measure.pageContent.appendChild(tempContainer);
   
   contentElements.forEach(el => {
@@ -652,22 +664,24 @@ export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {
     
     // Apply font styles to clone to match actual rendering
     const desktopFontSize = isDesktop ? '1.35rem' : '1.3rem';
-    const desktopLineHeight = isDesktop ? '1.62' : '1.35';
+    const desktopLineHeight = isDesktop ? '1.50' : '1.35';
     if (!clone.style.fontSize) clone.style.fontSize = desktopFontSize;
     if (!clone.style.lineHeight) clone.style.lineHeight = desktopLineHeight;
     
-    // Create a temporary container to measure just the clone
-    // Use same measurement approach as final check: contentWidth for desktop, body.clientWidth for mobile
+    // Use same structure as checkElementFits/calculateRemainingHeight (page-content-main wrapper)
     const tempMeasureContainer = document.createElement('div');
     const measureWidth = (isDesktop && contentWidth) ? contentWidth : measure.body.clientWidth;
     tempMeasureContainer.style.width = measureWidth + 'px';
     tempMeasureContainer.style.position = 'absolute';
     tempMeasureContainer.style.visibility = 'hidden';
-    // For desktop, append to pageContent to match structure; for mobile, body is fine
     const measureParent = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
     measureParent.appendChild(tempMeasureContainer);
-    tempMeasureContainer.appendChild(clone);
-    const height = clone.offsetHeight; // Measure the clone itself, not the body
+    const contentWrapper = document.createElement('div');
+    contentWrapper.className = 'page-content-main';
+    contentWrapper.appendChild(clone);
+    applyParagraphStylesToContainer(contentWrapper, isDesktop);
+    tempMeasureContainer.appendChild(contentWrapper);
+    const height = tempMeasureContainer.offsetHeight;
     measureParent.removeChild(tempMeasureContainer);
     
     if (height <= maxHeight + 2) {
@@ -690,11 +704,11 @@ export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {
   const fullClone = element.cloneNode(true);
   // Apply font styles to clone to match actual rendering (same as binary search)
   const desktopFontSize = isDesktop ? '1.35rem' : '1.3rem';
-  const desktopLineHeight = isDesktop ? '1.62' : '1.35';
+  const desktopLineHeight = isDesktop ? '1.50' : '1.35';
   if (!fullClone.style.fontSize) fullClone.style.fontSize = desktopFontSize;
   if (!fullClone.style.lineHeight) fullClone.style.lineHeight = desktopLineHeight;
   
-  // Create a temporary container to measure just the clone
+  // Use same structure as checkElementFits/calculateRemainingHeight (page-content-main wrapper)
   const tempMeasureContainer2 = document.createElement('div');
   const measureWidth2 = (isDesktop && contentWidth) ? contentWidth : measure.body.clientWidth;
   tempMeasureContainer2.style.width = measureWidth2 + 'px';
@@ -702,8 +716,12 @@ export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {
   tempMeasureContainer2.style.visibility = 'hidden';
   const measureParent2 = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
   measureParent2.appendChild(tempMeasureContainer2);
-  tempMeasureContainer2.appendChild(fullClone);
-  const fullHeight = fullClone.offsetHeight; // Measure the clone itself, not the body
+  const contentWrapper2 = document.createElement('div');
+  contentWrapper2.className = 'page-content-main';
+  contentWrapper2.appendChild(fullClone);
+  applyParagraphStylesToContainer(contentWrapper2, isDesktop);
+  tempMeasureContainer2.appendChild(contentWrapper2);
+  const fullHeight = tempMeasureContainer2.offsetHeight;
   measureParent2.removeChild(tempMeasureContainer2);
   
   if (fullHeight <= maxHeight + 2) {
@@ -910,22 +928,24 @@ export const splitTextAtSentenceBoundary = (element, maxHeight, measure, splitTe
     
     // Apply font styles to clone to match actual rendering
     const desktopFontSize = isDesktop ? '1.35rem' : '1.3rem';
-    const desktopLineHeight = isDesktop ? '1.62' : '1.35';
+    const desktopLineHeight = '1.35';
     if (!clone.style.fontSize) clone.style.fontSize = desktopFontSize;
     if (!clone.style.lineHeight) clone.style.lineHeight = desktopLineHeight;
     
-    // Create a temporary container to measure just the clone
-    // Use contentWidth for desktop (accounts for padding), body.clientWidth for mobile
+    // Use same structure as checkElementFits/calculateRemainingHeight (page-content-main wrapper)
     const tempMeasureContainer = document.createElement('div');
     const measureWidth = (isDesktop && contentWidth) ? contentWidth : measure.body.clientWidth;
     tempMeasureContainer.style.width = measureWidth + 'px';
     tempMeasureContainer.style.position = 'absolute';
     tempMeasureContainer.style.visibility = 'hidden';
-    // For desktop, append to pageContent to match structure; for mobile, body is fine
     const measureParent = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
     measureParent.appendChild(tempMeasureContainer);
-    tempMeasureContainer.appendChild(clone);
-    const height = clone.offsetHeight; // Measure the clone itself, not the body
+    const contentWrapper = document.createElement('div');
+    contentWrapper.className = 'page-content-main';
+    contentWrapper.appendChild(clone);
+    applyParagraphStylesToContainer(contentWrapper, isDesktop);
+    tempMeasureContainer.appendChild(contentWrapper);
+    const height = tempMeasureContainer.offsetHeight;
     measureParent.removeChild(tempMeasureContainer);
     
     if (height <= maxHeight + 2) {

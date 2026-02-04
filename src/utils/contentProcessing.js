@@ -93,8 +93,12 @@ export const waitForImagesToLoad = (contentDiv) => {
   });
 };
 
+import { applyHyphenationToHTML } from './paginationHelpers';
+
 /**
- * Process HTML content: extract videos, replace dashes, prepare for pagination
+ * Process HTML content: extract videos, replace dashes, hyphenate, prepare for pagination.
+ * Hyphenation is applied here so pagination measures the same text we render (avoids
+ * measurement/render mismatch that causes early breaks and empty space).
  */
 export const processHTMLContent = async (htmlContent, isDesktop) => {
   // Extract videos first
@@ -102,6 +106,9 @@ export const processHTMLContent = async (htmlContent, isDesktop) => {
   
   // Replace long dashes with short hyphens
   const contentWithHyphens = replaceLongDashes(contentWithoutVideos);
+  
+  // Hyphenate before parsing — ensures measurement matches final render
+  const contentHyphenated = applyHyphenationToHTML(contentWithHyphens);
   
   // Create temporary container for image loading
   const tempContainer = document.createElement('div');
@@ -119,7 +126,7 @@ export const processHTMLContent = async (htmlContent, isDesktop) => {
   contentDiv.style.fontSize = isDesktop ? '1.3rem' : '1.3rem';
   contentDiv.style.lineHeight = isDesktop ? '1.35' : '1.35';
   contentDiv.style.color = '#0a0a0a';
-  contentDiv.innerHTML = contentWithHyphens;
+  contentDiv.innerHTML = contentHyphenated;
   tempContainer.appendChild(contentDiv);
   
   // Set loading="eager" on all images to prevent lazy loading

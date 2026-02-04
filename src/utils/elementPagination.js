@@ -92,8 +92,10 @@ export const checkElementFits = ({
   measureParent.removeChild(tempTotalContainer);
   
   // Element fits if total content height (with padding) fits in contentAvailableHeight + padding
-  // Add safety margin to prevent overflow due to rounding/measurement differences
-  const safetyMargin = isStandaloneFirstPage ? -100 : (pageHasHeading ? 8 : 2);
+  // Add safety margin to prevent overflow due to rounding/measurement differences.
+  // Use same margin (2) regardless of pageHasHeading - a larger margin (8) when subchapter
+  // heading is on page caused content to break earlier and leave visible empty space.
+  const safetyMargin = isStandaloneFirstPage ? -100 : 2;
   const totalAvailableHeight = contentAvailableHeight + (finalReservedSpace || 0);
   const elementFits = isStandaloneFirstPage ? true : (totalContentHeight <= totalAvailableHeight - safetyMargin);
   
@@ -101,7 +103,9 @@ export const checkElementFits = ({
 };
 
 /**
- * Calculate remaining content height on current page
+ * Calculate remaining content height on current page.
+ * Uses the same DOM structure as checkElementFits (page-content-main wrapper) so measurements
+ * are identical and margin collapse / layout match exactly.
  */
 export const calculateRemainingHeight = ({
   currentPageElements,
@@ -113,18 +117,19 @@ export const calculateRemainingHeight = ({
 }) => {
   const tempCurrentPageContainer = document.createElement('div');
   tempCurrentPageContainer.style.width = isDesktop ? contentWidth + 'px' : measure.body.clientWidth + 'px';
-  // For desktop, append to pageContent to match actual DOM structure; for mobile, body is fine
   const measureParent = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
   measureParent.appendChild(tempCurrentPageContainer);
   
+  // Same structure as checkElementFits: wrap in page-content-main for identical measurement
+  const contentWrapper = document.createElement('div');
+  contentWrapper.className = 'page-content-main';
   currentPageElements.forEach(el => {
     const temp = document.createElement('div');
     temp.innerHTML = el;
-    tempCurrentPageContainer.appendChild(temp.firstElementChild || temp);
+    contentWrapper.appendChild(temp.firstElementChild || temp);
   });
-  
-  // Apply base paragraph styles to match actual rendering
-  applyParagraphStylesToContainer(tempCurrentPageContainer, isDesktop);
+  applyParagraphStylesToContainer(contentWrapper, isDesktop);
+  tempCurrentPageContainer.appendChild(contentWrapper);
   
   const currentPageContentHeight = tempCurrentPageContainer.offsetHeight;
   measureParent.removeChild(tempCurrentPageContainer);
@@ -367,11 +372,10 @@ export const paginateElement = ({
   const isHeadingElement = /^H[1-6]$/i.test(element.tagName || '');
   const isSubchapterTitle = /^H[4-6]$/i.test(element.tagName || '');
   
-  // Update heading state if needed (affects available height)
+  // Update heading state for page metadata. Do NOT call measure.setHeading(true) — it can reduce
+  // available height when a subchapter is on the page and cause early breaks / empty space.
   if (isSubchapterTitle && !pageHasHeading) {
     pageHasHeading = true;
-    measure.setHeading(true);
-    measure.body.offsetHeight; // Force reflow
   }
   
   // Handle background video elements - skip them from content
@@ -439,11 +443,35 @@ export const paginateElement = ({
     applyParagraphStylesToContainer
   });
   
-  // Log space status before processing element
-  if (isDesktop) {
-    const elementText = element.textContent || '';
-    const textPreview = elementText.substring(0, 100) + (elementText.length > 100 ? '...' : '');
-
+  // Subchapter diagnostics: log key values when processing subchapter content
+  if (isDesktop && block.type === 'subchapter') {
+    const tag = element.tagName?.toLowerCase() || '?';
+    const textPreview = (element.textContent || '').substring(0, 60) + ((element.textContent?.length || 0) > 60 ? '...' : '');
+    // Measure element height using same structure as checkElementFits/calculateRemainingHeight
+    const tempElOnly = document.createElement('div');
+    tempElOnly.style.width = contentWidth + 'px';
+    const measureParent = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
+    measureParent.appendChild(tempElOnly);
+    const elOnlyWrapper = document.createElement('div');
+    elOnlyWrapper.className = 'page-content-main';
+    const tempInner = document.createElement('div');
+    tempInner.innerHTML = element.outerHTML;
+    elOnlyWrapper.appendChild(tempInner.firstElementChild || tempInner);
+    applyParagraphStylesToContainer(elOnlyWrapper, isDesktop);
+    tempElOnly.appendChild(elOnlyWrapper);
+    const elementOnlyHeight = tempElOnly.offsetHeight;
+    measureParent.removeChild(tempElOnly);
+    console.log('[subchapter] element check:', {
+      tag,
+      elementFits,
+      elementOnlyHeight,
+      totalContentHeight,
+      contentAvailableHeight: baseAvailableHeight,
+      remainingContentHeight,
+      currentPageContentHeight,
+      currentPageElementsCount: currentPageElements.length,
+      textPreview
+    });
   }
   
   // STEP 4: Handle element based on whether it fits and if it can be split
@@ -511,13 +539,6 @@ export const paginateElement = ({
         // This matches the actual body height on desktop (540px)
         totalAvailableHeight = baseAvailableHeight + finalReservedSpace;
         overflowAmount = finalTotalHeight - totalAvailableHeight;
-      }
-      
-      // Log final check before deciding to split
-      if (isDesktop) {
-        const elementText = element.textContent || '';
-        const textPreview = elementText.substring(0, 100) + (elementText.length > 100 ? '...' : '');
-
       }
       
       // Check if we should split
@@ -590,6 +611,13 @@ export const paginateElement = ({
       }
     } else {
       // Element doesn't fit - try to split it first
+      if (block.type === 'subchapter' && isDesktop) {
+        console.log('[subchapter] element does NOT fit:', {
+          remainingContentHeight,
+          tag: element.tagName?.toLowerCase(),
+          textPreview: (element.textContent || '').substring(0, 60) + '...'
+        });
+      }
       if (remainingContentHeight > 0) {
         // Use remainingContentHeight to split - this accounts for existing page content
         // Try sentence-level splitting first, then word boundary
@@ -605,6 +633,14 @@ export const paginateElement = ({
         }
         
         const { first, second } = splitResult;
+        if (block.type === 'subchapter' && isDesktop) {
+          console.log('[subchapter] split result:', {
+            hasFirst: !!first,
+            hasSecond: !!second,
+            remainingContentHeight,
+            firstChars: first ? first.length : 0
+          });
+        }
         
         // If split succeeded, process it
         if (first) {
@@ -622,21 +658,30 @@ export const paginateElement = ({
           const isFirstPage = chapter.isFirstPage;
           const baseAvailableHeightWithFirst = measure.getAvailableHeight(footnotesHeightWithFirst, isFirstPage);
           
-          // Measure JUST the first part
+          // Measure first part using same structure as checkElementFits/calculateRemainingHeight
           const tempFirstPartOnly = document.createElement('div');
           tempFirstPartOnly.style.width = contentWidth + 'px';
           const measureParentFirst = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
           measureParentFirst.appendChild(tempFirstPartOnly);
-          
+          const firstPartWrapper = document.createElement('div');
+          firstPartWrapper.className = 'page-content-main';
           const tempFirst = document.createElement('div');
           tempFirst.innerHTML = first;
-          tempFirstPartOnly.appendChild(tempFirst.firstElementChild || tempFirst);
-          
-          applyParagraphStylesToContainer(tempFirstPartOnly, isDesktop);
+          firstPartWrapper.appendChild(tempFirst.firstElementChild || tempFirst);
+          applyParagraphStylesToContainer(firstPartWrapper, isDesktop);
+          tempFirstPartOnly.appendChild(firstPartWrapper);
           const firstPartHeight = tempFirstPartOnly.offsetHeight;
           measureParentFirst.removeChild(tempFirstPartOnly);
           
           const firstPartFits = firstPartHeight <= remainingContentHeight;
+          if (block.type === 'subchapter' && isDesktop) {
+            console.log('[subchapter] first part verification:', {
+              firstPartHeight,
+              remainingContentHeight,
+              firstPartFits,
+              diff: firstPartHeight - remainingContentHeight
+            });
+          }
           
           if (firstPartFits) {
             // First part fits - add it to current page
@@ -694,6 +739,9 @@ export const paginateElement = ({
             }
           } else {
             // First part doesn't actually fit - start new page with entire element
+            if (block.type === 'subchapter' && isDesktop) {
+              console.log('[subchapter] first part did NOT fit → pushing whole element to next page');
+            }
             if (currentPageElements.length > 0) {
               pushPage(block);
             }
@@ -703,6 +751,12 @@ export const paginateElement = ({
           }
         } else {
           // No split possible (first is empty) - start new page with entire element
+          if (block.type === 'subchapter' && isDesktop) {
+            console.log('[subchapter] no split possible (first empty) → pushing whole element to next page', {
+              remainingContentHeight,
+              tag: element.tagName?.toLowerCase()
+            });
+          }
           if (currentPageElements.length > 0) {
             pushPage(block);
           }
@@ -712,6 +766,9 @@ export const paginateElement = ({
         }
       } else {
         // Can't fit even part of element (no remaining space) - start new page with entire element
+        if (block.type === 'subchapter' && isDesktop) {
+          console.log('[subchapter] remainingContentHeight <= 0 → pushing whole element to next page');
+        }
         if (currentPageElements.length > 0) {
           pushPage(block);
         }

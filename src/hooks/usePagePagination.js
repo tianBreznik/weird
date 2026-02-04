@@ -62,14 +62,14 @@ export const usePagePagination = ({
     const pageWidth = isDesktop ? 450 : undefined; // undefined = use CSS min(680px, 96vw)
     const pageHeight = isDesktop ? 636 : viewportHeight; // Match CSS max-height: 636px
     
-    // Create measurement container that exactly matches rendered page structure
+    // Create measurement container that matches rendered page structure
     const measure = createMeasureContainer(isDesktop, pageWidth, pageHeight);
 
     // Desktop font size and line height (used in applyParagraphStylesToContainer)
     // Desktop PDF uses 1.35rem (matches PDFViewer.css), mobile uses 1.3rem
     const desktopFontSize = isDesktop ? '1.35rem' : '1.3rem';
     // Desktop PDF uses 1.62 line-height (matches PDFViewer.css), mobile uses 1.35
-    const desktopLineHeight = isDesktop ? '1.62' : '1.35';
+    const desktopLineHeight = isDesktop ? '1.50' : '1.35';
     // Desktop: content width = page width - left padding - right padding
     // .page-body has padding: 3rem 2.5rem, so 2.5rem ≈ 40px per side
     // Content width = 450px - 40px - 40px = 370px
@@ -126,21 +126,16 @@ export const usePagePagination = ({
       const pushPage = (blockMeta) => {
         if (!currentPageElements.length) return;
         
-        // For field-notes-only chapters, we should NOT be pushing regular content pages
-        // This is a safeguard - if chapter has field notes and we're trying to push,
-        // it means there's mixed content (which is fine), but we should be careful
-        if (chapterHasFieldNotes) {
-          // Check if elements are actually non-empty (not just whitespace)
-          const hasRealContent = currentPageElements.some(el => {
-            const trimmed = el.trim();
-            // Check if it's not just empty tags or whitespace
-            return trimmed.length > 0 && !/^<[^>]+>\s*<\/[^>]+>$/i.test(trimmed);
-          });
-          if (!hasRealContent) {
-            // No real content, don't push empty page
-            return;
-          }
-        }
+        // Don't push pages that only have empty/whitespace/br-only content (renders as blank)
+        const hasRealContent = currentPageElements.some(el => {
+          const trimmed = el.trim();
+          if (trimmed.length === 0) return false;
+          const temp = document.createElement('div');
+          temp.innerHTML = trimmed;
+          const text = (temp.textContent || '').trim();
+          return text.length > 0;
+        });
+        if (!hasRealContent) return;
 
         // Shared page: chapter end + subchapter start on one page → label as chapter's last page
         // so TOC shows chapter ending here and subchapter starting on the next page.
@@ -223,12 +218,11 @@ export const usePagePagination = ({
           // (We'll set it to true if this element is field notes)
           lastElementWasFieldNotes = false;
           
-          // Update heading state if needed (affects available height)
+          // Update heading state for page metadata (hasHeading). Do NOT call measure.setHeading(true)
+          // here — it can reduce available height in the measurement container (esp. mobile) and cause
+          // content to break early when a subchapter is on the page. Keep measurement consistent.
           if (isSubchapterTitle && !pageHasHeading) {
             pageHasHeading = true;
-            measure.setHeading(true);
-            // Force a reflow to ensure CSS changes take effect before measurement
-            measure.body.offsetHeight;
           }
 
           // Handle background video elements - skip them from content
@@ -377,7 +371,7 @@ export const usePagePagination = ({
               ? measureFootnotesHeight(currentPageFootnotes, measure.body, allFootnotes, isDesktop, pageWidth)
               : 0;
             const contentAvailableHeight = measure.getAvailableHeight(footnotesHeight, isStandaloneFirstPage);
-            const { remainingContentHeight } = calculateRemainingHeight({
+            const { remainingContentHeight, currentPageContentHeight } = calculateRemainingHeight({
               currentPageElements,
               contentAvailableHeight,
               contentWidth,
@@ -387,6 +381,16 @@ export const usePagePagination = ({
             });
             const freePercent = contentAvailableHeight > 0 ? remainingContentHeight / contentAvailableHeight : 0;
             skipPushForFlow = freePercent >= 0.45;
+            if (isDesktop) {
+              console.log('[subchapter] skipPushForFlow:', {
+                freePercent: (freePercent * 100).toFixed(1) + '%',
+                remainingContentHeight,
+                contentAvailableHeight,
+                currentPageContentHeight,
+                skipPushForFlow,
+                threshold: '45%'
+              });
+            }
           }
           if (!skipPushForFlow) {
             pushPage(block);

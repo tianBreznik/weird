@@ -304,7 +304,14 @@ function App() {
 
   return (
     <div className={`app eink ${editingChapter || showNewChapterEditor || parentChapterForNewSub ? 'with-editor' : ''} ${isMobile && !isEditor && previewingAsReader ? 'with-page-reader' : ''}`}>
-      <FeatherCursor>
+      <FeatherCursor
+        hideCursor={
+          loading ||
+          (isMobile && !backgroundsReady) ||
+          chapters.length === 0 ||
+          !pagesReady
+        }
+      >
         {/* PageReader: Rendered on both mobile and desktop (desktop shows PDF viewer) */}
       {/* Render PageReader when chapters are loaded, but keep loader visible until pages are ready */}
       {!loading && chapters.length > 0 && (!isMobile || backgroundsReady) && (

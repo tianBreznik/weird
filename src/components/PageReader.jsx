@@ -491,7 +491,6 @@ export const PageReader = ({
 
   // Calculate pages for all chapters based on actual content height
   // Includes subchapters in the flow
-  // Now works on both mobile and desktop
   const calculatePages = usePagePagination({
     chapters,
     initialPosition,
@@ -508,7 +507,7 @@ export const PageReader = ({
       setPages([]);
       return;
     }
-
+    // Pagination runs only when viewer is mounted. No fallback.
     // Check if chapter/subchapter order or content changed (reordering, add, delete)
     const currentOrder = chapters.flatMap(c => [
       c.id,

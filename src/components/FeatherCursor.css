@@ -1,3 +1,9 @@
+/* Hide feather cursor when loader is shown */
+.feather-cursor.feather-cursor-hidden {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 /* Global cursor hiding - applied when FeatherCursor is active */
 /* Use maximum specificity to override all cursor styles, including inline styles */
 html body.feather-cursor-active,
