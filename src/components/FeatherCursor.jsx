@@ -13,6 +13,7 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
   const currentPositionRef = useRef({ x: 0, y: 0 }); // Current displayed position (for damping)
   const animationFrameRef = useRef(null);
   const particleIdRef = useRef(0);
+  const clickTimeoutRef = useRef(null);
 
   // Configurable tip offset - adjust these values to align the feather tip with cursor
   // Positive X moves right, positive Y moves down
@@ -192,38 +193,41 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
       handleMouseMove(e);
     };
 
-    const handleMouseDown = () => {
-      if (cursorRef.current) {
-        const fullTransform = buildTransform(0.8);
-        cursorRef.current.style.transform = fullTransform;
-        cursorRef.current.style.webkitTransform = fullTransform;
-      }
-    };
+    // Global click animation – fires on every real click anywhere on the page.
+    // Purely visual: does NOT call preventDefault/stopPropagation.
+    const handleButtonClick = () => {
+      if (!cursorRef.current) return;
 
-    const handleMouseUp = () => {
-      if (cursorRef.current) {
-        const fullTransform = buildTransform(1);
-        cursorRef.current.style.transform = fullTransform;
-        cursorRef.current.style.webkitTransform = fullTransform;
+      // Run a quick scale-down-then-up animation
+      if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
       }
+
+      const downTransform = buildTransform(0.85);
+      cursorRef.current.style.transform = downTransform;
+      cursorRef.current.style.webkitTransform = downTransform;
+
+      clickTimeoutRef.current = setTimeout(() => {
+        if (!cursorRef.current) return;
+        const upTransform = buildTransform(1);
+        cursorRef.current.style.transform = upTransform;
+        cursorRef.current.style.webkitTransform = upTransform;
+      }, 130);
     };
 
     // Add class to body to trigger global cursor: none CSS rule
     document.body.classList.add('feather-cursor-active');
     
-    // Use document for mousedown/mouseup - more reliable for Shadow DOM (IsolatedButton),
-    // modals, and elements that stop propagation on click
     window.addEventListener('mousemove', handleMouseMoveWithShow);
-    document.addEventListener('mousedown', handleMouseDown, true);
-    document.addEventListener('mouseup', handleMouseUp, true);
+    // Use capture so we see the click before React/handlers stop propagation
+    document.addEventListener('click', handleButtonClick, true);
     document.addEventListener('mouseenter', handleMouseEnter);
     document.addEventListener('mouseleave', handleMouseLeave);
 
     return () => {
       document.body.classList.remove('feather-cursor-active');
       window.removeEventListener('mousemove', handleMouseMoveWithShow);
-      document.removeEventListener('mousedown', handleMouseDown, true);
-      document.removeEventListener('mouseup', handleMouseUp, true);
+      document.removeEventListener('click', handleButtonClick, true);
       document.removeEventListener('mouseenter', handleMouseEnter);
       document.removeEventListener('mouseleave', handleMouseLeave);
       
