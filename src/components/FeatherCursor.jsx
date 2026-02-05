@@ -12,6 +12,7 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
   const mousePositionRef = useRef({ x: 0, y: 0 }); // Target position
   const currentPositionRef = useRef({ x: 0, y: 0 }); // Displayed position (slightly behind for dampening)
   const animationFrameRef = useRef(null);
+  const dampenFrameCountRef = useRef(0);
   const particleIdRef = useRef(0);
   const clickTimeoutRef = useRef(null);
   const lastCursorTargetRef = useRef(null);
@@ -103,15 +104,17 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
       }, duration * 1000);
     };
 
-    // Very slight dampening: interpolate toward target and STOP when close (no infinite loop = no lag).
-    const DAMPING = 0.45; // Slight (0.45 = catches up in a few frames); higher = snappier
+    // Very slight dampening with a hard frame cap so the loop never runs indefinitely (prevents lag over time).
+    const DAMPING = 0.45;
     const STOP_THRESHOLD = 0.5;
+    const MAX_DAMPEN_FRAMES = 20; // Stop after 20 frames (~333ms) even if not at target
 
     const animateCursor = () => {
       if (!cursorRef.current) {
         animationFrameRef.current = null;
         return;
       }
+      dampenFrameCountRef.current += 1;
       const targetX = mousePositionRef.current.x;
       const targetY = mousePositionRef.current.y;
       const currentX = currentPositionRef.current.x;
@@ -123,7 +126,9 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
       cursorRef.current.style.left = `${newX}px`;
       cursorRef.current.style.top = `${newY}px`;
 
-      const done = Math.abs(newX - targetX) < STOP_THRESHOLD && Math.abs(newY - targetY) < STOP_THRESHOLD;
+      const done =
+        (Math.abs(newX - targetX) < STOP_THRESHOLD && Math.abs(newY - targetY) < STOP_THRESHOLD) ||
+        dampenFrameCountRef.current >= MAX_DAMPEN_FRAMES;
       if (done) {
         currentPositionRef.current = { x: targetX, y: targetY };
         cursorRef.current.style.left = `${targetX}px`;
@@ -139,7 +144,6 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
       const y = e.clientY;
       mousePositionRef.current = { x, y };
 
-      // First move or after long idle: snap to target so cursor appears at mouse
       if (currentPositionRef.current.x === 0 && currentPositionRef.current.y === 0) {
         currentPositionRef.current = { x, y };
         if (cursorRef.current) {
@@ -149,6 +153,7 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
       }
 
       if (cursorRef.current && !animationFrameRef.current) {
+        dampenFrameCountRef.current = 0;
         animationFrameRef.current = requestAnimationFrame(animateCursor);
       }
 
