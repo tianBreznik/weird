@@ -990,11 +990,13 @@ export const InlineImage = Node.create({
         }
       }, 100);
       
-      // Store interval ID to clean up later if needed
-      container.dataset.intervalId = intervalId;
-      
       container.appendChild(img);
-      
+
+      const destroy = () => {
+        clearInterval(intervalId);
+        observer.disconnect();
+      };
+
       return {
         dom: container,
         update: (updatedNode) => {
@@ -1027,6 +1029,7 @@ export const InlineImage = Node.create({
           
           return true;
         },
+        destroy,
       };
     };
   },
@@ -1399,15 +1402,17 @@ export const CustomImage = Node.create({
         }
       };
       
-      // Listen for selection changes
       editor.on('selectionUpdate', checkSelection);
-      // Also poll on mobile for better reliability
+      let pollIntervalId = null;
       if (isMobile) {
-        const pollInterval = setInterval(checkSelection, 300);
-        // Clean up on destroy
-        setTimeout(() => clearInterval(pollInterval), 60000);
+        pollIntervalId = setInterval(checkSelection, 300);
       }
       checkSelection();
+
+      const destroy = () => {
+        editor.off('selectionUpdate', checkSelection);
+        if (pollIntervalId) clearInterval(pollIntervalId);
+      };
       
       // Resize functionality
       let isResizing = false;
@@ -1546,7 +1551,6 @@ export const CustomImage = Node.create({
           }
           
           // Update alignment - CRITICAL: Always preserve alignment from node attributes
-          // Log for debugging
           const newAlign = updatedNode.attrs.align || 'center';
           
           // Reset all alignment styles first
@@ -1574,18 +1578,17 @@ export const CustomImage = Node.create({
             container.style.display = 'block';
             container.style.width = 'auto';
           } else {
-            // center (default) - use block with fit-content width so it wraps the image
             container.style.display = 'block';
             container.style.width = 'fit-content';
             container.style.maxWidth = '100%';
             container.style.margin = '0.5em auto';
           }
           
-          // Always ensure container wraps image tightly
           container.style.height = 'auto';
           
           return true;
         },
+        destroy,
       };
     };
   },

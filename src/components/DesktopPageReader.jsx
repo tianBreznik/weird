@@ -109,8 +109,12 @@ export const DesktopPageReader = ({
         let minDistanceForTopBar = Infinity;
         
         pagesWithTOC.forEach((page, index) => {
-          // Use cached element reference if available
+          // Use cached element reference if available; avoid using detached nodes for rect
           let pageElement = pageElementCacheRef.current.get(index);
+          if (pageElement && !document.contains(pageElement)) {
+            pageElementCacheRef.current.delete(index);
+            pageElement = null;
+          }
           if (!pageElement) {
             pageElement = document.getElementById(`pdf-page-${index}`);
             if (pageElement) {
@@ -120,7 +124,7 @@ export const DesktopPageReader = ({
           if (!pageElement) return;
           
           const pageSheet = pageElement.querySelector('.page-sheet');
-          if (!pageSheet) return;
+          if (!pageSheet || !document.contains(pageSheet)) return;
           
           const rect = pageSheet.getBoundingClientRect();
           
