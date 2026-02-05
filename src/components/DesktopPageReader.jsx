@@ -180,25 +180,31 @@ export const DesktopPageReader = ({
     
     const scrollContainer = document.querySelector('.pdf-viewer');
     if (scrollContainer) {
-      // Call immediately to set initial state
       handleScroll();
-      
-      // Then listen for scroll events (throttled via requestAnimationFrame in handleScroll)
+
       scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
-      
-      // Also check periodically in case scroll events are missed (throttled via RAF)
-      const intervalId = setInterval(handleScroll, 200);
-      
+
+      // One delayed check after scroll settles (no continuous interval — was causing lag over time)
+      let scrollEndTimerId = null;
+      const scheduleScrollEndCheck = () => {
+        if (scrollEndTimerId) clearTimeout(scrollEndTimerId);
+        scrollEndTimerId = setTimeout(() => {
+          scrollEndTimerId = null;
+          handleScroll();
+        }, 150);
+      };
+      scrollContainer.addEventListener('scroll', scheduleScrollEndCheck, { passive: true });
+
       return () => {
         if (rafId !== null) {
           cancelAnimationFrame(rafId);
           rafId = null;
         }
+        if (scrollEndTimerId) clearTimeout(scrollEndTimerId);
         if (scrollContainer) {
           scrollContainer.removeEventListener('scroll', handleScroll);
+          scrollContainer.removeEventListener('scroll', scheduleScrollEndCheck);
         }
-        clearInterval(intervalId);
-        // Clear cache when component unmounts or pages change
         pageElementCacheRef.current.clear();
       };
     }
