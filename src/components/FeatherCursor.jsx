@@ -10,10 +10,11 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
   const particlesRef = useRef([]);
   const lastParticleTimeRef = useRef(0);
   const mousePositionRef = useRef({ x: 0, y: 0 }); // Target position
-  const currentPositionRef = useRef({ x: 0, y: 0 }); // Current displayed position (for damping)
+  const currentPositionRef = useRef({ x: 0, y: 0 }); // Displayed position (slightly behind for dampening)
   const animationFrameRef = useRef(null);
   const particleIdRef = useRef(0);
   const clickTimeoutRef = useRef(null);
+  const lastCursorTargetRef = useRef(null);
 
   // Configurable tip offset - adjust these values to align the feather tip with cursor
   // Positive X moves right, positive Y moves down
@@ -102,68 +103,77 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
       }, duration * 1000);
     };
 
-    // Smooth cursor animation with damping
+    // Very slight dampening: interpolate toward target and STOP when close (no infinite loop = no lag).
+    const DAMPING = 0.45; // Slight (0.45 = catches up in a few frames); higher = snappier
+    const STOP_THRESHOLD = 0.5;
+
     const animateCursor = () => {
       if (!cursorRef.current) {
         animationFrameRef.current = null;
         return;
       }
-      
       const targetX = mousePositionRef.current.x;
       const targetY = mousePositionRef.current.y;
       const currentX = currentPositionRef.current.x;
       const currentY = currentPositionRef.current.y;
-      
-      // Damping factor (0.15 = smooth, lower = more damping, higher = less damping)
-      const damping = 0.15;
-      
-      // Interpolate towards target position
-      const newX = currentX + (targetX - currentX) * damping;
-      const newY = currentY + (targetY - currentY) * damping;
-      
-      // Update current position
+      const newX = currentX + (targetX - currentX) * DAMPING;
+      const newY = currentY + (targetY - currentY) * DAMPING;
+
       currentPositionRef.current = { x: newX, y: newY };
-      
-      // Apply position to cursor
       cursorRef.current.style.left = `${newX}px`;
       cursorRef.current.style.top = `${newY}px`;
-      
-      // Always continue animation (it will naturally slow down as it approaches target)
+
+      const done = Math.abs(newX - targetX) < STOP_THRESHOLD && Math.abs(newY - targetY) < STOP_THRESHOLD;
+      if (done) {
+        currentPositionRef.current = { x: targetX, y: targetY };
+        cursorRef.current.style.left = `${targetX}px`;
+        cursorRef.current.style.top = `${targetY}px`;
+        animationFrameRef.current = null;
+        return;
+      }
       animationFrameRef.current = requestAnimationFrame(animateCursor);
     };
 
     const handleMouseMove = (e) => {
-      // Update target position
-      mousePositionRef.current = { x: e.clientX, y: e.clientY };
-      
-      // Initialize current position if it's the first move
+      const x = e.clientX;
+      const y = e.clientY;
+      mousePositionRef.current = { x, y };
+
+      // First move or after long idle: snap to target so cursor appears at mouse
       if (currentPositionRef.current.x === 0 && currentPositionRef.current.y === 0) {
-        currentPositionRef.current = { x: e.clientX, y: e.clientY };
+        currentPositionRef.current = { x, y };
         if (cursorRef.current) {
-          cursorRef.current.style.left = `${e.clientX}px`;
-          cursorRef.current.style.top = `${e.clientY}px`;
+          cursorRef.current.style.left = `${x}px`;
+          cursorRef.current.style.top = `${y}px`;
         }
       }
-      
-      // Start animation if not already running
-      if (!animationFrameRef.current && cursorRef.current) {
+
+      if (cursorRef.current && !animationFrameRef.current) {
         animationFrameRef.current = requestAnimationFrame(animateCursor);
       }
-      
-      // Force cursor: none on element under mouse (Safari workaround)
+
+      // Force cursor: none on element under mouse (Safari workaround).
+      // Clear previous element so we don't leave inline styles on hundreds of nodes (causes lag over time).
       const target = document.elementFromPoint(e.clientX, e.clientY);
+      if (lastCursorTargetRef.current && lastCursorTargetRef.current !== target) {
+        try {
+          lastCursorTargetRef.current.style.removeProperty('cursor');
+        } catch (_) {}
+        lastCursorTargetRef.current = null;
+      }
       if (target && target !== document.body && target !== document.documentElement) {
         target.style.setProperty('cursor', 'none', 'important');
+        lastCursorTargetRef.current = target;
       }
-      
-      // Create particles periodically (throttle to avoid too many)
-      // Use the cursor's current position (damped) instead of raw mouse position
+
+      // Create particles periodically; cap total so buildup doesn't cause lag
       const now = Date.now();
-      if (now - lastParticleTimeRef.current > 30) { // Every 30ms (more particles)
-        // Use current cursor position (with damping) for particle spawn location
-        const particleX = currentPositionRef.current.x || e.clientX;
-        const particleY = currentPositionRef.current.y || e.clientY;
-        createParticle(particleX, particleY);
+      const maxParticles = 50;
+      if (
+        now - lastParticleTimeRef.current > 30 &&
+        particlesRef.current.length < maxParticles
+      ) {
+        createParticle(x, y);
         lastParticleTimeRef.current = now;
       }
     };
@@ -225,18 +235,21 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
     document.addEventListener('mouseleave', handleMouseLeave);
 
     return () => {
+      if (lastCursorTargetRef.current) {
+        try {
+          lastCursorTargetRef.current.style.removeProperty('cursor');
+        } catch (_) {}
+        lastCursorTargetRef.current = null;
+      }
       document.body.classList.remove('feather-cursor-active');
       window.removeEventListener('mousemove', handleMouseMoveWithShow);
       document.removeEventListener('click', handleButtonClick, true);
       document.removeEventListener('mouseenter', handleMouseEnter);
       document.removeEventListener('mouseleave', handleMouseLeave);
-      
-      // Cancel animation frame
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
       }
-      
       // Clean up particles
       particlesRef.current.forEach(id => {
         const el = document.getElementById(id);
