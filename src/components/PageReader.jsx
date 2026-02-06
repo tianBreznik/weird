@@ -3260,6 +3260,8 @@ export const PageReader = ({
   useEffect(() => {
     const handleFootnoteClick = (e) => {
       if (typeof window !== 'undefined' && window.innerWidth > 768) return; // Desktop: footnotes reveal via native title attribute on hover
+      // Skip when clicking karaoke - let karaoke handler process it
+      if (e.target.closest?.('.karaoke-slice') || e.target.closest?.('[data-karaoke-id]')) return;
       
       const footnoteRef = e.target.closest('.footnote-ref');
       if (!footnoteRef) return;
