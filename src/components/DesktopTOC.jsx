@@ -231,7 +231,7 @@ export const DesktopTOC = ({
           <div className="desktop-toc-subchapters">
             {chapter.children.map((subchapter) => {
               const isCurrentSub = isCurrentSubchapter(subchapter.id);
-              const subPageNum = findPageNumber(chapter.id, subchapter.id);
+              const subPageNum = findPageNumber(chapter.id, subchapter.id) ?? pageNum;
               
               return (
                 <div
@@ -452,7 +452,7 @@ export const DesktopTOC = ({
                   <div className="desktop-toc-subchapters">
                     {chapter.children.map((subchapter) => {
                       const isCurrentSub = isCurrentSubchapter(subchapter.id);
-                      const subPageNum = findPageNumber(chapter.id, subchapter.id);
+                      const subPageNum = findPageNumber(chapter.id, subchapter.id) ?? pageNum;
                       
                       return (
                         <div
