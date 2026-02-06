@@ -381,12 +381,18 @@ export const extractFootnotesFromContent = (htmlContent, footnoteContentToNumber
   const foundFootnotes = new Set();
   if (!htmlContent) return foundFootnotes;
 
+  // Normalize footnote content for lookup - hyphenation adds soft hyphens (\u00AD)
+  // before pagination, but getAllFootnotes parses original content. Remove soft hyphens
+  // so lookup matches.
+  const normalizeForLookup = (s) => s.replace(/\u00AD/g, '');
+
   // 1) Legacy syntax ^[content]
   const legacyRegex = /\^\[([^\]]+)\]/g;
   let match;
   while ((match = legacyRegex.exec(htmlContent)) !== null) {
     const footnoteContent = match[1].trim();
-    const globalNumber = footnoteContentToNumber.get(footnoteContent);
+    const normalized = normalizeForLookup(footnoteContent);
+    const globalNumber = footnoteContentToNumber.get(normalized) || footnoteContentToNumber.get(footnoteContent);
     if (globalNumber) {
       foundFootnotes.add(globalNumber);
     }
@@ -403,7 +409,8 @@ export const extractFootnotesFromContent = (htmlContent, footnoteContentToNumber
     const contentAttrMatch = attrs.match(/data-content=["']([^"']*)["']/i);
     if (!contentAttrMatch || !contentAttrMatch[1]) continue;
     const trimmed = contentAttrMatch[1].trim();
-    const globalNumber = footnoteContentToNumber.get(trimmed);
+    const normalized = normalizeForLookup(trimmed);
+    const globalNumber = footnoteContentToNumber.get(normalized) || footnoteContentToNumber.get(trimmed);
     if (globalNumber) {
       foundFootnotes.add(globalNumber);
     }

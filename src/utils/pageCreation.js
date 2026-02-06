@@ -68,7 +68,11 @@ export const processFootnotesInContent = (content, footnoteContentToNumber, allF
   
   const processedContent = content.replace(footnoteRegex, (match, footnoteContent) => {
     const trimmedContent = footnoteContent.trim();
-    const globalNumber = footnoteContentToNumber.get(trimmedContent);
+    // Hyphenation adds soft hyphens (\u00AD) to content before we run; getAllFootnotes
+    // parses the original un-hyphenated content. Normalize by removing soft hyphens
+    // so the lookup matches.
+    const normalizedContent = trimmedContent.replace(/\u00AD/g, '');
+    const globalNumber = footnoteContentToNumber.get(normalizedContent) || footnoteContentToNumber.get(trimmedContent);
     if (globalNumber) {
       // Find the full footnote data
       const footnote = allFootnotes.find(fn => fn.globalNumber === globalNumber);

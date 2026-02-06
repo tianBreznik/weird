@@ -1466,6 +1466,31 @@
   z-index: 1; /* Ensure footnotes are above content if needed */
 }
 
+/* Desktop: hide permanent footnotes section; footnotes reveal on hover/click of superscript */
+@media (min-width: 769px) {
+  .pdf-viewer .footnotes-section {
+    display: none !important;
+  }
+}
+
+/* Desktop footnote tooltip - appears on hover/click of superscript */
+.footnote-tooltip-desktop {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  max-width: min(320px, calc(100vw - 2rem));
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: #1f140a;
+  background: rgba(255, 252, 247, 0.98);
+  border: 1px solid rgba(31, 20, 10, 0.15);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  z-index: 100000;
+  pointer-events: auto;
+  font-family: 'Baskerville Old Face', 'Baskerville', 'Times New Roman', 'Times', 'Garamond', 'Georgia', serif;
+}
+
 .footnotes-divider {
   height: 1px;
   background: linear-gradient(to right, rgba(31, 20, 10, 0.3) 0%, rgba(31, 20, 10, 0.1) 100%);

@@ -3256,9 +3256,11 @@ export const PageReader = ({
     };
   }, []);
 
-  // Handle footnote clicks - jump to acknowledgements chapter
+  // Handle footnote clicks - jump to acknowledgements chapter (mobile only; desktop uses tooltip)
   useEffect(() => {
     const handleFootnoteClick = (e) => {
+      if (typeof window !== 'undefined' && window.innerWidth > 768) return; // Desktop: footnotes reveal on hover/click via tooltip
+      
       const footnoteRef = e.target.closest('.footnote-ref');
       if (!footnoteRef) return;
       

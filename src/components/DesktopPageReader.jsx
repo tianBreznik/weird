@@ -44,6 +44,124 @@ export const DesktopPageReader = ({
   const prevMostVisiblePageRef = useRef(null);
   const prevMostVisiblePageIndexRef = useRef(null);
   
+  // Footnote tooltip state (desktop only)
+  const [footnoteTooltip, setFootnoteTooltip] = useState({ show: false, content: '', x: 0, y: 0, pinned: false });
+  const footnoteHideTimeoutRef = useRef(null);
+
+  // Build footnote lookup: globalNumber -> content (from all pages)
+  const footnoteLookup = useMemo(() => {
+    const map = new Map();
+    pages.forEach((p) => {
+      (p.footnotes || []).forEach((fn) => {
+        map.set(fn.globalNumber, fn.content);
+      });
+    });
+    return map;
+  }, [pages]);
+
+  // Footnote tooltip: hover and click to reveal (desktop only)
+  useEffect(() => {
+    const clearHideTimeout = () => {
+      if (footnoteHideTimeoutRef.current) {
+        clearTimeout(footnoteHideTimeoutRef.current);
+        footnoteHideTimeoutRef.current = null;
+      }
+    };
+
+    const showTooltip = (refEl) => {
+      const num = refEl.getAttribute('data-footnote-number');
+      if (!num) return;
+      const content = footnoteLookup.get(parseInt(num, 10));
+      if (!content) return;
+      const rect = refEl.getBoundingClientRect();
+      // Position above the ref, slightly to the right to avoid covering it
+      setFootnoteTooltip({
+        show: true,
+        content,
+        x: rect.left,
+        y: rect.top - 8,
+        pinned: false,
+      });
+    };
+
+    const hideTooltip = (delay = 0) => {
+      clearHideTimeout();
+      if (delay > 0) {
+        footnoteHideTimeoutRef.current = setTimeout(() => {
+          setFootnoteTooltip((prev) => (prev.pinned ? prev : { ...prev, show: false }));
+          footnoteHideTimeoutRef.current = null;
+        }, delay);
+      } else {
+        setFootnoteTooltip((prev) => (prev.pinned ? prev : { ...prev, show: false }));
+      }
+    };
+
+    const handleMouseOver = (e) => {
+      if (!e.target.closest?.('.pdf-viewer')) return;
+      const ref = e.target.closest('.footnote-ref');
+      if (ref) {
+        clearHideTimeout();
+        showTooltip(ref);
+      }
+    };
+
+    const handleMouseOut = (e) => {
+      if (!e.target.closest?.('.pdf-viewer')) return;
+      const ref = e.target.closest('.footnote-ref');
+      const tooltipEl = document.getElementById('footnote-tooltip-desktop');
+      const movingToRef = e.relatedTarget?.closest?.('.footnote-ref');
+      const movingToTooltip = tooltipEl && (e.relatedTarget === tooltipEl || tooltipEl.contains(e.relatedTarget));
+      if (ref && !movingToRef && !movingToTooltip) {
+        hideTooltip(150);
+      }
+    };
+
+    const handleClick = (e) => {
+      if (!e.target.closest?.('.pdf-viewer')) return;
+      const ref = e.target.closest('.footnote-ref');
+      if (ref) {
+        e.preventDefault();
+        e.stopPropagation();
+        const num = ref.getAttribute('data-footnote-number');
+        if (!num) return;
+        const content = footnoteLookup.get(parseInt(num, 10));
+        if (!content) return;
+        const rect = ref.getBoundingClientRect();
+        setFootnoteTooltip((prev) => ({
+          show: true,
+          content,
+          x: rect.left,
+          y: rect.top - 8,
+          pinned: !prev.pinned || prev.content !== content,
+        }));
+      }
+    };
+
+    const handleClickOutside = (e) => {
+      // Skip when clicking interactive elements - they have their own handlers and
+      // running here with capture: true can interfere before their onClick fires
+      if (e.target.closest?.('button, a, [role="button"], .karaoke-slice, [data-karaoke-id]')) return;
+      const ref = e.target.closest('.footnote-ref');
+      const tooltipEl = document.getElementById('footnote-tooltip-desktop');
+      if (!ref && !(tooltipEl && (e.target === tooltipEl || tooltipEl.contains(e.target)))) {
+        setFootnoteTooltip((prev) => ({ ...prev, show: false, pinned: false }));
+      }
+    };
+
+    document.addEventListener('mouseover', handleMouseOver);
+    document.addEventListener('mouseout', handleMouseOut);
+    document.addEventListener('click', handleClick, true);
+    document.addEventListener('click', handleClickOutside, true);
+
+    return () => {
+      document.removeEventListener('mouseover', handleMouseOver);
+      document.removeEventListener('mouseout', handleMouseOut);
+      document.removeEventListener('click', handleClick, true);
+      document.removeEventListener('click', handleClickOutside, true);
+      clearHideTimeout();
+    };
+  }, [footnoteLookup]);
+
   // Create pagesWithTOC array early (before hooks that depend on it)
   const pagesWithTOC = useMemo(() => {
     const firstPageIndex = pages.findIndex(p => p.isFirstPage);
@@ -867,6 +985,20 @@ export const DesktopPageReader = ({
             className="chapter-progress-fill" 
             style={{ width: `${chapterProgress * 100}%` }}
           />
+        </div>,
+        document.body
+      )}
+      {/* Footnote tooltip on desktop - reveals on hover/click of superscript */}
+      {footnoteTooltip.show && footnoteTooltip.content && typeof document !== 'undefined' && createPortal(
+        <div
+          id="footnote-tooltip-desktop"
+          className="footnote-tooltip-desktop"
+          style={{
+            left: footnoteTooltip.x,
+            top: footnoteTooltip.y,
+          }}
+        >
+          {footnoteTooltip.content}
         </div>,
         document.body
       )}
