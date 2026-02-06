@@ -519,22 +519,23 @@
   margin: 0 auto;
 }
 
-/* Epigraph page styling */
+/* Epigraph page styling (mobile + base) */
 .epigraph-page .page-body {
   display: flex;
-  /* Push epigraph block toward the bottom of the frame */
+  /* Mobile / base: keep epigraph towards lower half of the page */
   align-items: flex-end;
   justify-content: flex-start;
   text-align: center;
   padding-bottom: 11.5rem; /* lift it slightly above the very bottom edge */
-  padding-left: 8rem;
+  padding-left: 3rem;
 }
 
 .epigraph-content {
   width: 100%;
   display: flex;
-  /* Anchor block on the left side */
-  align-items: flex-end;
+  /* Keep epigraph block anchored to the TOP of its local area;
+     vertical positioning is handled by padding on .epigraph-page .page-body. */
+  align-items: flex-start;
   justify-content: flex-start;
   padding: 0 1.5rem;
   box-sizing: border-box;
@@ -546,9 +547,16 @@
   line-height: 1.2;
   font-style: italic;
   color: #1f140a;
+  /* Let epigraphs use the full page width; alignment
+     (left / center / right) is controlled by the
+     .epigraph-align-* classes. */
   max-width: 100%;
   white-space: pre-wrap;
-  text-align: left;
+  /* Disable automatic hyphenation so names and short phrases
+     in epigraphs are not split awkwardly across lines. */
+  hyphens: none;
+  -webkit-hyphens: none;
+  -moz-hyphens: none;
 }
 
 .epigraph-text > div {
@@ -560,18 +568,56 @@
   font-size: 0.95rem;
   font-style: normal;
   text-align: right;
+  /* Keep author names on a single line when possible.
+     For centered epigraphs this prevents awkward mid‑name breaks
+     like "Maznik" / "Antić" as long as there is horizontal space. */
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
 .epigraph-align-left {
   text-align: left;
+  margin-left: 0;
+  margin-right: auto;
 }
 
 .epigraph-align-center {
   text-align: center;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .epigraph-align-right {
   text-align: right;
+  margin-left: auto;
+  margin-right: 0;
+}
+
+/* Desktop epigraph layout inside PDF viewer */
+@media (min-width: 769px) {
+  /* Apply desktop positioning to all epigraph pages (reader + editor),
+     not just inside the .pdf-viewer wrapper. This keeps the epigraph
+     visually centred on desktop while preserving the lower placement
+     on small screens. */
+  .epigraph-page .page-body {
+    /* Vertically center the epigraph and then nudge it slightly
+       downward via a transform on the inner block so it sits at
+       roughly ~65% of the page height. */
+    align-items: center;
+    justify-content: center;
+    padding: 0 4rem;
+  }
+
+  .epigraph-content {
+    justify-content: center;
+    /* Shift the whole epigraph block a bit down from exact center
+       for a visually pleasing “lower-third” placement. */
+    transform: translateY(70%);
+  }
+
+  .epigraph-text {
+    max-width: 100%;
+  }
 }
 
 /* Cover page styling */

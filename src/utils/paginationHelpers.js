@@ -1130,6 +1130,19 @@ export const createEpigraphPage = (block, chapter, chapterIndex, chapterPageInde
   }
   
   if (!epigraphText) return null;
+
+  // Prefer the same border/background settings that will be used for the
+  // chapter / subchapter content pages for visual continuity. Blocks coming
+  // from contentProcessing already carry pageBorder* fields; fall back to
+  // chapter-level settings when block-level ones are not present.
+  const hasBorder = !!(block.pageBorder || chapter.pageBorder);
+  const borderImageUrl = block.pageBorderImageUrl || chapter.pageBorderImageUrl || null;
+  const borderWidth = (block.pageBorderImageUrl ? block.pageBorderWidth : null)
+    ?? chapter.pageBorderWidth
+    ?? null;
+  const borderSlicePercent = (block.pageBorderImageUrl ? block.pageBorderSlicePercent : null)
+    ?? chapter.pageBorderSlicePercent
+    ?? null;
   
   return {
     chapterIndex: chapterIndex,
@@ -1143,6 +1156,13 @@ export const createEpigraphPage = (block, chapter, chapterIndex, chapterPageInde
     epigraphText,
     epigraphAuthor,
     epigraphAlign,
+    // Epigraph pages should inherit the same frame and background as the
+    // chapter / subchapter they belong to, so the visual frame is identical
+    // to the first content page that follows.
+    hasBorder,
+    borderImageUrl,
+    borderWidth,
+    borderSlicePercent,
     isFirstPage: chapter.isFirstPage || false,
     isCover: chapter.isCover || false,
     content: '',

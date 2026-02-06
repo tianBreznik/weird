@@ -2877,13 +2877,6 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   <span style={{ fontSize: '0.95em', color: '#777' }}>¶</span>
                 </button>
                 <button
-                  onClick={applyEpigraphParagraph}
-                  className={`toolbar-btn ${activeFormats.epigraphParagraph ? 'active' : ''}`}
-                  title="Epigraf (citat pred poglavjem)"
-                >
-                  <span style={{ fontStyle: 'italic', fontSize: '0.9em' }}>"</span>
-                </button>
-                <button
                   onClick={applyPoetry}
                   className={`toolbar-btn ${editor?.isActive('poetry') ? 'active' : ''}`}
                   title="Poetry formatting"
@@ -2923,7 +2916,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   }}
                   title="Epigraf poglavja"
                 >
-                  <span className="icon">✶</span>
+                  <span className="icon" style={{ fontStyle: 'italic', fontSize: '1.1em' }}>"</span>
                 </button>
                 <button
                   type="button"
