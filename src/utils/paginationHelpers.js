@@ -466,7 +466,7 @@ export const measureFootnotesHeight = (footnoteNumbers, container, allFootnotes,
   footnotesToMeasure.forEach((fn) => {
     const item = document.createElement('div');
     item.className = 'footnote-item';
-    item.innerHTML = `<span class="footnote-number">${fn.globalNumber}.</span><span class="footnote-content">${fn.content}</span>`;
+    item.innerHTML = `<sup class="footnote-number">${fn.globalNumber}.</sup><span class="footnote-content">${fn.content}</span>`;
     list.appendChild(item);
   });
   

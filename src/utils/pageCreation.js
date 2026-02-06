@@ -59,6 +59,12 @@ export const removeEmptyParagraphs = (elements, isStandaloneFirstPage, isDesktop
   return filteredElements;
 };
 
+/** Escape text for use in HTML title attribute */
+const escapeTitle = (s) => String(s ?? '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/&/g, '&amp;');
+
+/** Convert number to Unicode superscript (e.g. 1 → ¹, 12 → ¹²) for plain-text tooltips */
+const toSuperscript = (n) => String(n).replace(/[0-9]/g, (c) => '⁰¹²³⁴⁵⁶⁷⁸⁹'[+c]);
+
 /**
  * Process footnotes in content: replace ^[content] with superscript numbers
  */
@@ -79,7 +85,9 @@ export const processFootnotesInContent = (content, footnoteContentToNumber, allF
       if (footnote && !pageFootnotes.find(fn => fn.globalNumber === globalNumber)) {
         pageFootnotes.push(footnote);
       }
-      return `<sup class="footnote-ref" data-footnote-number="${globalNumber}">${globalNumber}</sup>`;
+      const titleContent = footnote?.content ?? trimmedContent;
+      const titleWithSuperscript = escapeTitle(toSuperscript(globalNumber) + ' ' + titleContent);
+      return `<sup class="footnote-ref" data-footnote-number="${globalNumber}" title="${titleWithSuperscript}">${globalNumber}</sup>`;
     }
     // Fallback: use local numbering if not found in global map
     return `<sup class="footnote-ref">?</sup>`;

@@ -141,6 +141,9 @@ export const renderFootnotesInContent = (content, footnotes = [], onFootnoteClic
     footnoteMap.set(fn.content.trim(), fn.globalNumber || (idx + 1));
   });
   
+  const escapeTitle = (s) => String(s ?? '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/&/g, '&amp;');
+  const toSuperscript = (n) => String(n).replace(/[0-9]/g, (c) => '⁰¹²³⁴⁵⁶⁷⁸⁹'[+c]);
+  
   // Replace ^[content] with superscript
   const footnoteRegex = /\^\[([^\]]+)\]/g;
   let footnoteCounter = 1; // Local counter for this page
@@ -154,7 +157,8 @@ export const renderFootnotesInContent = (content, footnotes = [], onFootnoteClic
       ? `onclick="window.footnoteClickHandler && window.footnoteClickHandler(${globalNumber}); return false;"`
       : '';
     
-    return `<sup class="footnote-ref" data-footnote-number="${globalNumber}" ${clickHandler}>${globalNumber}</sup>`;
+    const titleWithSuperscript = escapeTitle(toSuperscript(globalNumber) + ' ' + trimmedContent);
+    return `<sup class="footnote-ref" data-footnote-number="${globalNumber}" title="${titleWithSuperscript}" ${clickHandler}>${globalNumber}</sup>`;
   });
   
   return html;
@@ -173,7 +177,7 @@ export const renderFootnotesSection = (footnotes) => {
       const number = fn.globalNumber || (idx + 1);
       return `
         <div class="footnote-item" id="footnote-${number}">
-          <span class="footnote-number">${number}.</span>
+          <sup class="footnote-number">${number}.</sup>
           <span class="footnote-content">${fn.content}</span>
         </div>
       `;

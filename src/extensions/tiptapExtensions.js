@@ -461,6 +461,11 @@ export const FootnoteRef = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
+    const content = HTMLAttributes.content ?? '';
+    const number = HTMLAttributes.number ?? '';
+    const toSuperscript = (n) => String(n).replace(/[0-9]/g, (c) => '⁰¹²³⁴⁵⁶⁷⁸⁹'[+c]);
+    const titleContent = content ? toSuperscript(number) + ' ' + content : '';
+    const escapedTitle = String(titleContent).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/&/g, '&amp;');
     return [
       'sup',
       {
@@ -468,8 +473,9 @@ export const FootnoteRef = Node.create({
         'data-id': HTMLAttributes.id,
         'data-number': HTMLAttributes.number,
         'data-content': HTMLAttributes.content,
+        ...(titleContent ? { title: escapedTitle } : {}),
       },
-      String(HTMLAttributes.number || ''),
+      String(number || ''),
     ];
   },
 });
