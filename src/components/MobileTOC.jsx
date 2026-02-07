@@ -298,7 +298,10 @@ export const MobileTOC = ({
             </div>
           )}
           {pageNum && (
-            <span className="mobile-toc-page-number">{pageNum}</span>
+            <>
+              <span className="mobile-toc-dots" aria-hidden="true" />
+              <span className="mobile-toc-page-number">{pageNum}</span>
+            </>
           )}
         </div>
 
@@ -340,7 +343,10 @@ export const MobileTOC = ({
                     </div>
                   )}
                   {subPageNum && (
-                    <span className="mobile-toc-page-number">{subPageNum}</span>
+                    <>
+                      <span className="mobile-toc-dots" aria-hidden="true" />
+                      <span className="mobile-toc-page-number">{subPageNum}</span>
+                    </>
                   )}
                 </div>
               );
@@ -603,7 +609,10 @@ export const MobileTOC = ({
                   )}
                   {/* Don't show page numbers for special pages */}
                   {pageNum && !chapter.isFirstPage && !chapter.isCover && (
-                    <span className="mobile-toc-page-number">{pageNum}</span>
+                    <>
+                      <span className="mobile-toc-dots" aria-hidden="true" />
+                      <span className="mobile-toc-page-number">{pageNum}</span>
+                    </>
                   )}
                 </div>
 
@@ -645,7 +654,10 @@ export const MobileTOC = ({
                             </div>
                           )}
                           {subPageNum && (
-                            <span className="mobile-toc-page-number">{subPageNum}</span>
+                            <>
+                              <span className="mobile-toc-dots" aria-hidden="true" />
+                              <span className="mobile-toc-page-number">{subPageNum}</span>
+                            </>
                           )}
                         </div>
                       );

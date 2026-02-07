@@ -223,7 +223,10 @@ export const DesktopTOC = ({
             </div>
           )}
           {pageNum && (
-            <span className="desktop-toc-page-number">{pageNum}</span>
+            <>
+              <span className="desktop-toc-dots" aria-hidden="true" />
+              <span className="desktop-toc-page-number">{pageNum}</span>
+            </>
           )}
         </div>
 
@@ -265,7 +268,10 @@ export const DesktopTOC = ({
                     </div>
                   )}
                   {subPageNum && (
-                    <span className="desktop-toc-page-number">{subPageNum}</span>
+                    <>
+                      <span className="desktop-toc-dots" aria-hidden="true" />
+                      <span className="desktop-toc-page-number">{subPageNum}</span>
+                    </>
                   )}
                 </div>
               );
@@ -444,7 +450,10 @@ export const DesktopTOC = ({
                     </div>
                   )}
                   {pageNum && (
-                    <span className="desktop-toc-page-number">{pageNum}</span>
+                    <>
+                      <span className="desktop-toc-dots" aria-hidden="true" />
+                      <span className="desktop-toc-page-number">{pageNum}</span>
+                    </>
                   )}
                 </div>
 
@@ -486,7 +495,10 @@ export const DesktopTOC = ({
                             </div>
                           )}
                           {subPageNum && (
-                            <span className="desktop-toc-page-number">{subPageNum}</span>
+                            <>
+                              <span className="desktop-toc-dots" aria-hidden="true" />
+                              <span className="desktop-toc-page-number">{subPageNum}</span>
+                            </>
                           )}
                         </div>
                       );

@@ -66,15 +66,39 @@
   text-shadow: 0 0.6px 1.2px rgba(0, 0, 0, 0.15), 0 0.4px 0.8px rgba(0, 0, 0, 0.12);
 }
 
+/* Dot leaders */
+.desktop-toc-dots {
+  flex: 1;
+  min-width: 0.5rem;
+  overflow: hidden;
+  align-self: stretch;
+  position: relative;
+}
+
+.desktop-toc-dots::after {
+  content: '';
+  position: absolute;
+  left: 0.05rem;
+  right: 0;
+  bottom: 0.25em;
+  height: 2px;
+  background-image: radial-gradient(circle at center, currentColor 50%, transparent 50%);
+  background-size: 4px 2px;
+  background-repeat: repeat-x;
+  opacity: 0.8;
+}
+
 /* Page Number */
 .desktop-toc-page-number {
   font-variant-numeric: tabular-nums;
   color: #000;
   font-weight: bold;
-  margin-left: auto;
-  padding-left: 3rem;
+  margin-left: 0;
+  padding-left: 0.5rem;
   text-shadow: 0 0.6px 1.2px rgba(0, 0, 0, 0.15), 0 0.4px 0.8px rgba(0, 0, 0, 0.12);
   flex-shrink: 0;
+  min-width: 1.2em;
+  text-align: right;
 }
 
 .desktop-toc-chapter-item.desktop-toc-current .desktop-toc-page-number,
