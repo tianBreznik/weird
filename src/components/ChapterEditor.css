@@ -315,6 +315,12 @@
   color: #111;
 }
 
+/* When chapter has custom font, ProseMirror inherits from wrapper */
+.content-editor-wrapper.content-editor-has-font .ProseMirror,
+.content-editor-wrapper.content-editor-has-font .ProseMirror * {
+  font-family: inherit !important;
+}
+
 /* Chapter title styling (h3) in editor - same font as body text, fully editable */
 .content-editor-wrapper .ProseMirror h3 {
   margin: 1.5rem 0 1rem 0;
@@ -1351,6 +1357,100 @@
   outline: none;
   border-color: #c7d4f7;
   box-shadow: inset 0 0 0 1px rgba(122,160,255,0.22);
+}
+
+/* Custom font dropdown - each option renders in its font */
+.toolbar-font-family-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.toolbar-font-family-trigger {
+  position: relative;
+  min-width: 100px;
+  max-width: 140px;
+  height: 28px;
+  border: 1px solid #e8e9ed;
+  border-radius: 6px;
+  background: #fdfdfd;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 0 24px 0 8px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.toolbar-font-family-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolbar-font-family-trigger:hover {
+  background-color: #f6f7f9;
+  border-color: #e3e5ea;
+}
+
+.toolbar-font-family-trigger:focus,
+.toolbar-font-family-trigger.open {
+  outline: none;
+  border-color: #c7d4f7;
+  box-shadow: inset 0 0 0 1px rgba(122,160,255,0.22);
+}
+
+.toolbar-font-family-chevron {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 8px;
+  opacity: 0.7;
+  pointer-events: none;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.toolbar-font-family-dropdown {
+  max-height: 280px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #e8e9ed;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10000;
+  padding: 4px 0;
+}
+
+/* Portal version - position set inline via JS; non-portal fallback (unused) */
+.toolbar-font-family-dropdown-portal {
+  /* position, top, left, minWidth set inline */
+}
+
+.toolbar-font-family-option {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolbar-font-family-option:hover {
+  background: #f6f7f9;
+}
+
+.toolbar-font-family-option.selected {
+  background: #e9eefb;
+  color: #333;
 }
 
 .toolbar-sep {

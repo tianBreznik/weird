@@ -13,6 +13,7 @@ import { KaraokeBlock, Dinkus, Highlight, TextColor, Underline, FootnoteRef, Ind
 import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import { FootnotePlugin } from '../extensions/footnotePlugin.js';
+import { CHAPTER_FONT_OPTIONS, DEFAULT_CHAPTER_FONT } from '../constants/chapterFonts';
 import './ChapterEditor.css';
 
 export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDelete }) => {
@@ -25,6 +26,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   // Border slice percentage for border-image (controls corner size, default 4% for 1024×1024px images)
   const [pageBorderSlicePercent, setPageBorderSlicePercent] = useState(chapter?.pageBorderSlicePercent || 4);
   const [hideTitle, setHideTitle] = useState(!!chapter?.hideTitle);
+  const [fontFamily, setFontFamily] = useState(chapter?.fontFamily ?? DEFAULT_CHAPTER_FONT);
   const [saving, setSaving] = useState(false);
   const [autosaveStatus, setAutosaveStatus] = useState('Ready');
   // Highlight swatch: either (1) highlight mark at cursor from doc, or (2) last color chosen in picker until next cursor move (see userChangedHighlightRef).
@@ -96,6 +98,10 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     url: '',
     text: '',
   });
+  const [fontDropdownOpen, setFontDropdownOpen] = useState(false);
+  const fontDropdownRef = useRef(null);
+  const fontTriggerRef = useRef(null);
+  const fontDropdownPortalRef = useRef(null);
 
   
   // Ref to track if we're programmatically setting content (to avoid update loops)
@@ -611,6 +617,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       setPageBorderImageUrl(chapter?.pageBorderImageUrl || '');
       setPageBorderWidth(chapter?.pageBorderWidth || 8);
       setPageBorderSlicePercent(chapter?.pageBorderSlicePercent || 4);
+      setFontFamily(chapter?.fontFamily ?? DEFAULT_CHAPTER_FONT);
       if (rawEpigraph && typeof rawEpigraph === 'object') {
         setEpigraph({
           text: rawEpigraph.text || '',
@@ -1074,6 +1081,20 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     };
   }, [editor]);
 
+  // Close font dropdown when clicking outside (trigger or portal dropdown)
+  useEffect(() => {
+    if (!fontDropdownOpen) return;
+    const handleClickOutside = (e) => {
+      const inTrigger = fontDropdownRef.current?.contains(e.target);
+      const inDropdown = fontDropdownPortalRef.current?.contains(e.target);
+      if (!inTrigger && !inDropdown) {
+        setFontDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [fontDropdownOpen]);
+
   // Update dialog ref when dialog state changes
   useEffect(() => {
     dialogOpenRef.current = showKaraokeDialog;
@@ -1199,6 +1220,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
         pageBorderWidth: pageBorderImageUrl ? pageBorderWidth : null,
         pageBorderSlicePercent: pageBorderImageUrl ? pageBorderSlicePercent : null,
         hideTitle: !!hideTitle,
+        fontFamily: parentChapter ? undefined : (fontFamily || null),
       });
     } catch (err) {
       if (err?.code === 'version-conflict') {
@@ -2377,6 +2399,8 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     return () => clearTimeout(timer);
   }, [editor]);
 
+  const effectiveEditorFont = parentChapter ? (parentChapter.fontFamily ?? DEFAULT_CHAPTER_FONT) : (fontFamily ?? DEFAULT_CHAPTER_FONT);
+
   return (
     <div className="editor-overlay side-panel">
       <div className="editor-modal side-panel-modal">
@@ -2459,6 +2483,55 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   <option value="36">36</option>
                   <option value="48">48</option>
                 </select>
+                {/* Chapter font (only when editing a chapter, not subchapter) - custom dropdown so options render in their fonts */}
+                {/* Rendered via portal to escape parent overflow:hidden which clips the dropdown */}
+                {!parentChapter && (
+                  <div className="toolbar-font-family-wrapper" ref={fontDropdownRef}>
+                    <button
+                      ref={fontTriggerRef}
+                      type="button"
+                      className={`toolbar-font-family-trigger ${fontDropdownOpen ? 'open' : ''}`}
+                      onClick={() => setFontDropdownOpen((o) => !o)}
+                      title="Pisava poglavja (podpoglavja podedujejo)"
+                      style={{
+                        fontFamily: (CHAPTER_FONT_OPTIONS.find((o) => o.value === (fontFamily ?? DEFAULT_CHAPTER_FONT)) || CHAPTER_FONT_OPTIONS[0]).value,
+                      }}
+                    >
+                      <span className="toolbar-font-family-label">
+                        {(CHAPTER_FONT_OPTIONS.find((o) => o.value === (fontFamily ?? DEFAULT_CHAPTER_FONT)) || CHAPTER_FONT_OPTIONS[0]).label}
+                      </span>
+                      <span className="toolbar-font-family-chevron">▼</span>
+                    </button>
+                    {fontDropdownOpen && fontTriggerRef.current && createPortal(
+                      <div
+                        ref={fontDropdownPortalRef}
+                        className="toolbar-font-family-dropdown toolbar-font-family-dropdown-portal"
+                        style={{
+                          position: 'fixed',
+                          top: fontTriggerRef.current.getBoundingClientRect().bottom + 4,
+                          left: fontTriggerRef.current.getBoundingClientRect().left,
+                          minWidth: fontTriggerRef.current.getBoundingClientRect().width,
+                        }}
+                      >
+                        {CHAPTER_FONT_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.label}
+                            type="button"
+                            className={`toolbar-font-family-option ${(fontFamily ?? DEFAULT_CHAPTER_FONT) === opt.value ? 'selected' : ''}`}
+                            style={{ fontFamily: opt.value }}
+                            onClick={() => {
+                              setFontFamily(opt.value);
+                              setFontDropdownOpen(false);
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>,
+                      document.body
+                    )}
+                  </div>
+                )}
                 {/* Border controls container */}
                 <div className="toolbar-border-controls">
                   {/* Upload border image for this chapter/subchapter */}
@@ -3021,8 +3094,15 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
               </div>
             </div>
             {!showKaraokeDialog && editor && (
-              <SimpleBar className="content-editor-wrapper" style={{ flex: 1, minHeight: 0 }}>
-                <EditorContent 
+              <SimpleBar
+                className={`content-editor-wrapper ${effectiveEditorFont ? 'content-editor-has-font' : ''}`}
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  ...(effectiveEditorFont ? { fontFamily: effectiveEditorFont } : {}),
+                }}
+              >
+                <EditorContent
                   editor={editor}
                   onFocus={() => {
                     // Ensure editor is focused when clicked

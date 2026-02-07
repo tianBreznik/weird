@@ -529,6 +529,7 @@ function App() {
                         contentHtml: updated.contentHtml ?? chapter.contentHtml,
                         pageBorder: typeof updated.pageBorder === 'boolean' ? updated.pageBorder : chapter.pageBorder,
                         pageBorderImageUrl: updated.pageBorderImageUrl ?? chapter.pageBorderImageUrl,
+                        fontFamily: updated.fontFamily ?? chapter.fontFamily,
                         version: updated.version ?? chapter.version,
                       };
                     })
@@ -608,6 +609,7 @@ function App() {
                   pageBorderImageUrl: payload.pageBorderImageUrl ?? null,
                   pageBorderWidth: payload.pageBorderWidth ?? null,
                   pageBorderSlicePercent: payload.pageBorderSlicePercent ?? null,
+                  fontFamily: payload.fontFamily ?? null,
                   version: 0,
                 };
                 setChapters((prev) => [...prev, newChapter]);

@@ -220,6 +220,7 @@ export const createPageFromElements = ({
     borderImageUrl: blockMeta.pageBorderImageUrl || null,
     borderWidth: blockMeta.pageBorderWidth || null,
     borderSlicePercent: blockMeta.pageBorderSlicePercent || null,
+    fontFamily: blockMeta.fontFamily || null,
     pageIndex: chapterPageIndex,
     hasHeading: pageHasHeading,
     hasFieldNotes: hasFieldNotes || false,

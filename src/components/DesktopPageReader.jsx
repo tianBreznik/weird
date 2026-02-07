@@ -686,16 +686,21 @@ export const DesktopPageReader = ({
             />
           ) : page?.isCover ? (
             <div 
-              className="page-content"
+              className={`page-content ${page?.fontFamily ? 'page-content-custom-font' : ''}`}
               ref={createPageContentRef(`${contentKey}-cover`, page.content || '')}
+              style={page?.fontFamily ? { fontFamily: page.fontFamily, '--page-font': page.fontFamily } : undefined}
             />
           ) : page?.isFirstPage ? (
             <div 
-              className="page-content"
+              className={`page-content ${page?.fontFamily ? 'page-content-custom-font' : ''}`}
               ref={createPageContentRef(`${contentKey}-first`, page.content || '')}
+              style={page?.fontFamily ? { fontFamily: page.fontFamily, '--page-font': page.fontFamily } : undefined}
             />
           ) : page?.isEpigraph ? (
-            <div className="page-content epigraph-content">
+            <div 
+              className={`page-content epigraph-content ${page?.fontFamily ? 'page-content-custom-font' : ''}`}
+              style={page?.fontFamily ? { fontFamily: page.fontFamily, '--page-font': page.fontFamily } : undefined}
+            >
               <div className={`epigraph-text epigraph-align-${page?.epigraphAlign || 'center'}`}>
                 <div>{page?.epigraphText || ''}</div>
                 {page?.epigraphAuthor && (
@@ -716,8 +721,8 @@ export const DesktopPageReader = ({
             </div>
           ) : page?.hasFieldNotes ? (
             <div 
-              className="page-content field-notes-content"
-              style={{ position: 'relative' }}
+              className={`page-content field-notes-content ${page?.fontFamily ? 'page-content-custom-font' : ''}`}
+              style={{ position: 'relative', ...(page?.fontFamily ? { fontFamily: page.fontFamily, '--page-font': page.fontFamily } : {}) }}
             >
               {/* Field notes content without the background-image div (background is now rendered as img above) */}
               {/* Remove the field-notes-page div with background-image from content */}
@@ -737,8 +742,9 @@ export const DesktopPageReader = ({
             </div>
           ) : (
             <div 
-              className="page-content"
+              className={`page-content ${page?.fontFamily ? 'page-content-custom-font' : ''}`}
               ref={createPageContentRef(`${contentKey}-regular`, page?.content || '')}
+              style={page?.fontFamily ? { fontFamily: page.fontFamily, '--page-font': page.fontFamily } : undefined}
             />
           )}
         </section>

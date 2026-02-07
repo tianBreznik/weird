@@ -6,6 +6,7 @@ import {
   splitTextAtSentenceBoundary,
   splitTextAtWordBoundary
 } from './paginationHelpers';
+import { DEFAULT_CHAPTER_FONT } from '../constants/chapterFonts';
 
 /**
  * Calculate available height for an element considering footnotes
@@ -371,7 +372,9 @@ export const paginateElement = ({
 }) => {
   const isHeadingElement = /^H[1-6]$/i.test(element.tagName || '');
   const isSubchapterTitle = /^H[4-6]$/i.test(element.tagName || '');
-  
+  const blockFont = block?.fontFamily ?? DEFAULT_CHAPTER_FONT;
+  const applyWithFont = (container, isDesktop) => applyParagraphStylesToContainer(container, isDesktop, blockFont);
+
   // Update heading state for page metadata. Do NOT call measure.setHeading(true) — it can reduce
   // available height when a subchapter is on the page and cause early breaks / empty space.
   if (isSubchapterTitle && !pageHasHeading) {
@@ -429,7 +432,7 @@ export const paginateElement = ({
     contentWidth,
     isDesktop,
     measure,
-    applyParagraphStylesToContainer,
+    applyParagraphStylesToContainer: applyWithFont,
     finalReservedSpace
   });
   
@@ -440,7 +443,7 @@ export const paginateElement = ({
     contentWidth,
     isDesktop,
     measure,
-    applyParagraphStylesToContainer
+    applyParagraphStylesToContainer: applyWithFont
   });
   
   // Subchapter diagnostics: log key values when processing subchapter content
@@ -457,7 +460,7 @@ export const paginateElement = ({
     const tempInner = document.createElement('div');
     tempInner.innerHTML = element.outerHTML;
     elOnlyWrapper.appendChild(tempInner.firstElementChild || tempInner);
-    applyParagraphStylesToContainer(elOnlyWrapper, isDesktop);
+    applyWithFont(elOnlyWrapper, isDesktop);
     tempElOnly.appendChild(elOnlyWrapper);
     const elementOnlyHeight = tempElOnly.offsetHeight;
     measureParent.removeChild(tempElOnly);
@@ -518,7 +521,7 @@ export const paginateElement = ({
         finalContentWrapper.appendChild(temp.firstElementChild || temp);
       });
       
-      applyParagraphStylesToContainer(finalContentWrapper, isDesktop);
+      applyWithFont(finalContentWrapper, isDesktop);
       finalTestContainer.appendChild(finalContentWrapper);
       const finalTotalHeight = finalTestContainer.offsetHeight;
       finalMeasureParent.removeChild(finalTestContainer);
@@ -559,12 +562,14 @@ export const paginateElement = ({
         // The split functions measure just the element, so we need to pass the remaining space
         let splitResult = splitTextAtSentenceBoundary(element, remainingContentHeight, measure, splitTextAtWordBoundary, {
           contentWidth,
-          isDesktop
+          isDesktop,
+          fontFamily: blockFont
         });
         if (!splitResult.first && !splitResult.second) {
           splitResult = splitTextAtWordBoundary(element, remainingContentHeight, measure, {
             contentWidth,
-            isDesktop
+            isDesktop,
+            fontFamily: blockFont
           });
         }
         
@@ -581,7 +586,7 @@ export const paginateElement = ({
           contentWidth,
           isDesktop,
           measure,
-          applyParagraphStylesToContainer,
+          applyParagraphStylesToContainer: applyWithFont,
           extractFootnotesFromContent,
           footnoteContentToNumber,
           pushPage,
@@ -601,7 +606,7 @@ export const paginateElement = ({
             contentWidth,
             isDesktop,
             measure,
-            applyParagraphStylesToContainer
+            applyParagraphStylesToContainer: applyWithFont
           });
           const remainingSpace = baseAvailableHeight - usedHeight;
           const elementText = element.textContent || '';
@@ -623,12 +628,14 @@ export const paginateElement = ({
         // Try sentence-level splitting first, then word boundary
         let splitResult = splitTextAtSentenceBoundary(element, remainingContentHeight, measure, splitTextAtWordBoundary, {
           contentWidth,
-          isDesktop
+          isDesktop,
+          fontFamily: blockFont
         });
         if (!splitResult.first && !splitResult.second) {
           splitResult = splitTextAtWordBoundary(element, remainingContentHeight, measure, {
             contentWidth,
-            isDesktop
+            isDesktop,
+            fontFamily: blockFont
           });
         }
         
@@ -668,7 +675,7 @@ export const paginateElement = ({
           const tempFirst = document.createElement('div');
           tempFirst.innerHTML = first;
           firstPartWrapper.appendChild(tempFirst.firstElementChild || tempFirst);
-          applyParagraphStylesToContainer(firstPartWrapper, isDesktop);
+          applyWithFont(firstPartWrapper, isDesktop);
           tempFirstPartOnly.appendChild(firstPartWrapper);
           const firstPartHeight = tempFirstPartOnly.offsetHeight;
           measureParentFirst.removeChild(tempFirstPartOnly);

@@ -1,4 +1,5 @@
 import { hyphenateSync } from 'hyphen/en';
+import { DEFAULT_CHAPTER_FONT } from '../constants/chapterFonts';
 
 /**
  * Normalize word for matching (remove diacritics, lowercase, etc.)
@@ -330,20 +331,24 @@ export const createMeasureContainer = (isDesktop, pageWidth, pageHeight) => {
  * Apply base paragraph CSS to measurement containers
  * This ensures TipTap HTML (with inline text-align styles) is measured
  * with the same base font/line-height/margin as .page-content p
+ * @param {HTMLElement} container
+ * @param {boolean} isDesktop
+ * @param {string} [fontFamily] - Optional chapter font (subchapters inherit from parent)
  */
-export const applyParagraphStylesToContainer = (container, isDesktop) => {
+export const applyParagraphStylesToContainer = (container, isDesktop, fontFamily) => {
   // Desktop PDF uses 1.35rem (matches PDFViewer.css), mobile uses 1.3rem
   const desktopFontSize = isDesktop ? '1.35rem' : '1.3rem';
   // Desktop PDF uses 1.62 line-height (matches PDFViewer.css), mobile uses 1.35
   const desktopLineHeight = isDesktop ? '1.50' : '1.35';
-  
+  const font = fontFamily ?? DEFAULT_CHAPTER_FONT;
+
   const paragraphs = container.querySelectorAll('p');
   paragraphs.forEach(p => {
     // Only apply if not already set (preserve inline styles from TipTap)
     if (!p.style.fontSize) p.style.fontSize = desktopFontSize;
     if (!p.style.lineHeight) p.style.lineHeight = desktopLineHeight;
     if (!p.style.margin) p.style.margin = '0.35rem 0';
-    if (!p.style.fontFamily) p.style.fontFamily = "'Times New Roman', 'Times', 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif";
+    if (!p.style.fontFamily) p.style.fontFamily = font;
     
     // Ensure empty paragraphs create visible spacing
     const isEmpty = !p.textContent || p.textContent.trim().length === 0 || (p.children.length === 0 && (!p.textContent || p.textContent.trim() === ''));
@@ -489,7 +494,9 @@ export const measureFootnotesHeight = (footnoteNumbers, container, allFootnotes,
 /**
  * Check if content + footnotes fit together
  */
-export const checkContentWithFootnotesFits = (contentElements, footnoteNumbers, availableHeight, contentWidth, isDesktop, measure, applyParagraphStylesToContainer, measureFootnotesHeight, allFootnotes, pageWidth) => {
+export const checkContentWithFootnotesFits = (contentElements, footnoteNumbers, availableHeight, contentWidth, isDesktop, measure, applyParagraphStylesToContainer, measureFootnotesHeight, allFootnotes, pageWidth, fontFamily) => {
+  const font = fontFamily ?? DEFAULT_CHAPTER_FONT;
+
   // First, try to add all content
   // CRITICAL: Insert into measure.pageContent (not measure.body) to match actual DOM structure
   // Actual structure: .page-body > .page-content > content
@@ -497,19 +504,19 @@ export const checkContentWithFootnotesFits = (contentElements, footnoteNumbers, 
   tempContainer.style.width = contentWidth + 'px';
   // Apply the same font/line-height/margin rules that .page-content p uses
   // Desktop PDF uses 1.4rem (matches PDFViewer.css), mobile uses 1.3rem
-  tempContainer.style.fontFamily = "'Times New Roman', 'Times', 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif";
+  tempContainer.style.fontFamily = font;
   tempContainer.style.fontSize = isDesktop ? '1.4rem' : '1.3rem';
   tempContainer.style.lineHeight = isDesktop ? '1.50' : '1.35';
   measure.pageContent.appendChild(tempContainer);
-  
+
   contentElements.forEach(el => {
     const temp = document.createElement('div');
     temp.innerHTML = el;
     tempContainer.appendChild(temp.firstElementChild || temp);
   });
-  
+
   // Apply base paragraph styles to match actual rendering
-  applyParagraphStylesToContainer(tempContainer, isDesktop);
+  applyParagraphStylesToContainer(tempContainer, isDesktop, font);
   
   // Check if content alone fits
   const contentHeight = tempContainer.offsetHeight;
@@ -567,7 +574,7 @@ export const isAtomicElement = (element) => {
  * Uses Range API to find the split point that preserves formatting
  */
 export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {}) => {
-  const { returnCharCount = false, contentWidth, isDesktop } = options;
+  const { returnCharCount = false, contentWidth, isDesktop, fontFamily } = options;
   const fullText = element.textContent || '';
   if (!fullText.trim()) {
     return {
@@ -686,11 +693,11 @@ export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {
     const contentWrapper = document.createElement('div');
     contentWrapper.className = 'page-content-main';
     contentWrapper.appendChild(clone);
-    applyParagraphStylesToContainer(contentWrapper, isDesktop);
+    applyParagraphStylesToContainer(contentWrapper, isDesktop, fontFamily);
     tempMeasureContainer.appendChild(contentWrapper);
     const height = tempMeasureContainer.offsetHeight;
     measureParent.removeChild(tempMeasureContainer);
-    
+
     if (height <= maxHeight + 2) {
       bestSplit = mid;
       low = mid + 1;
@@ -726,7 +733,7 @@ export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {
   const contentWrapper2 = document.createElement('div');
   contentWrapper2.className = 'page-content-main';
   contentWrapper2.appendChild(fullClone);
-  applyParagraphStylesToContainer(contentWrapper2, isDesktop);
+  applyParagraphStylesToContainer(contentWrapper2, isDesktop, fontFamily);
   tempMeasureContainer2.appendChild(contentWrapper2);
   const fullHeight = tempMeasureContainer2.offsetHeight;
   measureParent2.removeChild(tempMeasureContainer2);
@@ -851,7 +858,7 @@ export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {
  * Tries to split at sentence ends (. ! ?) followed by space/capital letter
  */
 export const splitTextAtSentenceBoundary = (element, maxHeight, measure, splitTextAtWordBoundary, options = {}) => {
-  const { returnCharCount = false, contentWidth, isDesktop } = options;
+  const { returnCharCount = false, contentWidth, isDesktop, fontFamily } = options;
   const fullText = element.textContent || '';
   if (!fullText.trim()) {
     return {
@@ -950,11 +957,11 @@ export const splitTextAtSentenceBoundary = (element, maxHeight, measure, splitTe
     const contentWrapper = document.createElement('div');
     contentWrapper.className = 'page-content-main';
     contentWrapper.appendChild(clone);
-    applyParagraphStylesToContainer(contentWrapper, isDesktop);
+    applyParagraphStylesToContainer(contentWrapper, isDesktop, fontFamily);
     tempMeasureContainer.appendChild(contentWrapper);
     const height = tempMeasureContainer.offsetHeight;
     measureParent.removeChild(tempMeasureContainer);
-    
+
     if (height <= maxHeight + 2) {
       bestFit = i + 1;
     } else {
@@ -964,7 +971,7 @@ export const splitTextAtSentenceBoundary = (element, maxHeight, measure, splitTe
 
   if (bestFit === 0) {
     // Can't fit even one sentence, fall back to word boundary
-    return splitTextAtWordBoundary(element, maxHeight, measure, { ...options, contentWidth, isDesktop });
+    return splitTextAtWordBoundary(element, maxHeight, measure, { ...options, contentWidth, isDesktop, fontFamily });
   }
 
   if (bestFit === sentenceBoundaries.length) {
@@ -1114,6 +1121,7 @@ export const createEmptyPage = (chapter, chapterIndex, chapterPageIndex, hasFiel
     borderImageUrl: chapter.pageBorderImageUrl || null,
     borderWidth: chapter.pageBorderWidth || null,
     borderSlicePercent: chapter.pageBorderSlicePercent || null,
+    fontFamily: chapter.fontFamily || null,
     backgroundImageUrl: chapter.backgroundImageUrl || null,
     isFirstPage: chapter.isFirstPage || false,
     isCover: chapter.isCover || false,
@@ -1170,6 +1178,7 @@ export const createEpigraphPage = (block, chapter, chapterIndex, chapterPageInde
     borderImageUrl,
     borderWidth,
     borderSlicePercent,
+    fontFamily: block.fontFamily || chapter.fontFamily || null,
     isFirstPage: chapter.isFirstPage || false,
     isCover: chapter.isCover || false,
     content: '',

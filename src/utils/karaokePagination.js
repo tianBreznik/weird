@@ -171,7 +171,8 @@ export const handleKaraokeElement = ({
     const { firstCharCount } = splitTextAtWordBoundary(tempElement, availableHeight, measure, {
       returnCharCount: true,
       contentWidth,
-      isDesktop
+      isDesktop,
+      fontFamily: blockMeta?.fontFamily
     });
 
     let charsToUse = firstCharCount || 0;

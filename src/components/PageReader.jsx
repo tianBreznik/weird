@@ -597,10 +597,11 @@ export const PageReader = ({
       return;
     }
 
-    // If order didn't change but content changed (edit), recalculate pages
+    // If order didn't change but content changed (edit) or font changed, recalculate pages
     const contentSig = chapters.flatMap(c => [
       c.id,
       (c.contentHtml || c.content || '').length,
+      c.fontFamily ?? '',
       ...(c.children || []).flatMap(s => [s.id, (s.contentHtml || s.content || '').length])
     ]).join('|');
     const contentChanged = prevContentSigRef.current !== null && 
@@ -3561,21 +3562,24 @@ export const PageReader = ({
               <div 
                 key={pageKey}
                 ref={pageContentRefCallback}
-                className="page-content"
+                className={`page-content ${pageToDisplay?.fontFamily ? 'page-content-custom-font' : ''}`}
                 dangerouslySetInnerHTML={{ __html: pageToDisplay.content || '' }}
+                style={pageToDisplay?.fontFamily ? { fontFamily: pageToDisplay.fontFamily, '--page-font': pageToDisplay.fontFamily } : undefined}
               />
             ) : pageToDisplay?.isFirstPage ? (
               <div 
                 key={pageKey}
                 ref={pageContentRefCallback}
-                className="page-content"
+                className={`page-content ${pageToDisplay?.fontFamily ? 'page-content-custom-font' : ''}`}
                 dangerouslySetInnerHTML={{ __html: pageToDisplay.content || '' }}
+                style={pageToDisplay?.fontFamily ? { fontFamily: pageToDisplay.fontFamily, '--page-font': pageToDisplay.fontFamily } : undefined}
               />
             ) : pageToDisplay?.isEpigraph ? (
               <div 
                 key={pageKey}
                 ref={pageContentRefCallback} 
-                className="page-content epigraph-content"
+                className={`page-content epigraph-content ${pageToDisplay?.fontFamily ? 'page-content-custom-font' : ''}`}
+                style={pageToDisplay?.fontFamily ? { fontFamily: pageToDisplay.fontFamily, '--page-font': pageToDisplay.fontFamily } : undefined}
               >
                 <div className={`epigraph-text epigraph-align-${pageToDisplay?.epigraphAlign || 'center'}`}>
                   <div>{pageToDisplay?.epigraphText || ''}</div>
@@ -3617,16 +3621,20 @@ export const PageReader = ({
               <div 
                 key={pageKey}
                 ref={pageContentRefCallback}
-                className="page-content field-notes-content"
+                className={`page-content field-notes-content ${pageToDisplay?.fontFamily ? 'page-content-custom-font' : ''}`}
                 dangerouslySetInnerHTML={{ __html: pageToDisplay?.content || '' }} 
+                style={pageToDisplay?.fontFamily ? { fontFamily: pageToDisplay.fontFamily, '--page-font': pageToDisplay.fontFamily } : undefined}
               />
             ) : pageToDisplay && !pageToDisplay.isCover && !pageToDisplay.isFirstPage && (
               <div 
                 key={pageKey}
                 ref={pageContentRefCallback} 
-                className={`page-content ${pageToDisplay.backgroundVideo ? 'background-video-text' : ''}`}
-                  dangerouslySetInnerHTML={{ __html: pageToDisplay.content || '' }} 
-                  style={pageToDisplay.backgroundVideo ? { position: 'relative', zIndex: 1 } : {}}
+                className={`page-content ${pageToDisplay.backgroundVideo ? 'background-video-text' : ''} ${pageToDisplay.fontFamily ? 'page-content-custom-font' : ''}`}
+                dangerouslySetInnerHTML={{ __html: pageToDisplay.content || '' }} 
+                style={{
+                  ...(pageToDisplay.fontFamily ? { fontFamily: pageToDisplay.fontFamily, '--page-font': pageToDisplay.fontFamily } : {}),
+                  ...(pageToDisplay.backgroundVideo ? { position: 'relative', zIndex: 1 } : {})
+                }}
               />
             )}
           </section>

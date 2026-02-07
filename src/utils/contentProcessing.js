@@ -1,3 +1,5 @@
+import { DEFAULT_CHAPTER_FONT } from '../constants/chapterFonts';
+
 const escapeHtml = (text) => {
   const s = String(text || '');
   return s
@@ -148,12 +150,14 @@ export const processHTMLContent = async (htmlContent, isDesktop) => {
 };
 
 /**
- * Build content array: chapter content + all subchapter content
+ * Build content array: chapter content + all subchapter content.
+ * Subchapters inherit fontFamily from their parent chapter.
  */
 export const buildChapterContentBlocks = (chapter) => {
   const contentBlocks = [];
   const hasChapterContent = !!(chapter.contentHtml || chapter.content);
-  
+  const chapterFont = chapter.fontFamily ?? DEFAULT_CHAPTER_FONT;
+
   if (hasChapterContent) {
     contentBlocks.push({
       type: 'chapter',
@@ -167,9 +171,10 @@ export const buildChapterContentBlocks = (chapter) => {
       pageBorderWidth: chapter.pageBorderWidth || null,
       pageBorderSlicePercent: chapter.pageBorderSlicePercent || null,
       hideTitle: !!chapter.hideTitle,
+      fontFamily: chapterFont,
     });
   }
-  
+
   if (chapter.children && chapter.children.length > 0) {
     let isFirstSubchapter = true;
     chapter.children.forEach((subchapter) => {
@@ -193,12 +198,13 @@ export const buildChapterContentBlocks = (chapter) => {
           pageBorderSlicePercent: subchapter.pageBorderSlicePercent || null,
           includeChapterTitle: !hasChapterContent && isFirstSubchapter, // Include chapter title if chapter has no content
           hideTitle: !!subchapter.hideTitle,
+          fontFamily: chapterFont, // Subchapters inherit parent chapter font
         });
         isFirstSubchapter = false;
       }
     });
   }
-  
+
   return contentBlocks;
 };
 

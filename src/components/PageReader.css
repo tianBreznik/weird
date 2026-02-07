@@ -306,6 +306,19 @@
   font-family: 'Times New Roman', 'Times', 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif !important; /* Force Times New Roman on all elements */
 }
 
+/* When page has custom chapter font, use --page-font variable (set via inline style) */
+.page-content.page-content-custom-font,
+.page-content.page-content-custom-font * {
+  font-family: var(--page-font) !important;
+}
+
+/* In custom-font mode, headings also use the chapter font (override the Baskerville rule below) */
+.page-content.page-content-custom-font .chapter-header-title,
+.page-content.page-content-custom-font h3.chapter-header-title,
+.page-content.page-content-custom-font h4.chapter-header-title {
+  font-family: var(--page-font) !important;
+}
+
 /* Ink effect for irregular shadows - JavaScript applies via .ink-char-mobile spans */
 .ink-char-mobile {
   display: inline;
