@@ -14,17 +14,29 @@ export const PDFTopBar = ({
   onNextPage,
   onZoomIn,
   onZoomOut,
+  // Zoom state (1 = 100%)
+  zoom = 1,
+  onZoomChange,
   onFitToWidth,
   onFitToPage,
   onPrint,
   onDownload
 }) => {
   const [pageInput, setPageInput] = useState(currentPage || 1);
+  // Keep zoomInput as a raw string (may include %), to avoid fighting user edits
+  const [zoomInput, setZoomInput] = useState(
+    `${Math.round((zoom || 1) * 100)}%`
+  );
 
   // Update page input when currentPage changes
   useEffect(() => {
     setPageInput(currentPage || 1);
   }, [currentPage]);
+
+  // Keep zoom input in sync with external zoom changes
+  useEffect(() => {
+    setZoomInput(`${Math.round((zoom || 1) * 100)}%`);
+  }, [zoom]);
 
   const handlePageInputChange = (e) => {
     const value = e.target.value;
@@ -62,10 +74,55 @@ export const PDFTopBar = ({
     }
   };
 
+  const handleZoomInputChange = (e) => {
+    const value = e.target.value;
+    // Allow user to type with or without %, keep raw string as-is
+    setZoomInput(value);
+  };
+
+  const commitZoomInput = () => {
+    const numeric = parseInt(zoomInput, 10);
+    if (isNaN(numeric) || numeric <= 0) {
+      // Reset to current zoom if invalid
+      setZoomInput(Math.round((zoom || 1) * 100));
+      return;
+    }
+    if (onZoomChange) {
+      // Convert from percent to scale factor
+      onZoomChange(numeric / 100);
+    } else {
+      // If no handler, just normalize display
+      setZoomInput(Math.round(numeric));
+    }
+  };
+
+  const handleZoomInputBlur = () => {
+    commitZoomInput();
+  };
+
+  const handleZoomInputKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      commitZoomInput();
+      e.target.blur();
+    }
+  };
+
   return (
     <div className="pdf-top-bar">
       <div className="pdf-top-bar-left">
         {/* Zoom controls */}
+        <div className="pdf-zoom-display">
+          <input
+            type="text"
+            value={zoomInput}
+            onChange={handleZoomInputChange}
+            onBlur={handleZoomInputBlur}
+            onKeyDown={handleZoomInputKeyDown}
+            className="pdf-zoom-input"
+            aria-label="Zoom percentage"
+          />
+        </div>
+
         <button
           className="pdf-top-bar-btn"
           onClick={onZoomOut}

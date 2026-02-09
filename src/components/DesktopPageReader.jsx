@@ -43,6 +43,12 @@ export const DesktopPageReader = ({
   const prevTopBarPageIndexRef = useRef(0);
   const prevMostVisiblePageRef = useRef(null);
   const prevMostVisiblePageIndexRef = useRef(null);
+
+  // Zoom level for desktop PDF pages (1 = 100%)
+  const [zoom, setZoom] = useState(1);
+  const MIN_ZOOM = 0.7;
+  const MAX_ZOOM = 1.6;
+  const ZOOM_STEP = 0.1;
   
   // Create pagesWithTOC array early (before hooks that depend on it)
   const pagesWithTOC = useMemo(() => {
@@ -276,14 +282,24 @@ export const DesktopPageReader = ({
     }
   };
   
-  // Handler for zoom in (placeholder for now)
   const handleZoomIn = () => {
-    // Zoom in functionality
+    setZoom((current) => {
+      const next = Math.min(MAX_ZOOM, current + ZOOM_STEP);
+      return Number(next.toFixed(2));
+    });
   };
   
-  // Handler for zoom out (placeholder for now)
   const handleZoomOut = () => {
-    // Zoom out functionality
+    setZoom((current) => {
+      const next = Math.max(MIN_ZOOM, current - ZOOM_STEP);
+      return Number(next.toFixed(2));
+    });
+  };
+
+  const handleZoomChange = (nextZoom) => {
+    if (typeof nextZoom !== 'number' || Number.isNaN(nextZoom)) return;
+    const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
+    setZoom(Number(clamped.toFixed(2)));
   };
   
   // Handler for download (placeholder for now)
@@ -377,7 +393,8 @@ export const DesktopPageReader = ({
         }
       });
     };
-  }, [pages, initializeKaraokeSlices, observePage, unobservePage]);
+  // Also re-run when zoom changes so karaoke stays in sync with scaled layout
+  }, [pages, zoom, initializeKaraokeSlices, observePage, unobservePage]);
 
   // Cache for processed HTML (without images) and extracted image data
   const processedContentCache = useRef(new Map());
@@ -843,29 +860,32 @@ export const DesktopPageReader = ({
         onNextPage={handleNextPage}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
+        zoom={zoom}
+        onZoomChange={handleZoomChange}
         onDownload={handleDownload}
         filename="weird-attachments.pdf"
       />
-    <PDFViewer
-      currentPage={1}
+      <PDFViewer
+        currentPage={1}
         totalPages={pagesWithTOC.length}
-      onPageChange={(pageNum) => {
+        onPageChange={(pageNum) => {
           // Scroll to the page
-        const pageIndex = pageNum - 1;
+          const pageIndex = pageNum - 1;
           const page = pagesWithTOC[pageIndex];
-        if (page) {
+          if (page) {
             const pageElement = document.getElementById(`pdf-page-${pageIndex}`);
             if (pageElement) {
               pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
           }
-        }
-      }}
-      filename="weird-attachments.pdf"
-    >
-      <div className="pdf-pages-container">
+        }}
+        filename="weird-attachments.pdf"
+        zoom={zoom}
+      >
+        <div className="pdf-pages-container">
           {renderedPages}
-      </div>
-    </PDFViewer>
+        </div>
+      </PDFViewer>
       {/* Desktop Progress Bar - only show for regular pages */}
       {mostVisiblePage && !mostVisiblePage.isFirstPage && !mostVisiblePage.isCover && !mostVisiblePage.isTOC && chapterProgress > 0 && typeof document !== 'undefined' && createPortal(
         <div className="chapter-progress-bar desktop-progress-bar">

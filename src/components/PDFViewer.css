@@ -1,5 +1,8 @@
 /* PDF Viewer - Desktop scrollable page container */
 .pdf-viewer {
+  /* Base zoom factor for desktop pages; overridden via inline style from PDFViewer.jsx */
+  --pdf-zoom: 1;
+
   width: 100vw;
   height: 100vh;
   overflow-y: auto;
@@ -31,6 +34,10 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+
+  /* PDF-style zoom: scale the entire page stack, leaving the top bar fixed */
+  transform: scale(var(--pdf-zoom));
+  transform-origin: top center;
 }
 
 .pdf-pages-container {
