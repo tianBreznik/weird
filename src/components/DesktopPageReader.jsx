@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import { PDFViewer } from './PDFViewer';
 import { PDFTopBar } from './PDFTopBar';
 import { ReaderTopBar } from './ReaderTopBar';
@@ -304,7 +306,54 @@ export const DesktopPageReader = ({
   
   // Handler for download (placeholder for now)
   const handleDownload = () => {
-    // Download PDF functionality
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    
+    const viewer = document.querySelector('.pdf-viewer-container');
+    if (!viewer) return;
+
+    // Find all page-sheet elements in order
+    const pageSheets = Array.from(
+      viewer.querySelectorAll('.pdf-page-wrapper .page-sheet')
+    );
+    if (pageSheets.length === 0) return;
+
+    // Use the first page to establish PDF dimensions (in pixels)
+    const firstRect = pageSheets[0].getBoundingClientRect();
+    const pdf = new jsPDF({
+      orientation: firstRect.width >= firstRect.height ? 'l' : 'p',
+      unit: 'px',
+      format: [firstRect.width, firstRect.height],
+    });
+
+    // Helper to capture one page and add to PDF
+    const capturePage = async (pageEl, isFirst) => {
+      const canvas = await html2canvas(pageEl, {
+        scale: 2, // higher resolution for sharper text
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
+      const imgData = canvas.toDataURL('image/png');
+      if (!isFirst) {
+        pdf.addPage();
+      }
+      pdf.addImage(imgData, 'PNG', 0, 0, firstRect.width, firstRect.height);
+    };
+
+    (async () => {
+      // Show footnote blocks on desktop so they appear in the PDF (they're normally hidden, hover-only)
+      document.body.setAttribute('data-pdf-export', 'true');
+      await new Promise((r) => requestAnimationFrame(r));
+
+      try {
+        for (let i = 0; i < pageSheets.length; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await capturePage(pageSheets[i], i === 0);
+        }
+        pdf.save('weird-attachments.pdf');
+      } finally {
+        document.body.removeAttribute('data-pdf-export');
+      }
+    })();
   };
   
   // Initialize karaoke for all pages after render

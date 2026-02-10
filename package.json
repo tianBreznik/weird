@@ -25,6 +25,7 @@
     "html2canvas": "^1.4.1",
     "hyphen": "^1.10.6",
     "hyphenation.en-us": "^0.2.1",
+    "jspdf": "^4.1.0",
     "prosemirror-inputrules": "^1.5.1",
     "react": "^19.1.1",
     "react-cursorify": "^1.1.1287",

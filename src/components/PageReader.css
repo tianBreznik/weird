@@ -1486,6 +1486,31 @@
   }
 }
 
+/* During PDF export, show footnotes so they appear in the generated PDF */
+[data-pdf-export='true'] .pdf-viewer .footnotes-section {
+  display: block !important;
+}
+
+/* PDF export: position footnotes lower and use smaller print-style font */
+[data-pdf-export='true'] .pdf-viewer .footnotes-section {
+  padding-top: 1.25rem; /* space above so block sits lower on page */
+  padding-bottom: 0.75rem;
+  bottom: 0;
+}
+[data-pdf-export='true'] .pdf-viewer .footnotes-list {
+  font-size: 0.6rem !important;
+  line-height: 1.35 !important;
+}
+[data-pdf-export='true'] .pdf-viewer .footnote-item {
+  margin-bottom: 0.2rem;
+}
+[data-pdf-export='true'] .pdf-viewer .footnote-number {
+  font-size: 0.6rem !important;
+}
+[data-pdf-export='true'] .pdf-viewer .footnote-content {
+  font-size: 0.6rem !important;
+}
+
 .footnotes-divider {
   height: 1px;
   background: linear-gradient(to right, rgba(31, 20, 10, 0.3) 0%, rgba(31, 20, 10, 0.1) 100%);
