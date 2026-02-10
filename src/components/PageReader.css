@@ -532,26 +532,28 @@
   margin: 0 auto;
 }
 
-/* Epigraph page styling (mobile + base) */
+/* Epigraph page styling (mobile + base)
+   Mobile now follows the same basic layout as desktop:
+   center the epigraph block in the page, then nudge it slightly
+   downward so it sits in the lower third. */
 .epigraph-page .page-body {
   display: flex;
-  /* Mobile / base: keep epigraph towards lower half of the page */
-  align-items: flex-end;
-  justify-content: flex-start;
+  align-items: center;
+  justify-content: center;
   text-align: center;
-  padding-bottom: 11.5rem; /* lift it slightly above the very bottom edge */
-  padding-left: 3rem;
+  padding: 0 2.25rem;
 }
 
 .epigraph-content {
   width: 100%;
   display: flex;
-  /* Keep epigraph block anchored to the TOP of its local area;
-     vertical positioning is handled by padding on .epigraph-page .page-body. */
   align-items: flex-start;
-  justify-content: flex-start;
-  padding: 0 1.5rem;
+  justify-content: center;
+  padding: 0 1.25rem;
   box-sizing: border-box;
+  /* Slight downward shift from exact center for a “lower-third” feel
+     on narrow mobile pages (smaller than desktop shift below). */
+  transform: translateY(45%);
 }
 
 .epigraph-text {
@@ -615,7 +617,7 @@
   .epigraph-page .page-body {
     /* Vertically center the epigraph and then nudge it slightly
        downward via a transform on the inner block so it sits at
-       roughly ~65% of the page height. */
+       roughly ~65% of the page height on desktop. */
     align-items: center;
     justify-content: center;
     padding: 0 4rem;
@@ -623,8 +625,8 @@
 
   .epigraph-content {
     justify-content: center;
-    /* Shift the whole epigraph block a bit down from exact center
-       for a visually pleasing “lower-third” placement. */
+    /* Desktop shift is a bit stronger than mobile to account
+       for the taller page aspect ratio. */
     transform: translateY(70%);
   }
 
