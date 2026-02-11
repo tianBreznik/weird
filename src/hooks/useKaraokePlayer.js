@@ -31,135 +31,35 @@ export const useKaraokePlayer = ({
   const currentKaraokeSliceRef = useRef(null); // { karaokeId, sliceElement, startChar, endChar }
   
   // Desktop-specific: Track visible pages with IntersectionObserver
+  // NOTE: Visibility-based pausing/resuming is TEMPORARILY DISABLED because it can
+  // interfere with real-time highlighting after recent layout changes.
+  // We keep the refs so we can re-enable this later if needed.
   const visiblePagesRef = useRef(new Set()); // Set of page elements that are visible
   const intersectionObserverRef = useRef(null);
 
   // Helper: Check if a page is currently visible (desktop only)
+  // TEMP: Always treat pages as visible so highlighting runs continuously.
   const isPageVisible = useCallback((pageElement) => {
-    if (!isDesktop || !pageElement) return true; // Mobile: always visible (single page)
-    const pageKey = pageElement.getAttribute('data-page-key');
-    return visiblePagesRef.current.has(pageKey);
+    return true;
   }, [isDesktop]);
 
   // Helper: Pause karaoke on a specific page (desktop only)
   const pauseKaraokeOnPage = useCallback((pageElement) => {
-    if (!isDesktop) return;
-    
-    const slices = pageElement?.querySelectorAll('.karaoke-slice[data-playing="true"]');
-    if (!slices || slices.length === 0) return;
-
-    slices.forEach((slice) => {
-      const karaokeId = slice.getAttribute('data-karaoke-id');
-      if (!karaokeId) return;
-
-      const controller = karaokeControllersRef.current.get(karaokeId);
-      if (controller && controller.pauseWithResume) {
-        controller.pauseWithResume();
-      }
-    });
+    // TEMP: visibility-based auto‑pause disabled – do nothing.
+    return;
   }, [isDesktop]);
 
   // Helper: Resume karaoke on a specific page (desktop only)
   const checkAndResumeKaraokeOnPage = useCallback((pageElement) => {
-    if (!isDesktop) return;
-    
-    const slices = pageElement?.querySelectorAll('.karaoke-slice');
-    if (!slices || slices.length === 0) return;
-
-    slices.forEach((slice) => {
-      const karaokeId = slice.getAttribute('data-karaoke-id');
-      if (!karaokeId) return;
-
-      const controller = karaokeControllersRef.current.get(karaokeId);
-      if (controller && 
-          typeof controller.resumeWordIndex === 'number' && 
-          controller.resumeTime !== null &&
-          !controller.manuallyPaused) {
-        // Resume playback on this slice
-        const startChar = parseInt(slice.getAttribute('data-karaoke-start') || '0', 10);
-        const endChar = parseInt(slice.getAttribute('data-karaoke-end') || '0', 10);
-        
-        // Find the slice that contains the resume word
-        const source = karaokeSources?.[karaokeId];
-        const resumeWordMeta = source?.wordCharRanges?.[controller.resumeWordIndex];
-        const resumeCharPosition = resumeWordMeta ? resumeWordMeta.charStart : null;
-        
-        let targetSlice = slice;
-        let targetStartChar = startChar;
-        let targetEndChar = endChar;
-        
-        if (typeof resumeCharPosition === 'number') {
-          const sStart = parseInt(slice.getAttribute('data-karaoke-start') || '0', 10);
-          const sEnd = parseInt(slice.getAttribute('data-karaoke-end') || '0', 10);
-          const resumeWordEnd = resumeWordMeta ? resumeWordMeta.charEnd : null;
-          const wordStartsInSlice = resumeCharPosition >= sStart && resumeCharPosition < sEnd;
-          const wordEndsInSlice = resumeWordEnd && resumeWordEnd > sStart && resumeWordEnd <= sEnd;
-          const wordSpansSlice = resumeCharPosition < sStart && resumeWordEnd && resumeWordEnd > sEnd;
-          
-          if (!wordStartsInSlice && !wordEndsInSlice && !wordSpansSlice) {
-            // Resume word is not in this slice, find the correct slice
-            const allSlices = document.querySelectorAll(`[data-karaoke-id="${karaokeId}"].karaoke-slice`);
-            for (const otherSlice of allSlices) {
-              const otherStart = parseInt(otherSlice.getAttribute('data-karaoke-start') || '0', 10);
-              const otherEnd = parseInt(otherSlice.getAttribute('data-karaoke-end') || '0', 10);
-              const otherWordStartsInSlice = resumeCharPosition >= otherStart && resumeCharPosition < otherEnd;
-              const otherWordEndsInSlice = resumeWordEnd && resumeWordEnd > otherStart && resumeWordEnd <= otherEnd;
-              const otherWordSpansSlice = resumeCharPosition < otherStart && resumeWordEnd && resumeWordEnd > otherEnd;
-              
-              if (otherWordStartsInSlice || otherWordEndsInSlice || otherWordSpansSlice) {
-                targetSlice = otherSlice;
-                targetStartChar = otherStart;
-                targetEndChar = otherEnd;
-                break;
-              }
-            }
-          }
-        }
-        
-        // Resume playback
-        const playOptions = {
-          resumeWordIndex: controller.resumeWordIndex,
-          resumeTime: controller.resumeTime
-        };
-        
-        controller.playSlice(targetSlice, targetStartChar, targetEndChar, playOptions);
-      }
-    });
+    // TEMP: visibility-based auto‑resume disabled – do nothing.
+    return;
   }, [isDesktop, karaokeSources]);
 
   // Initialize IntersectionObserver for desktop visibility detection
+  // TEMP: disabled – we no longer pause/resume based on visibility.
   useEffect(() => {
-    if (!isDesktop) return;
-
-    intersectionObserverRef.current = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          const pageElement = entry.target;
-          const pageKey = pageElement.getAttribute('data-page-key');
-          
-          if (entry.isIntersecting) {
-            visiblePagesRef.current.add(pageKey);
-            // Check if there's paused karaoke on this page that should resume
-            checkAndResumeKaraokeOnPage(pageElement);
-          } else {
-            visiblePagesRef.current.delete(pageKey);
-            // Pause karaoke on pages that go out of view
-            pauseKaraokeOnPage(pageElement);
-          }
-        });
-      },
-      {
-        root: null, // Use viewport as root
-        rootMargin: '0px',
-        threshold: 0.1 // Trigger when 10% of page is visible
-      }
-    );
-
-    return () => {
-      if (intersectionObserverRef.current) {
-        intersectionObserverRef.current.disconnect();
-      }
-    };
+    // No-op while visibility-based control is disabled.
+    return;
   }, [isDesktop, checkAndResumeKaraokeOnPage, pauseKaraokeOnPage]);
 
   // Get or create karaoke controller for a given karaokeId

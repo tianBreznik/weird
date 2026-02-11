@@ -245,3 +245,19 @@
   cursor: grabbing;
 }
 
+
+/* Temporarily hide TOC dot leaders (desktop) */
+.desktop-toc-dots {
+  display: none !important;
+}
+
+
+/* Keep TOC title and page number at opposite sides, but remove dot leaders (desktop) */
+.desktop-toc-dots {
+  display: block !important; /* restore flex gap element */
+}
+.desktop-toc-dots::after {
+  content: none !important;
+  background-image: none !important;
+}
+

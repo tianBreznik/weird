@@ -411,15 +411,15 @@
 
 /* Much tighter line-height when paragraph contains inline font-size (e.g. 12px text)
    so line box is driven by the small text, not the paragraph’s default size */
-/* Match editor: when content has inline font-size, same line-height as TipTap editor (0.55 + span 1.1) */
+/* Apply tighter line-height only to non-karaoke paragraphs with inline font-size to avoid breaking karaoke highlighting */
 .page-body:has(span[style*="font-size"]),
 .page-body:has([style*="font-size"]),
 .page-content:has(span[style*="font-size"]),
 .page-content:has([style*="font-size"]) {
-  line-height: 0.55 !important;
+  /* Keep default line-height here; tighter spacing handled per-paragraph below. */
 }
-.page-content p:has(span[style*="font-size"]),
-.page-content p:has([style*="font-size"]) {
+.page-content p:has(span[style*="font-size"]):not(:has(.karaoke-slice, .karaoke-player)),
+.page-content p:has([style*="font-size"]):not(:has(.karaoke-slice, .karaoke-player)) {
   line-height: 0.55 !important;
   margin: 0.15rem 0 !important;
 }
@@ -1719,5 +1719,22 @@
   background-color: rgba(0, 0, 0, 0.3);
   transition: width 0.3s ease;
   width: 0%;
+}
+
+
+/* TEMP: hard-coded classic book border for all pages (mobile/reader) */
+.page-sheet {
+  border: 2px solid #000 !important;            /* inner black line, slightly thicker */
+  box-shadow: 0 0 0 2px #777 !important;        /* outer gray outline, slightly thicker/darker */
+  border-radius: 0 !important;                  /* square corners, no rounding */
+  border-image: none !important;                /* temporarily disable border-image */
+}
+
+/* TEMP: remove hard-coded border on mobile only (keep it for desktop/PDF) */
+@media (max-width: 768px) {
+  .page-sheet {
+    border: none !important;
+    box-shadow: none !important;
+  }
 }
 

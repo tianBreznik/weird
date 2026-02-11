@@ -585,3 +585,19 @@
   -webkit-backdrop-filter: blur(4px);
 }
 
+
+/* Temporarily hide TOC dot leaders (mobile) */
+.mobile-toc-dots {
+  display: none !important;
+}
+
+
+/* Keep TOC title and page number at opposite sides, but remove dot leaders (mobile) */
+.mobile-toc-dots {
+  display: block !important; /* restore spacer */
+}
+.mobile-toc-dots::after {
+  content: none !important;
+  background-image: none !important;
+}
+
