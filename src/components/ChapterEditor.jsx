@@ -9,7 +9,7 @@ import 'simplebar-react/dist/simplebar.min.css';
 import { TextSelection } from 'prosemirror-state';
 import { uploadImageToStorage, uploadVideoToStorage } from '../services/storage';
 import { generateWordTimingsWithDeepgram } from '../services/autoTiming';
-import { KaraokeBlock, Dinkus, Highlight, TextColor, Underline, FootnoteRef, Indent, Video, CustomImage, InlineImage, Poetry, FieldNotesBlock } from '../extensions/tiptapExtensions.js';
+import { KaraokeBlock, Dinkus, Highlight, TextColor, FontSize, Underline, FootnoteRef, Indent, Video, CustomImage, InlineImage, Poetry, FieldNotesBlock } from '../extensions/tiptapExtensions.js';
 import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import { FootnotePlugin } from '../extensions/footnotePlugin.js';
@@ -32,7 +32,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   // Highlight swatch: either (1) highlight mark at cursor from doc, or (2) last color chosen in picker until next cursor move (see userChangedHighlightRef).
   const [highlightColor, setHighlightColor] = useState('#ffeb3b');
   const [textColor, setTextColor] = useState('#000000');
-  const [fontSize, setFontSize] = useState('16');
+  const [fontSize, setFontSize] = useState('default');
   const [entityVersion, setEntityVersion] = useState(chapter?.version ?? 0);
   const [activeFormats, setActiveFormats] = useState({
     bold: false,
@@ -107,6 +107,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   // Ref to track if we're programmatically setting content (to avoid update loops)
   const isSettingContentRef = useRef(false);
   const lastSetContentRef = useRef('');
+  const lastLoadedChapterIdRef = useRef(null);
   
   // TipTap editor instance - use default heading/paragraph behavior from StarterKit
   const editor = useEditor({
@@ -125,6 +126,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       // Adding back basic formatting extensions first
       Highlight,
       TextColor,
+      FontSize,
       Underline,
       Link.configure({
         openOnClick: false, // We'll handle clicks in PageReader
@@ -359,9 +361,28 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     return null;
   };
 
-  // Get current font size for toolbar sync.
-  // For now, just reflect the current fontSize state; we can make this smarter later.
-  const getCurrentFontSize = () => fontSize || '16';
+  // Get current font size for toolbar sync from selection's fontSize mark.
+  const getCurrentFontSize = () => {
+    if (!editor) return fontSize || 'default';
+    const attrs = editor.getAttributes('fontSize');
+    if (attrs?.fontSize) {
+      // Extract numeric part for dropdown (e.g. "16px" -> "16")
+      const m = String(attrs.fontSize).match(/^([\d.]+)(px|rem|em)?$/i);
+      if (m) {
+        const num = m[1];
+        const unit = (m[2] || 'px').toLowerCase();
+        if (unit === 'px') return num;
+        // rem/em: map to closest px option
+        if (unit === 'rem' || unit === 'em') {
+          const px = parseFloat(num) * 16;
+          const options = ['10', '12', '14', '16', '18', '20', '24', '28', '32', '36', '48'];
+          const closest = options.reduce((a, b) => Math.abs(parseFloat(a) - px) <= Math.abs(parseFloat(b) - px) ? a : b);
+          return closest;
+        }
+      }
+    }
+    return 'default';
+  };
 
   // Get current highlight color for the toolbar. Uses the same DOM-based approach as
   // getCurrentTextColor (which works): read background-color from the element under the
@@ -580,11 +601,14 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       // Always update highlight color - it should reflect the current selection's highlight
       // regardless of whether user changed text color
 
-      // Keep dropdown in sync with our simple fontSize state for now.
-      // (Font-size is a future polish feature; currently we don't modify the document.)
-      const currentFontSize = getCurrentFontSize();
-      if (currentFontSize !== fontSize) {
-        setFontSize(currentFontSize);
+      // Sync font-size dropdown only when selection has a fontSize mark.
+      // When cursor is in unmarked text, leave dropdown at last chosen value so it doesn't "flip to Default".
+      const fontSizeAttrs = editor.getAttributes('fontSize');
+      if (fontSizeAttrs?.fontSize) {
+        const currentFontSize = getCurrentFontSize();
+        if (currentFontSize !== fontSize) {
+          setFontSize(currentFontSize);
+        }
       }
 
       // Update highlight color based on current selection/caret position
@@ -638,10 +662,16 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       const plainText = (chapterContent || '').replace(/<[^>]+>/g, '').trim();
       const isNewOrEmptyChapter = !chapterContent || !plainText;
 
-      // Only set content if it's different from what's currently in the editor
-      const currentContent = editor.getHTML();
+      const loadKey = `${chapter?.id ?? 'c'}-${parentChapter?.id ?? 'p'}`;
+      const chapterJustSwitched = lastLoadedChapterIdRef.current !== loadKey;
+      lastLoadedChapterIdRef.current = loadKey;
+
+      // Only set content when switching chapters - never overwrite user's unsaved edits
+      // (including fontSize marks) when the same chapter re-renders
+      if (!chapterJustSwitched) return;
+
       let processedContent = chapterContent; // Title is now part of content, don't prepend it
-      
+
       // Clean up: Remove duplicate h3 elements, keep only the first one
       if (processedContent) {
         const tempDiv = document.createElement('div');
@@ -655,11 +685,10 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
           processedContent = tempDiv.innerHTML;
         }
       }
-      
-      if (currentContent !== processedContent) {
-        setEntityVersion(chapter.version ?? 0);
-        
-        // If content is empty (new chapter), start with a heading
+
+      setEntityVersion(chapter.version ?? 0);
+
+      // If content is empty (new chapter), start with a heading
         // Skip default heading for special pages (first page, cover page)
         const isSpecialPage = chapter?.isFirstPage || chapter?.isCover;
         const isSubchapter = !!parentChapter;
@@ -766,36 +795,24 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
             editorEl.scrollTop = 0;
           }
         }, 100);
-        
-        // Reset flag after editor has updated
-        setTimeout(() => {
-          isSettingContentRef.current = false;
-          
-          // After content is set, detect color and sync toolbar
-          requestAnimationFrame(() => {
-            if (editor) {
-              // Get the color from TipTap
-              const attrs = editor.getAttributes('textColor');
-              const detectedColor = attrs?.color || '#000000';
-              
-              // Update state
-              setTextColor(detectedColor);
-              
-              // Update color input if needed
-              if (colorInputRef.current) {
-                colorInputRef.current.value = detectedColor;
-              }
-              
-              // Refresh toolbar to sync all states
-              refreshToolbarState();
+
+      // Reset flag after editor has updated
+      setTimeout(() => {
+        isSettingContentRef.current = false;
+
+        // After content is set, detect color and sync toolbar
+        requestAnimationFrame(() => {
+          if (editor) {
+            const attrs = editor.getAttributes('textColor');
+            const detectedColor = attrs?.color || '#000000';
+            setTextColor(detectedColor);
+            if (colorInputRef.current) {
+              colorInputRef.current.value = detectedColor;
             }
-          });
-        }, 100);
-      } else {
-        // Content is the same, just update version if needed
-        setEpigraph(chapter.epigraph || '');
-        setEntityVersion(chapter.version ?? 0);
-      }
+            refreshToolbarState();
+          }
+        });
+      }, 100);
     } else if (parentChapter && editor) {
       // New subchapter: start with an empty heading (h4) and place cursor inside
       const currentContent = editor.getHTML();
@@ -1418,10 +1435,15 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     refreshToolbarState();
   };
   const applyFontSize = (size) => {
-    // Font-size is currently a planned polish feature.
-    // For now we simply track the dropdown state without changing the document,
-    // to avoid impacting pagination or layout.
+    if (!editor) return;
     setFontSize(size);
+    if (size === 'default') {
+      editor.chain().focus().unsetFontSize().run();
+    } else {
+      // Apply fontSize mark with px unit (dropdown values are numeric)
+      editor.chain().focus().setFontSize(`${size}px`).run();
+    }
+    refreshToolbarState();
   };
 
   const applyWhisperParagraph = () => {
@@ -2471,6 +2493,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   className="toolbar-font-size"
                   title="Velikost pisave"
                 >
+                  <option value="default">Default</option>
                   <option value="10">10</option>
                   <option value="12">12</option>
                   <option value="14">14</option>

@@ -888,6 +888,30 @@ export const DesktopPageReader = ({
       );
     });
   }, [pagesWithTOC, renderPage]);
+
+  // Ensure the first visible reading page starts at a stable scroll position,
+  // even though we've temporarily hidden the original cover / first pages.
+  const hasInitialScrollRef = useRef(false);
+  useEffect(() => {
+    if (hasInitialScrollRef.current) return;
+    if (pagesWithTOC.length === 0) return;
+
+    // Find the first non-cover, non-first, non-TOC page
+    const firstReadingIndex = pagesWithTOC.findIndex(
+      (p) => !p.isFirstPage && !p.isCover && !p.isTOC
+    );
+    if (firstReadingIndex < 0) return;
+
+    const pageElement = document.getElementById(`pdf-page-${firstReadingIndex}`);
+    const scrollContainer = document.querySelector('.pdf-viewer');
+    if (pageElement && scrollContainer) {
+      hasInitialScrollRef.current = true;
+      // Scroll so that this first reading page is nicely positioned under the top bar
+      pageElement.scrollIntoView({ behavior: 'instant', block: 'start' });
+      // Leave space below the top bar so the first page sits a bit lower (like when cover was visible)
+      scrollContainer.scrollTop -= 88;
+    }
+  }, [pagesWithTOC]);
   
   
   // Early return AFTER all hooks

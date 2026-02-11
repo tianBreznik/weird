@@ -80,6 +80,12 @@
   overflow: hidden !important; /* Prevent content from overflowing fixed height - this keeps images in rendering context */
 }
 
+/* TEMP: hide cover and standalone first page from desktop scroll view */
+.pdf-viewer .page-sheet.cover-page,
+.pdf-viewer .page-sheet.first-page {
+  display: none !important;
+}
+
 /* Border image styling - now driven by per-chapter settings */
 /* DESKTOP ONLY - isolated to desktop PDF viewer */
 @media (min-width: 769px) {

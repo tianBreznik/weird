@@ -315,6 +315,17 @@
   color: #111;
 }
 
+/* When content has inline font-size (e.g. 12px), line-height scales like Google Docs */
+.content-editor-wrapper .ProseMirror:has(span[style*="font-size"]) {
+  line-height: 0.55 !important;
+}
+.content-editor-wrapper .ProseMirror p:has(span[style*="font-size"]) {
+  line-height: 0.55 !important;
+}
+.content-editor-wrapper .ProseMirror span[style*="font-size"] {
+  line-height: 1.1 !important;
+}
+
 /* When chapter has custom font, ProseMirror inherits from wrapper */
 .content-editor-wrapper.content-editor-has-font .ProseMirror,
 .content-editor-wrapper.content-editor-has-font .ProseMirror * {
@@ -1740,6 +1751,12 @@
     font-size: 16px !important;
     line-height: 1.6 !important;
     min-height: calc(100vh - 200px) !important;
+  }
+  .content-editor-wrapper .ProseMirror:has(span[style*="font-size"]) {
+    line-height: 0.55 !important;
+  }
+  .content-editor-wrapper .ProseMirror p:has(span[style*="font-size"]) {
+    line-height: 0.55 !important;
   }
   
   .title-row {

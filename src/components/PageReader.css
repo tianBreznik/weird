@@ -409,6 +409,43 @@
   min-height: 0.45rem;          /* Ensure empty paragraphs still create spacing */
 }
 
+/* Much tighter line-height when paragraph contains inline font-size (e.g. 12px text)
+   so line box is driven by the small text, not the paragraph’s default size */
+/* Match editor: when content has inline font-size, same line-height as TipTap editor (0.55 + span 1.1) */
+.page-body:has(span[style*="font-size"]),
+.page-body:has([style*="font-size"]),
+.page-content:has(span[style*="font-size"]),
+.page-content:has([style*="font-size"]) {
+  line-height: 0.55 !important;
+}
+.page-content p:has(span[style*="font-size"]),
+.page-content p:has([style*="font-size"]) {
+  line-height: 0.55 !important;
+  margin: 0.15rem 0 !important;
+}
+/* Tighter heading spacing when page has small font-size content */
+.page-content:has(span[style*="font-size"]) .chapter-header-title,
+.page-content:has(span[style*="font-size"]) h3.chapter-header-title,
+.page-content:has(span[style*="font-size"]) h3:first-child {
+  margin: 0.75rem 0 0.5rem 0 !important;
+}
+.page-content:has(span[style*="font-size"]) h4,
+.page-content:has(span[style*="font-size"]) h4.chapter-header-title {
+  margin: 0.4rem 0 0.25rem 0 !important;
+}
+.page-content:has(span[style*="font-size"]) ul,
+.page-content:has(span[style*="font-size"]) ol {
+  margin: 0.25rem 0 !important;
+}
+.page-content:has(span[style*="font-size"]) li {
+  margin-bottom: 0.2rem !important;
+}
+/* Keep the span’s own line-height tight so line box isn’t stretched */
+/* Same as editor: span line-height 1.1 so gap between lines matches TipTap */
+.page-content span[style*="font-size"] {
+  line-height: 1.1 !important;
+}
+
 /* Ensure empty paragraphs create visible spacing */
 .page-content p:empty,
 .page-content p:has(> br:only-child) {
@@ -643,6 +680,12 @@
   padding: 0;
   box-sizing: border-box;
   position: relative;
+}
+
+/* TEMP: hide cover and standalone first page from mobile view (visual only) */
+.page-sheet.cover-page,
+.page-sheet.first-page {
+  display: none !important;
 }
 
 .cover-content {

@@ -385,6 +385,71 @@ export const TextColor = Mark.create({
   },
 });
 
+// Custom mark for inline font size (applies to selected text)
+export const FontSize = Mark.create({
+  name: 'fontSize',
+
+  excludes: '',
+
+  addAttributes() {
+    return {
+      fontSize: {
+        default: '1rem',
+      },
+    };
+  },
+
+  addCommands() {
+    return {
+      setFontSize:
+        (fontSize) =>
+        ({ chain }) =>
+          chain()
+            .setMark(this.name, { fontSize })
+            .run(),
+      unsetFontSize:
+        () =>
+        ({ chain }) =>
+          chain()
+            .unsetMark(this.name)
+            .run(),
+    };
+  },
+
+  parseHTML() {
+    return [
+      {
+        tag: 'span',
+        getAttrs: (node) => {
+          const styleAttr = node.getAttribute('style') || '';
+          const match = styleAttr.match(/font-size\s*:\s*([^;]+)/i);
+          if (match) {
+            return { fontSize: match[1].trim() };
+          }
+          return false;
+        },
+      },
+    ];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    const size = HTMLAttributes.fontSize || '1rem';
+    const lineHeight = lineHeightForFontSize(size);
+    return [
+      'span',
+      {
+        style: `font-size: ${size} !important; line-height: ${lineHeight} !important`,
+      },
+      0,
+    ];
+  },
+});
+
+/** Unitless line-height: tight so gap between paragraph lines is small (scales with font size). */
+function lineHeightForFontSize(sizeStr) {
+  return 1.1;
+}
+
 // Custom Mark for Underline
 export const Underline = Mark.create({
   name: 'underline',
