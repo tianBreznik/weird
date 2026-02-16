@@ -597,12 +597,25 @@ export const PageReader = ({
       return;
     }
 
-    // If order didn't change but content changed (edit) or font changed, recalculate pages
+    // If order didn't change but content or metadata changed (edit), recalculate pages
     const contentSig = chapters.flatMap(c => [
       c.id,
       (c.contentHtml || c.content || '').length,
       c.fontFamily ?? '',
-      ...(c.children || []).flatMap(s => [s.id, (s.contentHtml || s.content || '').length])
+      c.backgroundImageUrl ?? '',
+      c.pageBorderImageUrl ?? '',
+      c.pageBorderWidth ?? '',
+      c.pageBorderSlicePercent ?? '',
+      c.hideTitle ?? '',
+      ...(c.children || []).flatMap(s => [
+        s.id,
+        (s.contentHtml || s.content || '').length,
+        s.backgroundImageUrl ?? '',
+        s.pageBorderImageUrl ?? '',
+        s.pageBorderWidth ?? '',
+        s.pageBorderSlicePercent ?? '',
+        s.hideTitle ?? '',
+      ])
     ]).join('|');
     const contentChanged = prevContentSigRef.current !== null && 
                            prevContentSigRef.current !== contentSig;

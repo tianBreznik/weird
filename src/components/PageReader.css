@@ -682,11 +682,6 @@
   position: relative;
 }
 
-/* TEMP: hide cover and standalone first page from mobile view (visual only) */
-.page-sheet.cover-page,
-.page-sheet.first-page {
-  display: none !important;
-}
 
 .cover-content {
   width: 100%;

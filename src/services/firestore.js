@@ -113,7 +113,7 @@ export async function deleteChapter(bookId, chapterId) {
   return deleteDoc(chapterDoc(bookId, chapterId));
 }
 
-export async function addSubchapter(bookId, chapterId, { title, slug, contentHtml, contentDelta, epigraph, order, audioUrl, wordTimings, pageBorder, pageBorderImageUrl, pageBorderWidth, pageBorderSlicePercent }) {
+export async function addSubchapter(bookId, chapterId, { title, slug, contentHtml, contentDelta, epigraph, order, audioUrl, wordTimings, pageBorder, pageBorderImageUrl, pageBorderWidth, pageBorderSlicePercent, backgroundImageUrl }) {
   // If no order specified, get the next available order number
   if (!order) {
     const existingSubchapters = await getSubchapters(bookId, chapterId);
@@ -133,6 +133,7 @@ export async function addSubchapter(bookId, chapterId, { title, slug, contentHtm
     pageBorderImageUrl: pageBorderImageUrl ?? null,
     pageBorderWidth: pageBorderWidth ?? null,
     pageBorderSlicePercent: pageBorderSlicePercent ?? null,
+    backgroundImageUrl: backgroundImageUrl ?? null,
     order,
     isPublished: true,
     createdAt: serverTimestamp(),

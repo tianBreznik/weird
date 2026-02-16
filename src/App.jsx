@@ -529,6 +529,10 @@ function App() {
                         contentHtml: updated.contentHtml ?? chapter.contentHtml,
                         pageBorder: typeof updated.pageBorder === 'boolean' ? updated.pageBorder : chapter.pageBorder,
                         pageBorderImageUrl: updated.pageBorderImageUrl ?? chapter.pageBorderImageUrl,
+                        pageBorderWidth: updated.pageBorderWidth ?? chapter.pageBorderWidth,
+                        pageBorderSlicePercent: updated.pageBorderSlicePercent ?? chapter.pageBorderSlicePercent,
+                        backgroundImageUrl: updated.backgroundImageUrl !== undefined ? updated.backgroundImageUrl : chapter.backgroundImageUrl,
+                        hideTitle: typeof updated.hideTitle === 'boolean' ? updated.hideTitle : chapter.hideTitle,
                         fontFamily: updated.fontFamily ?? chapter.fontFamily,
                         version: updated.version ?? chapter.version,
                       };
@@ -556,6 +560,10 @@ function App() {
                               contentHtml: updated.contentHtml ?? child.contentHtml,
                               pageBorder: typeof updated.pageBorder === 'boolean' ? updated.pageBorder : child.pageBorder,
                               pageBorderImageUrl: updated.pageBorderImageUrl ?? child.pageBorderImageUrl,
+                              pageBorderWidth: updated.pageBorderWidth !== undefined ? updated.pageBorderWidth : child.pageBorderWidth,
+                              pageBorderSlicePercent: updated.pageBorderSlicePercent !== undefined ? updated.pageBorderSlicePercent : child.pageBorderSlicePercent,
+                              backgroundImageUrl: updated.backgroundImageUrl !== undefined ? updated.backgroundImageUrl : child.backgroundImageUrl,
+                              hideTitle: typeof updated.hideTitle === 'boolean' ? updated.hideTitle : child.hideTitle,
                               version: updated.version ?? child.version,
                             };
                           }),

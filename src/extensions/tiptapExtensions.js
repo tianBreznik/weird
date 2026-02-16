@@ -424,7 +424,9 @@ export const FontSize = Mark.create({
           const styleAttr = node.getAttribute('style') || '';
           const match = styleAttr.match(/font-size\s*:\s*([^;]+)/i);
           if (match) {
-            return { fontSize: match[1].trim() };
+            // Normalize: strip " !important" so we store e.g. "12px" and always add !important when rendering
+            let value = match[1].trim().replace(/\s*!important\s*$/i, '').trim();
+            if (value) return { fontSize: value };
           }
           return false;
         },

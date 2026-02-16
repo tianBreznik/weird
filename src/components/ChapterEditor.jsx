@@ -664,7 +664,6 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
 
       const loadKey = `${chapter?.id ?? 'c'}-${parentChapter?.id ?? 'p'}`;
       const chapterJustSwitched = lastLoadedChapterIdRef.current !== loadKey;
-      lastLoadedChapterIdRef.current = loadKey;
 
       // Only set content when switching chapters - never overwrite user's unsaved edits
       // (including fontSize marks) when the same chapter re-renders
@@ -735,7 +734,13 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
               mark.setAttribute('style', `background-color: ${bgColor}`);
               
               const innerSpan = document.createElement('span');
-              innerSpan.setAttribute('style', `color: ${textColor}`);
+              // Preserve font-size and line-height so small/large font isn't lost when splitting highlight+color
+              let innerStyle = `color: ${textColor}`;
+              const fontSizePart = style.match(/font-size\s*:\s*[^;]+/i);
+              const lineHeightPart = style.match(/line-height\s*:\s*[^;]+/i);
+              if (fontSizePart) innerStyle += `; ${fontSizePart[0].trim()}`;
+              if (lineHeightPart) innerStyle += `; ${lineHeightPart[0].trim()}`;
+              innerSpan.setAttribute('style', innerStyle);
               
               // Move all children to inner span
               while (span.firstChild) {
@@ -750,69 +755,71 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
           processedContent = tempDiv2.innerHTML;
         }
         
-        editor.commands.setContent(processedContent);
-        setContent(processedContent);
-        
-        // If we created a default heading for a new chapter, place the cursor inside it
-        if (createdDefaultHeading) {
-          const { state } = editor;
-          let headingPos = null;
-          state.doc.descendants((node, pos) => {
-            if (node.type.name === 'heading' && node.attrs.level === headingLevel && headingPos === null) {
-              headingPos = pos;
-              return false;
-            }
-            return true;
-          });
-          
-          if (headingPos !== null) {
-            try {
-              editor
-                .chain()
-                .focus()
-                .setTextSelection({ from: headingPos + 1, to: headingPos + 1 })
-                .run();
-              setActiveFormats(prev => ({ ...prev, isHeading: true }));
-            } catch (e) {
-            }
-          }
-        }
-        
-        // Ensure editor scroll container works after content is loaded
-        // This is especially important when karaoke blocks are present
-        setTimeout(() => {
-          if (editor && editor.view?.dom) {
-            const editorEl = editor.view.dom;
-            // Ensure the editor element maintains scroll capability
-            if (editorEl.parentElement) {
-              const scrollContainer = editorEl.parentElement;
-              // Force scroll container to maintain overflow
-              if (scrollContainer.style.overflow === 'hidden') {
-                scrollContainer.style.overflow = 'auto';
+        // Defer so TipTap's view is mounted and ready (avoids intermittent blank editor)
+        const runLoad = () => {
+          if (!editor) return;
+          editor.commands.setContent(processedContent);
+          setContent(processedContent);
+          lastLoadedChapterIdRef.current = loadKey;
+
+          // If we created a default heading for a new chapter, place the cursor inside it
+          if (createdDefaultHeading) {
+            const { state } = editor;
+            let headingPos = null;
+            state.doc.descendants((node, pos) => {
+              if (node.type.name === 'heading' && node.attrs.level === headingLevel && headingPos === null) {
+                headingPos = pos;
+                return false;
+              }
+              return true;
+            });
+            if (headingPos !== null) {
+              try {
+                editor
+                  .chain()
+                  .focus()
+                  .setTextSelection({ from: headingPos + 1, to: headingPos + 1 })
+                  .run();
+                setActiveFormats(prev => ({ ...prev, isHeading: true }));
+              } catch (e) {
               }
             }
-            // Reset scroll position to top to ensure toolbar is visible
-            editorEl.scrollTop = 0;
           }
-        }, 100);
 
-      // Reset flag after editor has updated
-      setTimeout(() => {
-        isSettingContentRef.current = false;
-
-        // After content is set, detect color and sync toolbar
-        requestAnimationFrame(() => {
-          if (editor) {
-            const attrs = editor.getAttributes('textColor');
-            const detectedColor = attrs?.color || '#000000';
-            setTextColor(detectedColor);
-            if (colorInputRef.current) {
-              colorInputRef.current.value = detectedColor;
+          // Ensure editor scroll container works after content is loaded
+          setTimeout(() => {
+            if (editor && editor.view?.dom) {
+              const editorEl = editor.view.dom;
+              if (editorEl.parentElement) {
+                const scrollContainer = editorEl.parentElement;
+                if (scrollContainer.style.overflow === 'hidden') {
+                  scrollContainer.style.overflow = 'auto';
+                }
+              }
+              editorEl.scrollTop = 0;
             }
-            refreshToolbarState();
-          }
-        });
-      }, 100);
+          }, 100);
+
+          setTimeout(() => {
+            isSettingContentRef.current = false;
+            requestAnimationFrame(() => {
+              if (editor) {
+                const attrs = editor.getAttributes('textColor');
+                const detectedColor = attrs?.color || '#000000';
+                setTextColor(detectedColor);
+                if (colorInputRef.current) {
+                  colorInputRef.current.value = detectedColor;
+                }
+                refreshToolbarState();
+              }
+            });
+          }, 100);
+        };
+        if (typeof requestAnimationFrame !== 'undefined') {
+          requestAnimationFrame(() => runLoad());
+        } else {
+          runLoad();
+        }
     } else if (parentChapter && editor) {
       // New subchapter: start with an empty heading (h4) and place cursor inside
       const currentContent = editor.getHTML();
