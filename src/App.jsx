@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Chapter, applyInkEffectToTextMobile } from './components/Chapter';
 import { ChapterEditor } from './components/ChapterEditor';
 import { EditorSetup } from './pages/EditorSetup';
@@ -147,6 +147,8 @@ function App() {
     setBackgroundsReady(false);
     return await load();
   };
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
 
   const findParentIdForSubchapter = (subId) => {
     const parent = chapters.find((chapter) =>
@@ -298,9 +300,68 @@ function App() {
   }, [isMobile, isEditor, previewingAsReader]);
 
   // Handle page change in PageReader
-  const handlePageChange = (newPosition) => {
+  const handlePageChange = useCallback((newPosition) => {
     savePosition(newPosition);
-  };
+  }, [savePosition]);
+
+  // Stable callbacks for PageReader to avoid re-renders when toggling editor mode or other unrelated state
+  const onAddStickyNoteForPage = useCallback(async (chapterId, pageIndex, imageUrl) => {
+    const chapter = chapters.find((c) => c.id === chapterId);
+    if (!chapter) return;
+    const newNotes = [...(chapter.stickyNotes || []), { pageIndex, imageUrl }];
+    try {
+      const updated = await updateChapter(BOOK_ID, chapterId, { stickyNotes: newNotes }, chapter.version ?? 0);
+      setChapters((prev) =>
+        prev.map((c) =>
+          c.id !== chapterId ? c : { ...c, stickyNotes: newNotes, version: updated?.version ?? c.version }
+        )
+      );
+    } catch (err) {
+      alert(err?.message || 'Sticky note could not be saved.');
+    }
+  }, [chapters]);
+
+  const onDeleteChapter = useCallback(async (chapterId) => {
+    setChapters((prev) => prev.filter((ch) => ch.id !== chapterId));
+    try {
+      await deleteChapter(BOOK_ID, chapterId);
+    } catch (err) {
+      await refreshRef.current?.();
+    }
+  }, []);
+
+  const onDeleteSubchapter = useCallback(async (subchapterId, parentChapterId) => {
+    setChapters((prev) =>
+      prev.map((ch) =>
+        ch.id !== parentChapterId
+          ? ch
+          : { ...ch, children: (ch.children || []).filter((sub) => sub.id !== subchapterId) }
+      )
+    );
+    try {
+      await deleteSubchapter(BOOK_ID, parentChapterId, subchapterId);
+    } catch (err) {
+      await refreshRef.current?.();
+    }
+  }, []);
+
+  const onReorderChapters = useCallback(async (orderedIds) => {
+    setChapters((prev) => {
+      const specialPages = prev.filter((c) => c.isFirstPage || c.isCover);
+      const reorderedRegular = orderedIds.map((id) => prev.find((c) => c.id === id)).filter(Boolean);
+      return [...specialPages, ...reorderedRegular];
+    });
+    try {
+      await reorderChapters(BOOK_ID, orderedIds);
+    } catch (err) {
+      await refreshRef.current?.();
+    }
+  }, []);
+
+  const onAddSubchapter = useCallback((chapter) => setParentChapterForNewSub(chapter), []);
+  const onOpenSettings = useCallback(() => setShowSetup(true), []);
+  const onAddChapter = useCallback(() => setShowNewChapterEditor(true), []);
+  const onPagesReady = useCallback(() => setPagesReady(true), []);
 
   return (
     <div className={`app eink ${editingChapter || showNewChapterEditor || parentChapterForNewSub ? 'with-editor' : ''} ${isMobile && !isEditor && previewingAsReader ? 'with-page-reader' : ''}`}>
@@ -318,80 +379,19 @@ function App() {
         <PageReader
           chapters={chapters}
           isEditor={isEditor}
-          onAddStickyNoteForPage={async (chapterId, pageIndex, imageUrl) => {
-            const chapter = chapters.find((c) => c.id === chapterId);
-            if (!chapter) return;
-            const newNotes = [...(chapter.stickyNotes || []), { pageIndex, imageUrl }];
-            try {
-              const updated = await updateChapter(BOOK_ID, chapterId, { stickyNotes: newNotes }, chapter.version ?? 0);
-              setChapters((prev) =>
-                prev.map((c) =>
-                  c.id !== chapterId ? c : { ...c, stickyNotes: newNotes, version: updated?.version ?? c.version }
-                )
-              );
-            } catch (err) {
-              alert(err?.message || 'Sticky note could not be saved.');
-            }
-          }}
+          onAddStickyNoteForPage={onAddStickyNoteForPage}
           onPageChange={handlePageChange}
           initialPosition={readingPosition}
           onEditChapter={openEditorWithLatest}
-          onAddSubchapter={(chapter) => setParentChapterForNewSub(chapter)}
-          onDeleteChapter={async (chapterId) => {
-            // Update local state immediately for real-time UI
-            setChapters(prev => prev.filter(chapter => chapter.id !== chapterId));
-            // Persist to Firestore
-            try {
-              await deleteChapter(BOOK_ID, chapterId);
-            } catch (err) {
-              // On error, refresh to get correct state
-              await refresh();
-            }
-          }}
+          onAddSubchapter={onAddSubchapter}
+          onDeleteChapter={onDeleteChapter}
           onEditSubchapter={openEditorWithLatest}
-          onDeleteSubchapter={async (subchapterId, parentChapterId) => {
-            // Update local state immediately for real-time UI
-            setChapters(prev => prev.map(chapter => {
-              if (chapter.id === parentChapterId) {
-                return {
-                  ...chapter,
-                  children: (chapter.children || []).filter(sub => sub.id !== subchapterId)
-                };
-              }
-              return chapter;
-            }));
-            // Persist to Firestore
-            try {
-              await deleteSubchapter(BOOK_ID, parentChapterId, subchapterId);
-            } catch (err) {
-              // On error, refresh to get correct state
-              await refresh();
-            }
-          }}
-          onReorderChapters={async (orderedIds) => {
-            try {
-              // Update local state immediately for real-time UI update
-              setChapters(prev => {
-                // Keep special pages (front/cover) separate
-                const specialPages = prev.filter(c => c.isFirstPage || c.isCover);
-                // Reorder only the regular chapters based on orderedIds
-                const reorderedRegular = orderedIds
-                  .map(id => prev.find(c => c.id === id))
-                  .filter(Boolean);
-                // Combine: special pages first, then reordered regular chapters
-                return [...specialPages, ...reorderedRegular];
-              });
-              // Persist to Firestore
-              await reorderChapters(BOOK_ID, orderedIds);
-            } catch (err) {
-              // On error, refresh to get correct order from server
-              await refresh();
-            }
-          }}
-          onOpenSettings={() => setShowSetup(true)}
-          onAddChapter={() => setShowNewChapterEditor(true)}
+          onDeleteSubchapter={onDeleteSubchapter}
+          onReorderChapters={onReorderChapters}
+          onOpenSettings={onOpenSettings}
+          onAddChapter={onAddChapter}
           onToggleEditorReader={togglePreviewMode}
-          onPagesReady={() => setPagesReady(true)}
+          onPagesReady={onPagesReady}
         />
       )}
       {/* Show loader while app is preparing pages; the loader itself will handle

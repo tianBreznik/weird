@@ -490,6 +490,10 @@ export const PageReader = ({
   const [uploadingSticky, setUploadingSticky] = useState(false);
   const stickyFileInputRef = useRef(null);
   const pendingStickyRef = useRef({ chapterId: null, pageIndex: null });
+  const handleAddStickyClick = useCallback((chapterId, pageIndex) => {
+    pendingStickyRef.current = { chapterId, pageIndex };
+    stickyFileInputRef.current?.click();
+  }, []);
   
   // Track chapter order to detect reordering
   const prevChapterOrderRef = useRef(null);
@@ -3423,10 +3427,7 @@ export const PageReader = ({
           karaokeSources={karaokeSources}
           chapters={chapters}
           isEditor={isEditor}
-          onAddStickyClick={(chapterId, pageIndex) => {
-            pendingStickyRef.current = { chapterId, pageIndex };
-            stickyFileInputRef.current?.click();
-          }}
+          onAddStickyClick={handleAddStickyClick}
           uploadingSticky={uploadingSticky}
           currentChapterIndex={currentChapterIndex}
           currentPageIndex={currentPageIndex}

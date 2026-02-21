@@ -863,7 +863,7 @@ export const DesktopPageReader = ({
         )}
       </article>
     );
-  }, [chapters, pages, currentChapterIndex, currentPageIndex, currentSubchapterId, onJumpToPage, onEditChapter, onAddSubchapter, onDeleteChapter, onEditSubchapter, onDeleteSubchapter, onReorderChapters, createPageContentRef, paperTexture]);
+  }, [chapters, pages, currentChapterIndex, currentPageIndex, currentSubchapterId, onJumpToPage, onEditChapter, onAddSubchapter, onDeleteChapter, onEditSubchapter, onDeleteSubchapter, onReorderChapters, createPageContentRef, paperTexture, isEditor, onAddStickyClick, uploadingSticky]);
 
   // Clean up refs when pages change to prevent memory leaks and handle content updates
   useEffect(() => {
