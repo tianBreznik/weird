@@ -80,6 +80,11 @@
   overflow: hidden !important; /* Prevent content from overflowing fixed height - this keeps images in rendering context */
 }
 
+/* Allow sticky notes to hang off the page edge (one side flush, rest visible outside) */
+.pdf-viewer .page-sheet:has(.page-sticky-note) {
+  overflow: visible !important;
+}
+
 /* Border image styling - now driven by per-chapter settings */
 /* DESKTOP ONLY - isolated to desktop PDF viewer */
 @media (min-width: 769px) {
@@ -121,6 +126,41 @@
 }
 
 /* Field notes pages: restore overflow hidden to prevent background image overflow */
+/* Per-page sticky note overlay (clear-background scan on edge) */
+.pdf-viewer .page-sticky-note {
+  pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.15));
+}
+
+/* Editor mode: add sticky button on page (desktop PDF reader only, left side) */
+.pdf-viewer .page-add-sticky-wrap {
+  position: absolute;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  z-index: 3;
+}
+.pdf-viewer .page-add-sticky-btn {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+  background: rgba(255,255,255,0.9);
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pdf-viewer .page-add-sticky-btn:hover:not(:disabled) {
+  background: #fff;
+  border-color: rgba(0,0,0,0.35);
+}
+.pdf-viewer .page-add-sticky-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
 .pdf-viewer .page-sheet.field-notes-page .page-body {
   overflow: hidden !important;
   padding: 0 !important; /* Field notes don't need padding */

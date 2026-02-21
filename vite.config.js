@@ -14,5 +14,10 @@ export default defineConfig({
   },
   esbuild: {
     target: 'es2015' // Transpile to ES2015 for dev server compatibility
-  }
+  },
+  test: {
+    environment: 'happy-dom',
+    include: ['src/**/*.test.js', 'src/**/*.spec.js'],
+    globals: false,
+  },
 })

@@ -37,4 +37,3 @@
 
 /* The JS-driven pixel melt is handled in DitheredLoader.jsx by modifying the
    canvas alpha channel directly; CSS here only handles the final hidden state. */
-

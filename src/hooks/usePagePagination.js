@@ -381,16 +381,6 @@ export const usePagePagination = ({
             });
             const freePercent = contentAvailableHeight > 0 ? remainingContentHeight / contentAvailableHeight : 0;
             skipPushForFlow = freePercent >= 0.45;
-            if (isDesktop) {
-              console.log('[subchapter] skipPushForFlow:', {
-                freePercent: (freePercent * 100).toFixed(1) + '%',
-                remainingContentHeight,
-                contentAvailableHeight,
-                currentPageContentHeight,
-                skipPushForFlow,
-                threshold: '45%'
-              });
-            }
           }
           if (!skipPushForFlow) {
             pushPage(block);

@@ -7,6 +7,7 @@ import { PDFTopBar } from './PDFTopBar';
 import { ReaderTopBar } from './ReaderTopBar';
 import { DesktopTOC } from './DesktopTOC';
 import { useKaraokePlayer } from '../hooks/useKaraokePlayer';
+import { getStickyNoteStyle } from '../utils/stickyNotePosition';
 import paperTexture from '../assets/paper-7-origami-TEX.png';
 import borderFrame from '../assets/smallerborder.png';
 
@@ -18,6 +19,9 @@ export const DesktopPageReader = ({
   pages, 
   karaokeSources = {},
   chapters = [],
+  isEditor,
+  onAddStickyClick,
+  uploadingSticky,
   currentChapterIndex,
   currentPageIndex,
   currentSubchapterId,
@@ -812,6 +816,37 @@ export const DesktopPageReader = ({
               ref={createPageContentRef(`${contentKey}-regular`, page?.content || '')}
               style={page?.fontFamily ? { fontFamily: page.fontFamily, '--page-font': page.fontFamily } : undefined}
             />
+          )}
+          {/* Per-page sticky notes (chapter-level, clear-background scan on edge) */}
+          {page?.chapterId && !page?.isCover && !page?.isFirstPage && !page?.isTOC && !page?.isEpigraph && !page?.isVideo && (() => {
+            const chapter = chapters.find(c => c.id === page.chapterId);
+            const notes = Array.isArray(chapter?.stickyNotes) ? chapter.stickyNotes.filter(n => n.pageIndex === page.pageIndex && n.imageUrl) : [];
+            return notes.map((note, idx) => (
+              <img
+                key={`sticky-${page.chapterId}-${page.pageIndex}-${idx}`}
+                src={note.imageUrl}
+                alt=""
+                className="page-sticky-note"
+                style={getStickyNoteStyle(`${page.chapterId}-${page.pageIndex}-${idx}`)}
+              />
+            ));
+          })()}
+          {/* Editor mode: add sticky to this page */}
+          {isEditor && onAddStickyClick && page?.chapterId && !page?.isCover && !page?.isFirstPage && !page?.isTOC && !page?.isEpigraph && !page?.isVideo && (
+            <div className="page-add-sticky-wrap">
+              <button
+                type="button"
+                className="page-add-sticky-btn"
+                disabled={uploadingSticky}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddStickyClick(page.chapterId, page.pageIndex);
+                }}
+                title="Add sticky note to this page"
+              >
+                {uploadingSticky ? '…' : '📌'}
+              </button>
+            </div>
           )}
         </section>
         {!page?.isFirstPage && !page?.isCover && !page?.isTOC && (

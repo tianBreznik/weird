@@ -317,6 +317,22 @@ function App() {
       {!loading && chapters.length > 0 && (!isMobile || backgroundsReady) && (
         <PageReader
           chapters={chapters}
+          isEditor={isEditor}
+          onAddStickyNoteForPage={async (chapterId, pageIndex, imageUrl) => {
+            const chapter = chapters.find((c) => c.id === chapterId);
+            if (!chapter) return;
+            const newNotes = [...(chapter.stickyNotes || []), { pageIndex, imageUrl }];
+            try {
+              const updated = await updateChapter(BOOK_ID, chapterId, { stickyNotes: newNotes }, chapter.version ?? 0);
+              setChapters((prev) =>
+                prev.map((c) =>
+                  c.id !== chapterId ? c : { ...c, stickyNotes: newNotes, version: updated?.version ?? c.version }
+                )
+              );
+            } catch (err) {
+              alert(err?.message || 'Sticky note could not be saved.');
+            }
+          }}
           onPageChange={handlePageChange}
           initialPosition={readingPosition}
           onEditChapter={openEditorWithLatest}
@@ -534,6 +550,7 @@ function App() {
                         backgroundImageUrl: updated.backgroundImageUrl !== undefined ? updated.backgroundImageUrl : chapter.backgroundImageUrl,
                         hideTitle: typeof updated.hideTitle === 'boolean' ? updated.hideTitle : chapter.hideTitle,
                         fontFamily: updated.fontFamily ?? chapter.fontFamily,
+                        stickyNotes: updated.stickyNotes !== undefined ? (Array.isArray(updated.stickyNotes) ? updated.stickyNotes : []) : (chapter.stickyNotes ?? []),
                         version: updated.version ?? chapter.version,
                       };
                     })

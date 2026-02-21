@@ -5,6 +5,8 @@ import {
   renderFootnotesSection,
   generateAcknowledgementsContent 
 } from '../utils/footnotes';
+import { getStickyNoteStyle } from '../utils/stickyNotePosition';
+import { uploadImageToStorage } from '../services/storage';
 import { hyphenateSync } from 'hyphen/en';
 
 // Apply hyphenation to HTML content - the hyphen library automatically skips HTML tags
@@ -439,6 +441,8 @@ const assignLetterTimingsToChars = (text, wordTimings = []) => {
  */
 export const PageReader = ({ 
   chapters, 
+  isEditor,
+  onAddStickyNoteForPage,
   onPageChange, 
   initialPosition,
   onEditChapter,
@@ -483,6 +487,9 @@ export const PageReader = ({
   const backgroundVideoRef = useRef(null);
   const blankPageVideoRef = useRef(null);
   const [videoUnmuted, setVideoUnmuted] = useState(false);
+  const [uploadingSticky, setUploadingSticky] = useState(false);
+  const stickyFileInputRef = useRef(null);
+  const pendingStickyRef = useRef({ chapterId: null, pageIndex: null });
   
   // Track chapter order to detect reordering
   const prevChapterOrderRef = useRef(null);
@@ -3388,21 +3395,51 @@ export const PageReader = ({
       (p) => p.chapterIndex === currentChapterIndex && p.pageIndex === currentPageIndex
     );
     return (
-      <DesktopPageReader 
-        pages={pages} 
-        karaokeSources={karaokeSources}
-        chapters={chapters}
-        currentChapterIndex={currentChapterIndex}
-        currentPageIndex={currentPageIndex}
-        currentSubchapterId={currentPage?.subchapterId || null}
-        onJumpToPage={jumpToPage}
-        onEditChapter={onEditChapter}
-        onAddSubchapter={onAddSubchapter}
-        onDeleteChapter={onDeleteChapter}
-        onEditSubchapter={onEditSubchapter}
-        onDeleteSubchapter={onDeleteSubchapter}
-        onReorderChapters={onReorderChapters}
-      />
+      <>
+        <input
+          ref={stickyFileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file || pendingStickyRef.current?.chapterId == null) return;
+            const { chapterId, pageIndex } = pendingStickyRef.current;
+            setUploadingSticky(true);
+            try {
+              const url = await uploadImageToStorage(file, { compress: true });
+              await onAddStickyNoteForPage(chapterId, pageIndex, url);
+            } catch (err) {
+              alert(err?.message || 'Upload failed.');
+            } finally {
+              setUploadingSticky(false);
+              pendingStickyRef.current = { chapterId: null, pageIndex: null };
+              if (stickyFileInputRef.current) stickyFileInputRef.current.value = '';
+            }
+          }}
+        />
+        <DesktopPageReader 
+          pages={pages} 
+          karaokeSources={karaokeSources}
+          chapters={chapters}
+          isEditor={isEditor}
+          onAddStickyClick={(chapterId, pageIndex) => {
+            pendingStickyRef.current = { chapterId, pageIndex };
+            stickyFileInputRef.current?.click();
+          }}
+          uploadingSticky={uploadingSticky}
+          currentChapterIndex={currentChapterIndex}
+          currentPageIndex={currentPageIndex}
+          currentSubchapterId={currentPage?.subchapterId || null}
+          onJumpToPage={jumpToPage}
+          onEditChapter={onEditChapter}
+          onAddSubchapter={onAddSubchapter}
+          onDeleteChapter={onDeleteChapter}
+          onEditSubchapter={onEditSubchapter}
+          onDeleteSubchapter={onDeleteSubchapter}
+          onReorderChapters={onReorderChapters}
+        />
+      </>
     );
   }
 
@@ -3650,6 +3687,20 @@ export const PageReader = ({
                 }}
               />
             )}
+            {/* Per-page sticky notes (chapter-level, clear-background scan on edge) */}
+            {pageToDisplay?.chapterId && !pageToDisplay.isCover && !pageToDisplay.isFirstPage && !pageToDisplay.isEpigraph && !pageToDisplay.isVideo && (() => {
+              const chapter = chapters.find(c => c.id === pageToDisplay.chapterId);
+              const notes = Array.isArray(chapter?.stickyNotes) ? chapter.stickyNotes.filter(n => n.pageIndex === pageToDisplay.pageIndex && n.imageUrl) : [];
+              return notes.map((note, idx) => (
+                <img
+                  key={`sticky-${pageToDisplay.chapterId}-${pageToDisplay.pageIndex}-${idx}`}
+                  src={note.imageUrl}
+                  alt=""
+                  className="page-sticky-note"
+                  style={getStickyNoteStyle(`${pageToDisplay.chapterId}-${pageToDisplay.pageIndex}-${idx}`)}
+                />
+              ));
+            })()}
           </section>
         </article>
       </div>

@@ -464,17 +464,6 @@ export const paginateElement = ({
     tempElOnly.appendChild(elOnlyWrapper);
     const elementOnlyHeight = tempElOnly.offsetHeight;
     measureParent.removeChild(tempElOnly);
-    console.log('[subchapter] element check:', {
-      tag,
-      elementFits,
-      elementOnlyHeight,
-      totalContentHeight,
-      contentAvailableHeight: baseAvailableHeight,
-      remainingContentHeight,
-      currentPageContentHeight,
-      currentPageElementsCount: currentPageElements.length,
-      textPreview
-    });
   }
   
   // STEP 4: Handle element based on whether it fits and if it can be split
@@ -616,13 +605,6 @@ export const paginateElement = ({
       }
     } else {
       // Element doesn't fit - try to split it first
-      if (block.type === 'subchapter' && isDesktop) {
-        console.log('[subchapter] element does NOT fit:', {
-          remainingContentHeight,
-          tag: element.tagName?.toLowerCase(),
-          textPreview: (element.textContent || '').substring(0, 60) + '...'
-        });
-      }
       if (remainingContentHeight > 0) {
         // Use remainingContentHeight to split - this accounts for existing page content
         // Try sentence-level splitting first, then word boundary
@@ -640,14 +622,6 @@ export const paginateElement = ({
         }
         
         const { first, second } = splitResult;
-        if (block.type === 'subchapter' && isDesktop) {
-          console.log('[subchapter] split result:', {
-            hasFirst: !!first,
-            hasSecond: !!second,
-            remainingContentHeight,
-            firstChars: first ? first.length : 0
-          });
-        }
         
         // If split succeeded, process it
         if (first) {
@@ -681,14 +655,6 @@ export const paginateElement = ({
           measureParentFirst.removeChild(tempFirstPartOnly);
           
           const firstPartFits = firstPartHeight <= remainingContentHeight;
-          if (block.type === 'subchapter' && isDesktop) {
-            console.log('[subchapter] first part verification:', {
-              firstPartHeight,
-              remainingContentHeight,
-              firstPartFits,
-              diff: firstPartHeight - remainingContentHeight
-            });
-          }
           
           if (firstPartFits) {
             // First part fits - add it to current page
@@ -746,9 +712,6 @@ export const paginateElement = ({
             }
           } else {
             // First part doesn't actually fit - start new page with entire element
-            if (block.type === 'subchapter' && isDesktop) {
-              console.log('[subchapter] first part did NOT fit → pushing whole element to next page');
-            }
             if (currentPageElements.length > 0) {
               pushPage(block);
             }
@@ -758,12 +721,6 @@ export const paginateElement = ({
           }
         } else {
           // No split possible (first is empty) - start new page with entire element
-          if (block.type === 'subchapter' && isDesktop) {
-            console.log('[subchapter] no split possible (first empty) → pushing whole element to next page', {
-              remainingContentHeight,
-              tag: element.tagName?.toLowerCase()
-            });
-          }
           if (currentPageElements.length > 0) {
             pushPage(block);
           }
@@ -773,9 +730,6 @@ export const paginateElement = ({
         }
       } else {
         // Can't fit even part of element (no remaining space) - start new page with entire element
-        if (block.type === 'subchapter' && isDesktop) {
-          console.log('[subchapter] remainingContentHeight <= 0 → pushing whole element to next page');
-        }
         if (currentPageElements.length > 0) {
           pushPage(block);
         }
