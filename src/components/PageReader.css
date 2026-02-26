@@ -279,13 +279,13 @@
   display: none;
 }
 
-/* Per-page sticky note overlay (clear-background scan on edge) */
+/* Sticky note image overlay */
 .page-sticky-note {
   pointer-events: none;
   filter: drop-shadow(0 1px 3px rgba(0,0,0,0.15));
 }
 
-/* Allow sticky to hang off the page edge (one side flush, rest visible) */
+/* Allow sticky to extend past the page edge */
 .content-page .page-body:has(.page-sticky-note) {
   overflow: visible;
 }

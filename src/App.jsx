@@ -304,7 +304,7 @@ function App() {
     savePosition(newPosition);
   }, [savePosition]);
 
-  // Stable callbacks for PageReader to avoid re-renders when toggling editor mode or other unrelated state
+  // Memoized callbacks for PageReader
   const onAddStickyNoteForPage = useCallback(async (chapterId, pageIndex, imageUrl) => {
     const chapter = chapters.find((c) => c.id === chapterId);
     if (!chapter) return;

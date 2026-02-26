@@ -77,10 +77,10 @@
   flex-direction: column !important;
   page-break-after: always;
   border-radius: 2px;
-  overflow: hidden !important; /* Prevent content from overflowing fixed height - this keeps images in rendering context */
+  overflow: hidden !important; /* Keep content within fixed-height page */
 }
 
-/* Allow sticky notes to hang off the page edge (one side flush, rest visible outside) */
+/* Let sticky notes extend past the page edge */
 .pdf-viewer .page-sheet:has(.page-sticky-note) {
   overflow: visible !important;
 }
