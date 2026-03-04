@@ -1,26 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { getBookmark, setBookmark } from '../utils/bookmark';
 
 /**
  * Hook to manage reading position for page-based reading
  * Saves and restores: { chapterId, pageIndex, subchapterId? }
  */
+function readSavedPosition() {
+  const saved = getBookmark();
+  if (!saved) return null;
+  return {
+    chapterId: saved.chapterId,
+    pageIndex: saved.pageIndex || 0,
+    subchapterId: saved.subchapterId || null,
+  };
+}
+
 export const useReadingPosition = () => {
-  const [position, setPosition] = useState(null);
+  // Read synchronously so the initial value is available on the very first render.
+  const [position, setPosition] = useState(readSavedPosition);
 
-  // Load saved position on mount
-  useEffect(() => {
-    const saved = getBookmark();
-    if (saved) {
-      setPosition({
-        chapterId: saved.chapterId,
-        pageIndex: saved.pageIndex || 0,
-        subchapterId: saved.subchapterId || null,
-      });
-    }
-  }, []);
-
-  // Save position
   const savePosition = (newPosition) => {
     const positionData = {
       chapterId: newPosition.chapterId,

@@ -11,6 +11,7 @@ export const MobileTOC = ({
   currentChapterIndex,
   currentPageIndex,
   currentSubchapterId,
+  // subchapterPageMap is currently unused; kept for future metadata-based jumps
   isOpen,
   dragProgress = 0,
   onClose,
@@ -28,7 +29,22 @@ export const MobileTOC = ({
   const { isEditor, canToggleEditorMode, previewingAsReader } = useEditorMode();
   const [expandedChapters, setExpandedChapters] = useState(new Set());
   const [isClosing, setIsClosing] = useState(false);
-  
+
+  // Temporary: log a sample page shape so we can align subchapter navigation on mobile
+  useEffect(() => {
+    if (!pages || pages.length === 0) return;
+    // Log one regular page and, if available, one subchapter page so we can see the shape.
+    const firstPage = pages[0];
+    const firstSubPage = pages.find((p) => p.subchapterId != null) || null;
+    // eslint-disable-next-line no-console
+    console.log('[mobile-toc] sample page[0]', firstPage);
+    if (firstSubPage) {
+      // eslint-disable-next-line no-console
+      console.log('[mobile-toc] sample subchapter page', firstSubPage);
+    }
+  }, [pages]);
+  const closeTimerRef = useRef(null);
+
   // Configure drag sensors for touch devices
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -46,38 +62,48 @@ export const MobileTOC = ({
   const tripleTapRef = useRef({ taps: 0, lastTapTime: 0, timeout: null });
 
   const handleClose = () => {
-    // Clear any pending single-tap timeout
     if (singleTapTimeoutRef.current) {
       clearTimeout(singleTapTimeoutRef.current);
       singleTapTimeoutRef.current = null;
     }
+    if (closeTimerRef.current) return; // already closing
     setIsClosing(true);
-    setTimeout(() => {
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
       setIsClosing(false);
       onClose();
-    }, 300); // Match CSS transition duration (2s + 0.6s delay)
+    }, 420);
   };
 
   // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
-      if (singleTapTimeoutRef.current) {
-        clearTimeout(singleTapTimeoutRef.current);
-      }
-      if (tripleTapRef.current.timeout) {
-        clearTimeout(tripleTapRef.current.timeout);
-      }
+      if (singleTapTimeoutRef.current) clearTimeout(singleTapTimeoutRef.current);
+      if (tripleTapRef.current.timeout) clearTimeout(tripleTapRef.current.timeout);
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     };
   }, []);
 
   // Find page number for a chapter or subchapter (global page number in the pages array)
-  const findPageNumber = (chapterId, subchapterId = null) => {
+  const findPageNumber = (chapterId, subchapterId = null, subchapterTitle = null) => {
     let targetPage = null;
-    if (subchapterId) {
-      // For subchapters, find the first page of that subchapter (lowest pageIndex)
-      const subchapterPages = pages.filter(
-        (p) => p.chapterId === chapterId && p.subchapterId === subchapterId
-      );
+    if (subchapterId || subchapterTitle) {
+      // For subchapters, try several strategies in order:
+      // 1) Match by subchapterId
+      // 2) Match by subchapterTitle (heading page)
+      // 3) Fallback to chapterId + subchapterId (desktop-style)
+      let subchapterPages = [];
+      if (subchapterId) {
+        subchapterPages = pages.filter((p) => p.subchapterId === subchapterId);
+      }
+      if (subchapterPages.length === 0 && subchapterTitle) {
+        subchapterPages = pages.filter((p) => p.subchapterTitle === subchapterTitle);
+      }
+      if (subchapterPages.length === 0 && subchapterId) {
+        subchapterPages = pages.filter(
+          (p) => p.chapterId === chapterId && p.subchapterId === subchapterId
+        );
+      }
       if (subchapterPages.length === 0) return null;
       // Sort by pageIndex and get the first one
       targetPage = subchapterPages.sort((a, b) => a.pageIndex - b.pageIndex)[0];
@@ -181,16 +207,33 @@ export const MobileTOC = ({
     }
   };
 
-  // Handle subchapter click
+  // Handle subchapter click: mirror DesktopTOC behavior (chapterId + subchapterId),
+  // and fall back to the same page-number logic used for the displayed page number.
   const handleSubchapterClick = (subchapter, chapterId) => {
-    const subchapterPages = pages.filter(
-      (p) => p.chapterId === chapterId && p.subchapterId === subchapter.id
-    );
-    if (subchapterPages.length > 0) {
-      const firstPage = subchapterPages[0];
-      onJumpToPage(firstPage.chapterIndex, firstPage.pageIndex);
-      handleClose();
+    if (!pages || pages.length === 0) return;
+
+    // First try: direct match on chapterId + subchapterId, sorted by pageIndex.
+    let targetPage = pages
+      .filter(
+        (p) =>
+          p.chapterId === chapterId &&
+          p.subchapterId === subchapter.id
+      )
+      .sort((a, b) => a.pageIndex - b.pageIndex)[0];
+
+    // Second try: reuse findPageNumber (same logic as the page number display).
+    if (!targetPage) {
+      const globalPageNum = findPageNumber(chapterId, subchapter.id, subchapter.title);
+      if (globalPageNum) {
+        const pageIndex = globalPageNum - 1;
+        targetPage = pages[pageIndex];
+      }
     }
+
+    if (!targetPage) return;
+
+    onJumpToPage(targetPage.chapterIndex, targetPage.pageIndex);
+    handleClose();
   };
 
   // Check if chapter/subchapter is current
@@ -378,9 +421,11 @@ export const MobileTOC = ({
   // CSS `.mobile-toc-overlay.mobile-toc-closing` rules (including blur) can
   // animate. For dragging, keep opacity at 1 so the text feels like a solid
   // curtain being pulled down, without showing the background yet.
+  // When closing, let CSS handle opacity so the transition runs cleanly.
+  // Only use inline opacity for drag-progress and open/closed states.
   const overlayOpacity = isClosing
-    ? 1
-    : (isOpen || (dragProgress > 0 && !isClosing) ? 1 : 0);
+    ? undefined
+    : (isOpen || dragProgress > 0 ? 1 : 0);
 
   return (
     <div 
@@ -699,7 +744,6 @@ export const MobileTOC = ({
                 className="mobile-toc-footer-btn"
                 onClick={() => {
                   if (onToggleEditorReader) onToggleEditorReader();
-                  handleClose();
                 }}
               >
                 {previewingAsReader ? 'Nazaj na urejevalnik' : 'Knjižni vpogled'}

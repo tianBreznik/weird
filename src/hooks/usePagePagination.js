@@ -22,7 +22,8 @@ export const usePagePagination = ({
   setKaraokeSources,
   setCurrentChapterIndex,
   setCurrentPageIndex,
-  setIsInitializing
+  setIsInitializing,
+  setSubchapterPageMap,
 }) => {
   const calculatePages = useCallback(async () => {
     if (!chapters || chapters.length === 0) {
@@ -36,6 +37,7 @@ export const usePagePagination = ({
     const viewportHeight = viewport ? viewport.height : (typeof window !== 'undefined' ? window.innerHeight : 0);
     
     const newPages = [];
+    const sharedSubchapterStarts = [];
     const newKaraokeSources = {};
 
     // Sort chapters: isFirstPage first, then isCover, then regular chapters by order
@@ -119,8 +121,7 @@ export const usePagePagination = ({
         measure.setHeading(initialHeading);
       };
 
-      // When true, the next push is the "shared" page (chapter end + subchapter start);
-      // we label it as the chapter's last page for TOC (subchapter starts on the next page).
+      // When true, the next push is the "shared" page (chapter end + subchapter start).
       let nextPushIsSharedPage = false;
 
       const pushPage = (blockMeta) => {
@@ -137,10 +138,20 @@ export const usePagePagination = ({
         });
         if (!hasRealContent) return;
 
-        // Shared page: chapter end + subchapter start on one page → label as chapter's last page
-        // so TOC shows chapter ending here and subchapter starting on the next page.
-        const metaToUse = (nextPushIsSharedPage && blockMeta.type === 'subchapter')
-          ? contentBlocks[0]
+        // Shared page: chapter end + subchapter start on one physical page.
+        // We keep chapter framing, but also mark the page as a subchapter start
+        // so TOCs can jump directly to it. That means the page will belong to
+        // both the chapter (via chapterId) and the subchapter (via subchapterId).
+        const isSharedSubchapterStart = nextPushIsSharedPage && blockMeta.type === 'subchapter';
+        const metaToUse = isSharedSubchapterStart
+          ? {
+              // Inherit chapter-level visual settings from the first block
+              ...contentBlocks[0],
+              // But treat this page as the start of the subchapter as well
+              subchapterId: blockMeta.subchapterId,
+              type: 'subchapter',
+              title: blockMeta.title,
+            }
           : blockMeta;
         if (nextPushIsSharedPage && blockMeta.type === 'subchapter') {
           nextPushIsSharedPage = false;
@@ -165,6 +176,17 @@ export const usePagePagination = ({
         
         if (newPage) {
           newPages.push(newPage);
+
+          // If this was a shared page where subchapter content begins, record it
+          // as the subchapter's first page without changing the page metadata.
+          if (isSharedSubchapterStart && blockMeta.subchapterId) {
+            sharedSubchapterStarts.push({
+              subchapterId: blockMeta.subchapterId,
+              chapterIndex: newPage.chapterIndex,
+              pageIndex: newPage.pageIndex,
+            });
+          }
+
           chapterPageIndex += 1;
           startNewPage(false);
         }
@@ -399,7 +421,59 @@ export const usePagePagination = ({
 
     // Finalize pages: calculate totalPages and verify order
     const finalizedPages = finalizePages(newPages);
-    
+
+    // Build a lookup from subchapterId -> first page { chapterIndex, pageIndex }.
+    // This is used by both desktop and mobile TOCs for precise subchapter jumps.
+    if (typeof setSubchapterPageMap === 'function') {
+      const map = {};
+
+      // 1) Shared pages where subchapter content starts on a page that was
+      //    labeled as a chapter page (recorded during pagination).
+      sharedSubchapterStarts.forEach(({ subchapterId, chapterIndex, pageIndex }) => {
+        if (!map[subchapterId]) {
+          map[subchapterId] = { chapterIndex, pageIndex };
+        }
+      });
+
+      // 2) Pages that are already tagged with a subchapterId.
+      for (const page of finalizedPages) {
+        if (page.subchapterId && map[page.subchapterId] == null) {
+          map[page.subchapterId] = {
+            chapterIndex: page.chapterIndex,
+            pageIndex: page.pageIndex,
+          };
+        }
+      }
+
+      // 3) For any subchapter still missing in the map, derive its first page
+      //    from the finalized pages. This never mutates pages, only metadata.
+      chapters.forEach((chapter) => {
+        if (!chapter.children || chapter.children.length === 0) return;
+
+        chapter.children.forEach((sub) => {
+          if (map[sub.id]) return;
+
+          // Look for any page that clearly belongs to this subchapter.
+          const candidate = finalizedPages
+            .filter(
+              (p) =>
+                p.chapterId === chapter.id &&
+                p.subchapterId === sub.id
+            )
+            .sort((a, b) => a.pageIndex - b.pageIndex)[0];
+
+          if (candidate) {
+            map[sub.id] = {
+              chapterIndex: candidate.chapterIndex,
+              pageIndex: candidate.pageIndex,
+            };
+          }
+        });
+      });
+
+      setSubchapterPageMap(map);
+    }
+
     // Set pages immediately for faster initial render
     setPages(finalizedPages);
     setKaraokeSources(newKaraokeSources);
@@ -413,7 +487,7 @@ export const usePagePagination = ({
       setCurrentPageIndex,
       setIsInitializing
     });
-  }, [chapters, initialPosition, setPages, setKaraokeSources, setCurrentChapterIndex, setCurrentPageIndex, setIsInitializing]);
+  }, [chapters, initialPosition, setPages, setKaraokeSources, setCurrentChapterIndex, setCurrentPageIndex, setIsInitializing, setSubchapterPageMap]);
 
   return calculatePages;
 };

@@ -24,6 +24,7 @@ export const DesktopPageReader = ({
   uploadingSticky,
   currentChapterIndex,
   currentPageIndex,
+  isInitializing,
   currentSubchapterId,
   onJumpToPage,
   onEditChapter,
@@ -32,6 +33,7 @@ export const DesktopPageReader = ({
   onEditSubchapter,
   onDeleteSubchapter,
   onReorderChapters,
+  onPageChange,
 }) => {
   // IMPORTANT: All hooks must be called before any conditional returns
   // This ensures the hook order remains consistent across renders
@@ -96,6 +98,10 @@ export const DesktopPageReader = ({
   // Cache page element references to reduce DOM queries
   const pageElementCacheRef = useRef(new Map());
   
+  // Keep a stable ref to onPageChange so the scroll handler doesn't need it as a dependency.
+  const onPageChangeRef = useRef(onPageChange);
+  useEffect(() => { onPageChangeRef.current = onPageChange; }, [onPageChange]);
+
   // Track most centered/visible page for progress bar
   useEffect(() => {
     if (pagesWithTOC.length === 0) return;
@@ -182,6 +188,12 @@ export const DesktopPageReader = ({
           prevMostVisiblePageIndexRef.current = mostCenteredIndex;
           setMostVisiblePage(mostCenteredPage);
           setMostVisiblePageIndex(mostCenteredIndex);
+          // Save reading position whenever the visible page changes.
+          onPageChangeRef.current?.({
+            chapterId: mostCenteredPage.chapterId,
+            pageIndex: mostCenteredPage.pageIndex,
+            subchapterId: mostCenteredPage.subchapterId || null,
+          });
         }
       } else {
         if (prevMostVisiblePageRef.current !== null || prevMostVisiblePageIndexRef.current !== null) {
@@ -730,16 +742,18 @@ export const DesktopPageReader = ({
               currentPageIndex={currentPageIndex}
               currentSubchapterId={currentSubchapterId}
               onJumpToPage={(chapterIndex, pageIndex) => {
-                // Scroll to the target page using data attributes
                 requestAnimationFrame(() => {
-                  const allPageSheets = document.querySelectorAll('.page-sheet');
-                  allPageSheets.forEach((sheet) => {
-                    const sheetChapterIndex = parseInt(sheet.getAttribute('data-chapter-index'));
-                    const sheetPageIndex = parseInt(sheet.getAttribute('data-page-index'));
-                    if (sheetChapterIndex === chapterIndex && sheetPageIndex === pageIndex) {
-                      sheet.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }
-                  });
+                  const targetIndex = pagesWithTOC.findIndex(
+                    (p) => p.chapterIndex === chapterIndex && p.pageIndex === pageIndex
+                  );
+                  const pageElement = targetIndex >= 0 ? document.getElementById(`pdf-page-${targetIndex}`) : null;
+                  const scrollContainer = document.querySelector('.pdf-viewer');
+                  const topBar = document.querySelector('.pdf-top-bar');
+                  const topBarHeight = topBar ? topBar.offsetHeight : 0;
+                  if (scrollContainer && pageElement) {
+                    const targetScrollTop = pageElement.offsetTop - topBarHeight - 24;
+                    scrollContainer.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
+                  }
                 });
                 
                 // Call original callback for bookmark saving
@@ -924,19 +938,31 @@ export const DesktopPageReader = ({
     });
   }, [pagesWithTOC, renderPage]);
 
-  // Ensure the first page (cover/first page) starts at a stable scroll position.
+  // Scroll to bookmark on first stable render (after initialPosition has loaded).
+  // isInitializing stays true until restoreInitialPosition runs with a non-null initialPosition,
+  // so gating on it ensures currentChapterIndex/currentPageIndex hold the restored values, not 0/0.
+  // We use a ref to fire only once per session.
   const hasInitialScrollRef = useRef(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (isInitializing) return;
     if (hasInitialScrollRef.current) return;
     if (pagesWithTOC.length === 0) return;
 
-    const pageElement = document.getElementById(`pdf-page-0`);
+    hasInitialScrollRef.current = true;
+
+    const restoredIndex = pagesWithTOC.findIndex(
+      (p) => p.chapterIndex === currentChapterIndex && p.pageIndex === currentPageIndex
+    );
+    const targetIndex = restoredIndex >= 0 ? restoredIndex : 0;
+
     const scrollContainer = document.querySelector('.pdf-viewer');
-    if (pageElement && scrollContainer) {
-      hasInitialScrollRef.current = true;
-      scrollContainer.scrollTop = 0;
+    const pageElement = document.getElementById(`pdf-page-${targetIndex}`);
+    const topBar = document.querySelector('.pdf-top-bar');
+    const topBarHeight = topBar ? topBar.offsetHeight : 0;
+    if (scrollContainer && pageElement) {
+      scrollContainer.scrollTop = pageElement.offsetTop - topBarHeight - 62;
     }
-  }, [pagesWithTOC]);
+  }, [pagesWithTOC, currentChapterIndex, currentPageIndex, isInitializing]);
   
   
   // Early return AFTER all hooks
@@ -967,13 +993,15 @@ export const DesktopPageReader = ({
         currentPage={1}
         totalPages={pagesWithTOC.length}
         onPageChange={(pageNum) => {
-          // Scroll to the page
           const pageIndex = pageNum - 1;
           const page = pagesWithTOC[pageIndex];
           if (page) {
             const pageElement = document.getElementById(`pdf-page-${pageIndex}`);
-            if (pageElement) {
-              pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            const scrollContainer = document.querySelector('.pdf-viewer');
+            const topBar = document.querySelector('.pdf-top-bar');
+            const topBarHeight = topBar ? topBar.offsetHeight : 0;
+            if (scrollContainer && pageElement) {
+              scrollContainer.scrollTo({ top: pageElement.offsetTop - topBarHeight - 24, behavior: 'smooth' });
             }
           }
         }}

@@ -174,7 +174,6 @@ export const applyHyphenationToPages = (newPages, setPages) => {
  */
 export const restoreInitialPosition = (newPages, initialPosition, setters) => {
   const { setCurrentChapterIndex, setCurrentPageIndex, setIsInitializing } = setters;
-  
   if (newPages.length === 0) return;
   
   // Find the first page (isFirstPage) - this is the actual first page of content

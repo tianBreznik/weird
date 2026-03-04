@@ -3059,6 +3059,14 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                 >
                   {saving ? 'Objavljam' : 'Objavi'}
                 </button>
+                <button
+                  type="button"
+                  className="toolbar-close-btn"
+                  onClick={onCancel}
+                  title="Zapri"
+                >
+                  ✕
+                </button>
               </div>
             </div>
             {/* Chapter background image controls (preview + hidden file input) */}

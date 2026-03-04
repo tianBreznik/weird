@@ -536,26 +536,9 @@
 
 /* Fade out animation for closing */
 .mobile-toc-overlay.mobile-toc-closing {
-  /* Keep overlay visible during closing to maintain blur effect */
-  opacity: 1;
-  pointer-events: none;
-  transition: opacity 2s ease-out 0.6s; /* Slow fade out, delayed to match blur */
-}
-
-.mobile-toc-overlay.mobile-toc-closing::after {
-  /* Create a strong blur effect during close to mask page re-render */
-  /* Start with strong blur, then fade out slowly */
-  opacity: 1;
-  backdrop-filter: blur(20px) brightness(0.75);
-  -webkit-backdrop-filter: blur(20px) brightness(0.75);
-  transition: opacity 2s ease-out 0.6s, backdrop-filter 1.6s ease-out, -webkit-backdrop-filter 1.6s ease-out;
-  /* Keep the same foggy background tone as open state */
-  background: rgba(0, 0, 0, 0.75);
-}
-
-.mobile-toc-overlay.mobile-toc-closing .mobile-toc-container {
   opacity: 0;
-  transition: opacity 0.3s ease-in;
+  pointer-events: none;
+  transition: opacity 0.4s ease-out;
 }
 
 /* Minimal drag indicator - shown during drag before overlay opens */

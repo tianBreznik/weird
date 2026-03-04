@@ -500,6 +500,8 @@ export const PageReader = ({
   // Track content to detect edits (chapter/subchapter content changed)
   const prevContentSigRef = useRef(null);
 
+  const [subchapterPageMap, setSubchapterPageMap] = useState({});
+
   // Calculate pages for all chapters based on actual content height
   // Includes subchapters in the flow
   const calculatePages = usePagePagination({
@@ -509,8 +511,27 @@ export const PageReader = ({
     setKaraokeSources,
     setCurrentChapterIndex,
     setCurrentPageIndex,
-    setIsInitializing
+    setIsInitializing,
+    setSubchapterPageMap,
   });
+
+  // Debug: expose pages and subchapter map for inspection in devtools
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.__pages = pages;
+      window.__subMap = subchapterPageMap;
+      // Uncomment if you want to see them in the console each recalculation:
+      // console.log('[pages-debug] pages', pages);
+      // console.log('[pages-debug] subchapterPageMap', subchapterPageMap);
+    }
+  }, [pages, subchapterPageMap]);
+
+  // Expose subchapter page map for debugging mobile TOC behavior.
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.__subMap = subchapterPageMap;
+    }
+  }, [subchapterPageMap]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -3258,13 +3279,17 @@ export const PageReader = ({
         touchStartY = null;
         return;
       }
+
+      // Don't block touches inside the TOC scroll area — it needs to scroll freely.
+      const tocContent = document.querySelector('.mobile-toc-content');
+      if (tocContent && tocContent.contains(e.target)) return;
       
       if (touchStartY !== null && e.touches && e.touches.length > 0) {
         const touchY = e.touches[0].clientY;
         const deltaY = touchY - touchStartY;
         
-        // Prevent all downward swipes to block pull-to-refresh
-        // The page-reader is fixed and shouldn't allow any scrolling
+        // Prevent downward swipes to block pull-to-refresh.
+        // The page-reader is fixed and shouldn't allow scrolling outside the TOC.
         if (deltaY > 0) {
           e.preventDefault();
         }
@@ -3431,6 +3456,7 @@ export const PageReader = ({
           uploadingSticky={uploadingSticky}
           currentChapterIndex={currentChapterIndex}
           currentPageIndex={currentPageIndex}
+          isInitializing={isInitializing}
           currentSubchapterId={currentPage?.subchapterId || null}
           onJumpToPage={jumpToPage}
           onEditChapter={onEditChapter}
@@ -3439,6 +3465,7 @@ export const PageReader = ({
           onEditSubchapter={onEditSubchapter}
           onDeleteSubchapter={onDeleteSubchapter}
           onReorderChapters={onReorderChapters}
+          onPageChange={onPageChange}
         />
       </>
     );
@@ -3734,6 +3761,7 @@ export const PageReader = ({
         currentChapterIndex={currentChapterIndex}
         currentPageIndex={currentPageIndex}
         currentSubchapterId={currentPage?.subchapterId || null}
+        subchapterPageMap={subchapterPageMap}
         isOpen={isTOCOpen}
         dragProgress={tocDragProgress}
         onClose={() => {

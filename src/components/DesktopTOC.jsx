@@ -120,20 +120,7 @@ export const DesktopTOC = ({
     }
   };
 
-  // Check if chapter/subchapter is current
-  const isCurrentChapter = (chapterId) => {
-    if (!pages || pages.length === 0) return false;
-    const currentPage = pages.find(
-      (p) => p.chapterIndex === currentChapterIndex && p.pageIndex === currentPageIndex
-    );
-    if (!currentPage) return false;
-    return currentPage.chapterId === chapterId && !currentPage.subchapterId;
-  };
-
-  const isCurrentSubchapter = (subchapterId) => {
-    if (!subchapterId || !currentSubchapterId) return false;
-    return currentSubchapterId === subchapterId;
-  };
+  // Current chapter/subchapter highlighting removed: TOC acts as a neutral index.
 
   // Sortable chapter row component for drag-and-drop
   const SortableChapterRow = ({
@@ -146,8 +133,6 @@ export const DesktopTOC = ({
     expandedChapters,
     setExpandedChapters,
     isEditor,
-    isCurrentChapter,
-    isCurrentSubchapter,
     findPageNumber,
     handleChapterClick,
     handleChapterDoubleClick,
@@ -168,14 +153,13 @@ export const DesktopTOC = ({
     };
 
     const isExpanded = expandedChapters.has(chapter.id);
-    const isCurrent = isCurrentChapter(chapter.id);
     const pageNum = findPageNumber(chapter.id);
     const hasSubchapters = chapter.children && chapter.children.length > 0;
 
     return (
       <div ref={setNodeRef} style={style} className="desktop-toc-chapter-row">
         <div
-          className={`desktop-toc-chapter-item ${isCurrent ? 'desktop-toc-current' : ''}`}
+          className="desktop-toc-chapter-item"
           onClick={() => handleChapterClick(chapter)}
           onDoubleClick={() => handleChapterDoubleClick(chapter)}
         >
@@ -233,13 +217,12 @@ export const DesktopTOC = ({
         {hasSubchapters && (
           <div className="desktop-toc-subchapters">
             {chapter.children.map((subchapter) => {
-              const isCurrentSub = isCurrentSubchapter(subchapter.id);
               const subPageNum = findPageNumber(chapter.id, subchapter.id) ?? pageNum;
               
               return (
                 <div
                   key={subchapter.id}
-                  className={`desktop-toc-subchapter-item ${isCurrentSub ? 'desktop-toc-current' : ''}`}
+                  className="desktop-toc-subchapter-item"
                   onClick={() => handleSubchapterClick(subchapter, chapter.id)}
                 >
                   <span className="desktop-toc-subchapter-title">{subchapter.title}</span>
@@ -315,7 +298,7 @@ export const DesktopTOC = ({
           <>
             {firstPageChapter && (
               <div
-                className={`desktop-toc-chapter-item ${isCurrentSpecialPage(firstPageChapter) ? 'desktop-toc-current' : ''}`}
+                className="desktop-toc-chapter-item"
                 onClick={() => jumpToSpecialPage(firstPageChapter)}
               >
                 <span className="desktop-toc-chapter-title">{firstPageChapter.title || 'Prva stran'}</span>
@@ -335,7 +318,7 @@ export const DesktopTOC = ({
             )}
             {coverPageChapter && (
               <div
-                className={`desktop-toc-chapter-item ${isCurrentSpecialPage(coverPageChapter) ? 'desktop-toc-current' : ''}`}
+                className="desktop-toc-chapter-item"
                 onClick={() => jumpToSpecialPage(coverPageChapter)}
               >
                 <span className="desktop-toc-chapter-title">{coverPageChapter.title || 'Naslovna stran'}</span>
@@ -384,8 +367,6 @@ export const DesktopTOC = ({
                   expandedChapters={expandedChapters}
                   setExpandedChapters={setExpandedChapters}
                   isEditor={isEditor}
-                  isCurrentChapter={isCurrentChapter}
-                  isCurrentSubchapter={isCurrentSubchapter}
                   findPageNumber={findPageNumber}
                   handleChapterClick={handleChapterClick}
                   handleChapterDoubleClick={handleChapterDoubleClick}
@@ -403,14 +384,13 @@ export const DesktopTOC = ({
         ) : (
           regularChapters.map((chapter) => {
             const isExpanded = expandedChapters.has(chapter.id);
-            const isCurrent = isCurrentChapter(chapter.id);
             const pageNum = findPageNumber(chapter.id);
             const hasSubchapters = chapter.children && chapter.children.length > 0;
 
             return (
               <div key={chapter.id} className="desktop-toc-chapter-row">
                 <div
-                  className={`desktop-toc-chapter-item ${isCurrent ? 'desktop-toc-current' : ''}`}
+                  className="desktop-toc-chapter-item"
                   onClick={() => handleChapterClick(chapter)}
                   onDoubleClick={() => handleChapterDoubleClick(chapter)}
                 >
@@ -460,13 +440,12 @@ export const DesktopTOC = ({
                 {hasSubchapters && (
                   <div className="desktop-toc-subchapters">
                     {chapter.children.map((subchapter) => {
-                      const isCurrentSub = isCurrentSubchapter(subchapter.id);
                       const subPageNum = findPageNumber(chapter.id, subchapter.id) ?? pageNum;
                       
                       return (
                         <div
                           key={subchapter.id}
-                          className={`desktop-toc-subchapter-item ${isCurrentSub ? 'desktop-toc-current' : ''}`}
+                          className="desktop-toc-subchapter-item"
                           onClick={() => handleSubchapterClick(subchapter, chapter.id)}
                         >
                           <span className="desktop-toc-subchapter-title">{subchapter.title}</span>

@@ -1281,6 +1281,36 @@
   cursor: not-allowed;
 }
 
+.toolbar-close-btn {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .toolbar-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: #c13a3a;
+    font-size: 1.1rem;
+    cursor: pointer;
+    flex-shrink: 0;
+    margin-left: 6px;
+    padding: 0;
+  }
+  .toolbar-close-btn:hover {
+    background: transparent;
+    color: #c13a3a;
+    opacity: 0.8;
+  }
+}
+
 .toolbar-btn {
   width: 28px;
   min-width: 28px;
@@ -1667,6 +1697,18 @@
     bottom: 0 !important;
     z-index: 10001 !important;
     background: #ffffff !important;
+    animation: editor-slide-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes editor-slide-up {
+    from {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
   }
   
   .editor-content {
@@ -1709,10 +1751,10 @@
     -webkit-overflow-scrolling: touch !important;
     scrollbar-width: none !important;
     flex-wrap: nowrap !important;
-    min-height: 60px !important; /* Increased to match desktop for close button */
+    min-height: 60px !important;
     height: auto !important;
-    padding: 16px 12px 8px 12px !important; /* Top padding for close button, bottom padding for buttons */
-    align-items: flex-end !important; /* Align buttons to bottom of toolbar */
+    padding: 16px 12px 8px 12px !important;
+    align-items: center !important;
   }
   
   .editor-toolbar::-webkit-scrollbar {
@@ -1726,26 +1768,18 @@
   
   
   .title-row {
-    padding-right: 50px !important; /* Make room for close button */
+    padding-right: 1rem !important;
   }
-  
+
   .title-input {
-    padding-right: 50px !important; /* Make room for close button */
-    font-size: 1.2rem !important; /* Slightly smaller on mobile */
+    padding-right: 1rem !important;
+    font-size: 1.2rem !important;
   }
   
   .close-top {
-    top: -8px !important;
-    right: 10px !important;
-    z-index: 100 !important; /* Ensure it's above title */
+    display: none !important;
   }
-  
-  .close-btn {
-    width: 32px !important;
-    height: 32px !important;
-    font-size: 1.4rem !important;
-  }
-  
+
   .content-editor-wrapper .ProseMirror {
     padding: 1rem !important;
     font-size: 16px !important;
