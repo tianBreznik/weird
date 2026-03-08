@@ -557,12 +557,33 @@
   /* Epigraph paragraph style (legacy, for paragraphs in content) */
   text-align: center;
   font-style: italic;
-  font-size: 3.95em;
+  font-size: 0.95em;
   line-height: 1.5;
   color: #555;
   margin-top: 1.5em;
   margin-bottom: 1.5em;
   padding: 0 1em;
+}
+
+/* Paragraph epigraph block (quote + author) */
+.page-content .paragraph-epigraph {
+  margin: 1.5em 0;
+  padding: 0 1em;
+}
+.page-content .paragraph-epigraph .paragraph-epigraph-quote {
+  text-align: center;
+  font-style: italic;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: #333;
+  margin: 0 0 0.5em 0;
+}
+.page-content .paragraph-epigraph .paragraph-epigraph-author {
+  text-align: center;
+  font-style: normal;
+  font-size: 0.9em;
+  color: #555;
+  margin: 0;
 }
 
 /* Dinkus styling */
@@ -602,6 +623,21 @@
   /* Slight downward shift from exact center for a “lower-third” feel
      on narrow mobile pages (smaller than desktop shift below). */
   transform: translateY(45%);
+}
+
+/* Mobile: position epigraph a bit lower on the page; ensure swipes work (no text selection) */
+@media (max-width: 768px) {
+  .epigraph-content {
+    transform: translateY(70%);
+  }
+  /* Let swipes be recognized: disable text selection so touch bubbles to page-reader */
+  .epigraph-page .page-body,
+  .epigraph-page .epigraph-content,
+  .epigraph-page .epigraph-text {
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 
 .epigraph-text {
@@ -926,13 +962,20 @@
 
 .page-content ul,
 .page-content ol {
-  padding-left: 1.4rem;
+  list-style-position: outside;
+  padding-left: 1.5rem;
   margin: 0.45rem 0;           /* Match compact paragraph rhythm */
+}
+.page-content ul {
+  list-style-type: disc;
+}
+.page-content ol {
+  list-style-type: decimal;
 }
 
 .page-content li {
-  font-size: 1.125rem;
-  line-height: 1.2;
+  font-size: inherit;
+  line-height: 1.35;
   margin-bottom: 0.35rem;
 }
 
@@ -1039,12 +1082,12 @@
   clear: both;
 }
 
-/* Indented paragraphs */
+/* Indented paragraphs and headings (indent via inline style from TipTap) */
 .page-content p[data-indent],
 .page-content h1[data-indent],
 .page-content h2[data-indent],
-.page-content h3[data-indent] {
-  /* Indent is applied via inline style from TipTap */
+.page-content h3[data-indent],
+.page-content h4[data-indent] {
   display: block;
 }
 

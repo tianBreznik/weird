@@ -34,6 +34,39 @@ html body.feather-cursor-active [style*="cursor:move"] {
   cursor: none !important;
 }
 
+/* Editor area: native cursor only (no feather). Whole editor overlay + dialogs get default cursor. */
+html body.feather-cursor-active .editor-overlay,
+html body.feather-cursor-active .editor-overlay *,
+html body.feather-cursor-active .editor-overlay *::before,
+html body.feather-cursor-active .editor-overlay *::after,
+html body.feather-cursor-active .karaoke-dialog-overlay,
+html body.feather-cursor-active .karaoke-dialog-overlay *,
+html body.feather-cursor-active .karaoke-dialog-overlay *::before,
+html body.feather-cursor-active .karaoke-dialog-overlay *::after {
+  cursor: default !important;
+}
+/* Clickable elements in editor and dialogs: pointer */
+html body.feather-cursor-active .editor-overlay button,
+html body.feather-cursor-active .editor-overlay a,
+html body.feather-cursor-active .editor-overlay [role="button"],
+html body.feather-cursor-active .editor-overlay input,
+html body.feather-cursor-active .editor-overlay select,
+html body.feather-cursor-active .editor-overlay textarea,
+html body.feather-cursor-active .editor-overlay [class*="cursor-pointer"],
+html body.feather-cursor-active .karaoke-dialog-overlay button,
+html body.feather-cursor-active .karaoke-dialog-overlay a,
+html body.feather-cursor-active .karaoke-dialog-overlay [role="button"],
+html body.feather-cursor-active .karaoke-dialog-overlay input,
+html body.feather-cursor-active .karaoke-dialog-overlay select,
+html body.feather-cursor-active .karaoke-dialog-overlay textarea {
+  cursor: pointer !important;
+}
+/* Content area: text cursor when selection (editable region) */
+html body.feather-cursor-active .content-editor-wrapper.has-selection,
+html body.feather-cursor-active .content-editor-wrapper.has-selection * {
+  cursor: text !important;
+}
+
 /* Feather Cursor (Desktop) - Use same approach as particles which work in Safari */
 /* z-index above editor overlay (999999) so cursor stays visible when editor is open */
 .feather-cursor {

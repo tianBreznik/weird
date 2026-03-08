@@ -540,7 +540,7 @@ function App() {
                       return {
                         ...chapter,
                         title: updated.title ?? chapter.title,
-                        epigraph: updated.epigraph ?? chapter.epigraph,
+                        epigraph: updateData.hasOwnProperty('epigraph') ? updateData.epigraph : chapter.epigraph,
                         content: html,
                         contentHtml: updated.contentHtml ?? chapter.contentHtml,
                         pageBorder: typeof updated.pageBorder === 'boolean' ? updated.pageBorder : chapter.pageBorder,
@@ -572,7 +572,7 @@ function App() {
                             return {
                               ...child,
                               title: updated.title ?? child.title,
-                              epigraph: updated.epigraph ?? child.epigraph,
+                              epigraph: updateData.hasOwnProperty('epigraph') ? updateData.epigraph : child.epigraph,
                               content: html,
                               contentHtml: updated.contentHtml ?? child.contentHtml,
                               pageBorder: typeof updated.pageBorder === 'boolean' ? updated.pageBorder : child.pageBorder,

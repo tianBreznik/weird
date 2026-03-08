@@ -630,6 +630,7 @@ export const PageReader = ({
     }
 
     // If order didn't change but content or metadata changed (edit), recalculate pages
+    // Include epigraph so adding/removing the full-page epigraph triggers recalc
     const contentSig = chapters.flatMap(c => [
       c.id,
       (c.contentHtml || c.content || '').length,
@@ -639,6 +640,7 @@ export const PageReader = ({
       c.pageBorderWidth ?? '',
       c.pageBorderSlicePercent ?? '',
       c.hideTitle ?? '',
+      JSON.stringify(c.epigraph ?? null),
       ...(c.children || []).flatMap(s => [
         s.id,
         (s.contentHtml || s.content || '').length,
@@ -647,6 +649,7 @@ export const PageReader = ({
         s.pageBorderWidth ?? '',
         s.pageBorderSlicePercent ?? '',
         s.hideTitle ?? '',
+        JSON.stringify(s.epigraph ?? null),
       ])
     ]).join('|');
     const contentChanged = prevContentSigRef.current !== null && 

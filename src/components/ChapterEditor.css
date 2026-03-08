@@ -364,6 +364,30 @@
   cursor: text;
 }
 
+/* Blockquote: clearly distinct in editor (left border + background) */
+.content-editor-wrapper .ProseMirror blockquote {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0 0.5rem 1rem;
+  border-left: 4px solid #b0b0b0;
+  background: rgba(0, 0, 0, 0.04);
+  color: #333;
+}
+
+/* Lists in editor (StarterKit bulletList / orderedList / listItem) */
+.content-editor-wrapper .ProseMirror ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.content-editor-wrapper .ProseMirror ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.content-editor-wrapper .ProseMirror li {
+  margin-bottom: 0.25rem;
+}
+
 /* Image resize container and handle */
 .content-editor-wrapper .ProseMirror .image-resize-container {
   position: relative;
@@ -517,7 +541,7 @@
   opacity: 0.95;
 }
 
-/* Epigraph paragraph style */
+/* Epigraph paragraph style (legacy single paragraph) */
 .content-editor-wrapper .ProseMirror p.para-epigraph {
   text-align: center;
   font-style: italic;
@@ -526,6 +550,38 @@
   margin-top: 1.2em;
   margin-bottom: 1.2em;
   padding: 0 1em;
+}
+
+/* Paragraph epigraph block (quote + author) in editor */
+.content-editor-wrapper .ProseMirror .paragraph-epigraph-editor {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border-left: 4px solid #b0b0b0;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 0 4px 4px 0;
+}
+.content-editor-wrapper .ProseMirror .paragraph-epigraph-editor-label {
+  font-size: 0.75rem;
+  color: #666;
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.content-editor-wrapper .ProseMirror .paragraph-epigraph-editor-field {
+  min-height: 1.5em;
+  margin-bottom: 0.5rem;
+  outline: none;
+}
+.content-editor-wrapper .ProseMirror .paragraph-epigraph-editor-field:last-child {
+  margin-bottom: 0;
+}
+.content-editor-wrapper .ProseMirror .paragraph-epigraph-quote.paragraph-epigraph-editor-field {
+  font-style: italic;
+  color: #333;
+}
+.content-editor-wrapper .ProseMirror .paragraph-epigraph-author.paragraph-epigraph-editor-field:empty::before {
+  content: attr(data-placeholder);
+  color: #999;
 }
 
 /* Poetry block */

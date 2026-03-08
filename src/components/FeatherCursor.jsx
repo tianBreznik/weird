@@ -157,24 +157,32 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
         animationFrameRef.current = requestAnimationFrame(animateCursor);
       }
 
-      // Force cursor: none on element under mouse (Safari workaround).
-      // Clear previous element so we don't leave inline styles on hundreds of nodes (causes lag over time).
+      // When over the editor area: hide feather and show native cursor (toolbar, content, dialogs).
+      // Otherwise: hide native cursor and show feather.
       const target = document.elementFromPoint(e.clientX, e.clientY);
+      const inEditor = target && (
+        target.closest('.editor-overlay') ||
+        target.closest('.karaoke-dialog-overlay')
+      );
+      if (cursorRef.current) {
+        cursorRef.current.style.opacity = inEditor ? '0' : '1';
+      }
       if (lastCursorTargetRef.current && lastCursorTargetRef.current !== target) {
         try {
           lastCursorTargetRef.current.style.removeProperty('cursor');
         } catch (_) {}
         lastCursorTargetRef.current = null;
       }
-      if (target && target !== document.body && target !== document.documentElement) {
+      if (!inEditor && target && target !== document.body && target !== document.documentElement) {
         target.style.setProperty('cursor', 'none', 'important');
         lastCursorTargetRef.current = target;
       }
 
-      // Create particles periodically; cap total so buildup doesn't cause lag
+      // Create particles only when outside editor (no particles over toolbar/dialogs/content)
       const now = Date.now();
       const maxParticles = 50;
       if (
+        !inEditor &&
         now - lastParticleTimeRef.current > 30 &&
         particlesRef.current.length < maxParticles
       ) {

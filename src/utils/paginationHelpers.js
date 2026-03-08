@@ -562,6 +562,10 @@ export const isAtomicElement = (element) => {
   if (element.classList.contains('dinkus') || element.querySelector('.dinkus, .dinkus-image')) {
     return true;
   }
+  // Paragraph epigraph (quote + author) - keep as one unit
+  if (element.classList.contains('paragraph-epigraph')) {
+    return true;
+  }
   // Elements containing atomic children
   if (element.querySelector('img, video, [data-karaoke], .karaoke, .poetry')) {
     return true;

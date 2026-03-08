@@ -6,10 +6,10 @@ import TextAlign from '@tiptap/extension-text-align';
 import Link from '@tiptap/extension-link';
 import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
-import { TextSelection } from 'prosemirror-state';
+import { TextSelection, NodeSelection } from 'prosemirror-state';
 import { uploadImageToStorage, uploadVideoToStorage } from '../services/storage';
 import { generateWordTimingsWithDeepgram } from '../services/autoTiming';
-import { KaraokeBlock, Dinkus, Highlight, TextColor, FontSize, Underline, FootnoteRef, Indent, Video, CustomImage, InlineImage, Poetry, FieldNotesBlock } from '../extensions/tiptapExtensions.js';
+import { KaraokeBlock, Dinkus, Highlight, TextColor, FontSize, Underline, FootnoteRef, Indent, Video, CustomImage, InlineImage, Poetry, FieldNotesBlock, CustomParagraph, ParagraphEpigraph } from '../extensions/tiptapExtensions.js';
 import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import { FootnotePlugin } from '../extensions/footnotePlugin.js';
@@ -55,6 +55,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     link: false,
     isHeading: false, // Track if we're in a heading
   });
+  const [editorHasSelection, setEditorHasSelection] = useState(false);
   const imageInputRef = useRef(null);
   const inlineImageInputRef = useRef(null);
   const videoFileInputRef = useRef(null);
@@ -98,6 +99,9 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     url: '',
     text: '',
   });
+  const [showParagraphEpigraphDialog, setShowParagraphEpigraphDialog] = useState(false);
+  const [paragraphEpigraphDraft, setParagraphEpigraphDraft] = useState({ quote: '', author: '' });
+  const paragraphEpigraphEditPosRef = useRef(null); // position of node to replace when editing
   const [fontDropdownOpen, setFontDropdownOpen] = useState(false);
   const fontDropdownRef = useRef(null);
   const fontTriggerRef = useRef(null);
@@ -116,7 +120,9 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
         hardBreak: {
           keepMarks: true,
         },
+        paragraph: false,
       }),
+      CustomParagraph,
       TextAlign.configure({
         types: ['heading', 'paragraph'],
       }),
@@ -142,6 +148,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       // Adding back content extensions
       Dinkus,
       Poetry,
+      ParagraphEpigraph,
       // Footnote extensions - InputRule disabled as it interferes with typing
       FootnoteRef,
       // FootnotePlugin, // DISABLED: InputRule interferes with typing - using manual conversion instead
@@ -171,6 +178,8 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       const isInHeading = currentNode.type.name === 'heading' && currentNode.attrs.level === headingLevel;
 
       setActiveFormats(prev => ({ ...prev, isHeading: isInHeading }));
+      // Cursor: default in editor, text when there's a selection (for feather-cursor override)
+      setEditorHasSelection(!editor.state.selection.empty);
       // Sync toolbar (bold/italic/highlight color/etc.) to current cursor/selection
       refreshToolbarState();
     },
@@ -476,9 +485,10 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
             return false;
           }
         })(),
-        // Check if current paragraph has epigraph paragraph class
+        // Paragraph epigraph block (quote + author) or legacy para-epigraph class
         epigraphParagraph: (() => {
           try {
+            if (editor.isActive('paragraphEpigraph')) return true;
             const { $from } = editor.state.selection;
             for (let depth = $from.depth; depth > 0; depth--) {
               const node = $from.node(depth);
@@ -635,7 +645,8 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
 
     if (chapter && editor) {
       const chapterContent = chapter.contentHtml || chapter.content || '';
-      const rawEpigraph = chapter.epigraph;
+      // Full-page epigraph is chapter-only; subchapters do not have epigraph
+      const rawEpigraph = parentChapter ? null : chapter.epigraph;
       // Load existing chapter-level background image and border settings if present
       setBackgroundImageUrl(chapter?.backgroundImageUrl || '');
       setPageBorderImageUrl(chapter?.pageBorderImageUrl || '');
@@ -1235,7 +1246,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     try {
       await onSave({
         title: titleToSave,
-        epigraph,
+        epigraph: parentChapter ? null : epigraph, // Full-page epigraph is chapter-only
         contentHtml: currentContent,
         version: entityVersion,
         backgroundImageUrl: backgroundImageUrl || null,
@@ -1645,6 +1656,40 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   const applyDinkus = () => {
     if (!editor) return;
     editor.chain().focus().insertContent({ type: 'dinkus' }).run();
+    refreshToolbarState();
+  };
+
+  const openParagraphEpigraphDialog = () => {
+    if (!editor) return;
+    const { state } = editor;
+    const { selection } = state;
+    if (selection instanceof NodeSelection && selection.node.type.name === 'paragraphEpigraph') {
+      const node = selection.node;
+      setParagraphEpigraphDraft({
+        quote: node.attrs.quote || '',
+        author: node.attrs.author || '',
+      });
+      paragraphEpigraphEditPosRef.current = selection.from;
+    } else {
+      setParagraphEpigraphDraft({ quote: '', author: '' });
+      paragraphEpigraphEditPosRef.current = null;
+    }
+    setShowParagraphEpigraphDialog(true);
+  };
+
+  const saveParagraphEpigraphFromDialog = () => {
+    if (!editor) return;
+    const quote = (paragraphEpigraphDraft.quote || '').trim();
+    const author = (paragraphEpigraphDraft.author || '').trim();
+    const pos = paragraphEpigraphEditPosRef.current;
+    if (pos != null) {
+      editor.chain().focus().updateParagraphEpigraphAt(pos, { quote, author }).run();
+    } else {
+      editor.chain().focus().insertParagraphEpigraph({ quote, author }).run();
+    }
+    setShowParagraphEpigraphDialog(false);
+    setParagraphEpigraphDraft({ quote: '', author: '' });
+    paragraphEpigraphEditPosRef.current = null;
     refreshToolbarState();
   };
 
@@ -2980,6 +3025,13 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   <span style={{ fontSize: '0.95em', color: '#777' }}>¶</span>
                 </button>
                 <button
+                  onClick={openParagraphEpigraphDialog}
+                  className={`toolbar-btn ${(editor?.isActive('paragraphEpigraph') || activeFormats.epigraphParagraph) ? 'active' : ''}`}
+                  title="Odstavek epigraf (citat + avtor)"
+                >
+                  <span style={{ fontStyle: 'italic' }}>"</span>
+                </button>
+                <button
                   onClick={applyPoetry}
                   className={`toolbar-btn ${editor?.isActive('poetry') ? 'active' : ''}`}
                   title="Poetry formatting"
@@ -3003,8 +3055,9 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                 
               </div>
               <div className="toolbar-actions">
+                {!parentChapter && (
                 <button
-                  className="toolbar-btn epigraph-btn"
+                  className={`toolbar-btn epigraph-btn ${epigraph && (typeof epigraph === 'object' ? (epigraph.text || '').trim() : String(epigraph).trim()) ? 'active' : ''}`}
                   type="button"
                   onClick={() => {
                     const current = epigraph && typeof epigraph === 'object'
@@ -3019,8 +3072,9 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   }}
                   title="Epigraf poglavja"
                 >
-                  <span className="icon" style={{ fontStyle: 'italic', fontSize: '1.1em' }}>"</span>
+                  <span className="toolbar-btn-icon">✶</span>
                 </button>
+                )}
                 <button
                   type="button"
                   onClick={handleLinkButtonClick}
@@ -3133,7 +3187,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
             </div>
             {!showKaraokeDialog && editor && (
               <SimpleBar
-                className={`content-editor-wrapper ${effectiveEditorFont ? 'content-editor-has-font' : ''}`}
+                className={`content-editor-wrapper ${effectiveEditorFont ? 'content-editor-has-font' : ''} ${editorHasSelection ? 'has-selection' : ''}`}
                 style={{
                   flex: 1,
                   minHeight: 0,
@@ -3554,6 +3608,71 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   disabled={!linkDraft.url.trim() && !activeFormats.link}
                 >
                   {activeFormats.link ? 'Posodobi povezavo' : 'Dodaj povezavo'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Paragraph epigraph dialog (quote + author) */}
+      {showParagraphEpigraphDialog && createPortal(
+        <div
+          className="karaoke-dialog-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowParagraphEpigraphDialog(false);
+          }}
+        >
+          <div
+            className="karaoke-dialog epigraph-dialog-wrapper"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="close-btn close-top"
+              onClick={() => {
+                setShowParagraphEpigraphDialog(false);
+                setParagraphEpigraphDraft({ quote: '', author: '' });
+                paragraphEpigraphEditPosRef.current = null;
+              }}
+            >
+              ✕
+            </button>
+            <div className="karaoke-dialog-content epigraph-dialog">
+              <h2 className="epigraph-dialog-title">Odstavek epigraf</h2>
+              <div className="form-group">
+                <label htmlFor="para-epigraph-quote">Citat</label>
+                <textarea
+                  id="para-epigraph-quote"
+                  value={paragraphEpigraphDraft.quote}
+                  onChange={(e) => setParagraphEpigraphDraft((prev) => ({ ...prev, quote: e.target.value }))}
+                  placeholder="Besedilo citata"
+                  rows={3}
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="para-epigraph-author">Avtor</label>
+                <input
+                  id="para-epigraph-author"
+                  type="text"
+                  value={paragraphEpigraphDraft.author}
+                  onChange={(e) => setParagraphEpigraphDraft((prev) => ({ ...prev, author: e.target.value }))}
+                  placeholder="– Ime avtorja"
+                />
+              </div>
+              <div className="epigraph-actions">
+                <button
+                  type="button"
+                  className="epigraph-save-btn"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    saveParagraphEpigraphFromDialog();
+                  }}
+                >
+                  {paragraphEpigraphEditPosRef.current != null ? 'Posodobi' : 'Vstavi'}
                 </button>
               </div>
             </div>

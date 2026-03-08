@@ -618,7 +618,8 @@ export const Indent = Extension.create({
   },
 });
 
-// Custom Paragraph extension that properly handles class attribute for drop cap
+// Custom Paragraph extension that properly handles class attribute (intro/whisper/epigraph/drop-cap).
+// No custom renderHTML override - use default Paragraph rendering to avoid parser/serializer dropping paragraphs.
 export const CustomParagraph = Paragraph.extend({
   addAttributes() {
     return {
@@ -639,14 +640,6 @@ export const CustomParagraph = Paragraph.extend({
         },
       },
     };
-  },
-  // Preserve empty paragraphs by including a <br> tag so they're not truly empty
-  renderHTML({ node, HTMLAttributes }) {
-    // If paragraph is empty, include a <br> to preserve it
-    if (node.content.size === 0 || (node.content.childCount === 1 && node.content.firstChild?.type.name === 'hardBreak')) {
-      return ['p', HTMLAttributes, ['br']];
-    }
-    return ['p', HTMLAttributes, 0];
   },
 });
 
@@ -1796,6 +1789,106 @@ export const Poetry = Node.create({
       },
       togglePoetry: () => ({ commands }) => {
         return commands.toggleWrap('poetry');
+      },
+    };
+  },
+});
+
+// Paragraph epigraph: one block with quote + author (structured, stays together)
+const escapeHtmlForEpigraph = (s) => {
+  const t = String(s ?? '');
+  return t
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
+export const ParagraphEpigraph = Node.create({
+  name: 'paragraphEpigraph',
+  group: 'block',
+  content: '',
+  atom: true, // Display-only in editor; add/edit via popup
+
+  addAttributes() {
+    return {
+      quote: { default: '' },
+      author: { default: '' },
+    };
+  },
+
+  parseHTML() {
+    return [
+      {
+        tag: 'div.paragraph-epigraph',
+        getAttrs: (dom) => {
+          const el = dom;
+          const pQuote = el.querySelector('.paragraph-epigraph-quote');
+          const pAuthor = el.querySelector('.paragraph-epigraph-author');
+          let author = (pAuthor && pAuthor.textContent) ? pAuthor.textContent.trim() : '';
+          author = author.replace(/^–\s*/, '');
+          return {
+            quote: (pQuote && pQuote.textContent) ? pQuote.textContent.trim() : '',
+            author,
+          };
+        },
+      },
+    ];
+  },
+
+  renderHTML({ node }) {
+    const quote = node.attrs.quote || '';
+    const author = node.attrs.author || '';
+    return [
+      'div',
+      { class: 'paragraph-epigraph' },
+      ['p', { class: 'paragraph-epigraph-quote' }, escapeHtmlForEpigraph(quote)],
+      ['p', { class: 'paragraph-epigraph-author' }, author ? escapeHtmlForEpigraph('– ' + author) : ''],
+    ];
+  },
+
+  addNodeView() {
+    return ({ node }) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'paragraph-epigraph paragraph-epigraph-editor';
+      wrapper.setAttribute('contenteditable', 'false');
+
+      const quoteEl = document.createElement('p');
+      quoteEl.className = 'paragraph-epigraph-quote';
+      quoteEl.textContent = node.attrs.quote || '';
+      quoteEl.style.fontStyle = 'italic';
+      quoteEl.style.margin = '0 0 0.25em 0';
+      wrapper.appendChild(quoteEl);
+
+      const authorEl = document.createElement('p');
+      authorEl.className = 'paragraph-epigraph-author';
+      authorEl.textContent = node.attrs.author ? '– ' + node.attrs.author : '';
+      authorEl.style.margin = '0';
+      authorEl.style.fontSize = '0.9em';
+      authorEl.style.color = '#555';
+      wrapper.appendChild(authorEl);
+
+      return { dom: wrapper };
+    };
+  },
+
+  addCommands() {
+    return {
+      insertParagraphEpigraph: (attrs) => ({ state, dispatch, chain }) => {
+        const node = state.schema.nodes.paragraphEpigraph.create(
+          { quote: attrs.quote || '', author: attrs.author || '' },
+          null,
+          null
+        );
+        return chain().insertContent(node).run();
+      },
+      updateParagraphEpigraphAt: (pos, attrs) => ({ state, dispatch }) => {
+        const node = state.doc.nodeAt(pos);
+        if (!node || node.type.name !== 'paragraphEpigraph') return false;
+        const tr = state.tr.setNodeMarkup(pos, null, { ...node.attrs, ...attrs });
+        if (dispatch) dispatch(tr);
+        return true;
       },
     };
   },
