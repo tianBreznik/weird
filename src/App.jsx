@@ -4,6 +4,7 @@ import { ChapterEditor } from './components/ChapterEditor';
 import { EditorSetup } from './pages/EditorSetup';
 import { useEditorMode } from './hooks/useEditorMode';
 import { getChapters, getSubchapters, addChapter, addSubchapter, updateChapter, updateSubchapter, deleteChapter, deleteSubchapter, getChapterById, getSubchapterById, reorderChapters } from './services/firestore';
+import { getAllFootnotes, isAcknowledgementsChapter, ACKNOWLEDGEMENTS_CHAPTER_TITLE } from './utils/footnotes';
 import './App.css';
 import { getBookmark } from './utils/bookmark';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
@@ -155,6 +156,42 @@ function App() {
       chapter.children?.some((child) => child.id === subId)
     );
     return parent ? parent.id : null;
+  };
+
+  /** If the book has footnotes but no acknowledgements chapter, create one at the end. Returns the new chapter object or null. */
+  const ensureAcknowledgementsChapter = async (bookId, chaptersList) => {
+    const allFootnotes = getAllFootnotes(chaptersList);
+    if (allFootnotes.length === 0) return null;
+    if (chaptersList.some((c) => isAcknowledgementsChapter(c))) return null;
+    const maxOrder = Math.max(0, ...chaptersList.map((c) => c.order ?? 0));
+    // Use a very high order so Acknowledgements is always last (other chapters may use 999999)
+    const acknowledgementsOrder = Math.max(maxOrder + 100, 9999999);
+    const ref = await addChapter(bookId, {
+      title: ACKNOWLEDGEMENTS_CHAPTER_TITLE,
+      contentHtml: '',
+      order: acknowledgementsOrder,
+      isFirstPage: false,
+      isCover: false,
+    });
+    return {
+      id: ref.id,
+      title: ACKNOWLEDGEMENTS_CHAPTER_TITLE,
+      contentHtml: '',
+      content: '',
+      epigraph: null,
+      order: acknowledgementsOrder,
+      children: [],
+      isFirstPage: false,
+      isCover: false,
+      version: 0,
+      backgroundImageUrl: null,
+      pageBorder: false,
+      pageBorderImageUrl: null,
+      pageBorderWidth: null,
+      pageBorderSlicePercent: null,
+      fontFamily: null,
+      stickyNotes: [],
+    };
   };
 
   const openEditorWithLatest = async (entity) => {
@@ -526,6 +563,7 @@ function App() {
         <ChapterEditor
           chapter={editingChapter}
           parentChapter={parentChapterForNewSub || (editingChapter?.parentChapterId ? chapters.find(c => c.id === editingChapter.parentChapterId) : null)}
+          isAcknowledgementsChapter={editingChapter ? isAcknowledgementsChapter(editingChapter) : false}
           onSave={async (payload) => {
             try {
               if (editingChapter) {
@@ -533,60 +571,64 @@ function App() {
                 const isMainChapter = chapters.some(c => c.id === editingChapter.id);
                 if (isMainChapter) {
                   const updated = await updateChapter(BOOK_ID, editingChapter.id, updateData, version);
-                  setChapters((prev) =>
-                    prev.map((chapter) => {
-                      if (chapter.id !== editingChapter.id) return chapter;
-                      const html = updated.contentHtml ?? updated.content ?? chapter.content;
-                      return {
-                        ...chapter,
-                        title: updated.title ?? chapter.title,
-                        epigraph: updateData.hasOwnProperty('epigraph') ? updateData.epigraph : chapter.epigraph,
-                        content: html,
-                        contentHtml: updated.contentHtml ?? chapter.contentHtml,
-                        pageBorder: typeof updated.pageBorder === 'boolean' ? updated.pageBorder : chapter.pageBorder,
-                        pageBorderImageUrl: updated.pageBorderImageUrl ?? chapter.pageBorderImageUrl,
-                        pageBorderWidth: updated.pageBorderWidth ?? chapter.pageBorderWidth,
-                        pageBorderSlicePercent: updated.pageBorderSlicePercent ?? chapter.pageBorderSlicePercent,
-                        backgroundImageUrl: updated.backgroundImageUrl !== undefined ? updated.backgroundImageUrl : chapter.backgroundImageUrl,
-                        hideTitle: typeof updated.hideTitle === 'boolean' ? updated.hideTitle : chapter.hideTitle,
-                        fontFamily: updated.fontFamily ?? chapter.fontFamily,
-                        stickyNotes: updated.stickyNotes !== undefined ? (Array.isArray(updated.stickyNotes) ? updated.stickyNotes : []) : (chapter.stickyNotes ?? []),
-                        version: updated.version ?? chapter.version,
-                      };
-                    })
-                  );
+                  const nextChapters = chapters.map((chapter) => {
+                    if (chapter.id !== editingChapter.id) return chapter;
+                    const html = updated.contentHtml ?? updated.content ?? chapter.content;
+                    return {
+                      ...chapter,
+                      title: updated.title ?? chapter.title,
+                      epigraph: updateData.hasOwnProperty('epigraph') ? updateData.epigraph : chapter.epigraph,
+                      content: html,
+                      contentHtml: updated.contentHtml ?? chapter.contentHtml,
+                      pageBorder: typeof updated.pageBorder === 'boolean' ? updated.pageBorder : chapter.pageBorder,
+                      pageBorderImageUrl: updated.pageBorderImageUrl ?? chapter.pageBorderImageUrl,
+                      pageBorderWidth: updated.pageBorderWidth ?? chapter.pageBorderWidth,
+                      pageBorderSlicePercent: updated.pageBorderSlicePercent ?? chapter.pageBorderSlicePercent,
+                      backgroundImageUrl: updated.backgroundImageUrl !== undefined ? updated.backgroundImageUrl : chapter.backgroundImageUrl,
+                      hideTitle: typeof updated.hideTitle === 'boolean' ? updated.hideTitle : chapter.hideTitle,
+                      fontFamily: updated.fontFamily ?? chapter.fontFamily,
+                      stickyNotes: updated.stickyNotes !== undefined ? (Array.isArray(updated.stickyNotes) ? updated.stickyNotes : []) : (chapter.stickyNotes ?? []),
+                      version: updated.version ?? chapter.version,
+                    };
+                  });
+                  setChapters(nextChapters);
+                  ensureAcknowledgementsChapter(BOOK_ID, nextChapters).then((newCh) => {
+                    if (newCh) setChapters((prev) => [...prev, newCh]);
+                  }).catch(() => {});
                 } else {
                   const parentChapter = chapters.find(c =>
                     c.children.some(child => child.id === editingChapter.id)
                   );
                   if (parentChapter) {
                     const updated = await updateSubchapter(BOOK_ID, parentChapter.id, editingChapter.id, updateData, version);
-                    setChapters((prev) =>
-                      prev.map((chapter) => {
-                        if (chapter.id !== parentChapter.id) return chapter;
-                        return {
-                          ...chapter,
-                          children: chapter.children.map((child) => {
-                            if (child.id !== editingChapter.id) return child;
-                            const html = updated.contentHtml ?? updated.content ?? child.content;
-                            return {
-                              ...child,
-                              title: updated.title ?? child.title,
-                              epigraph: updateData.hasOwnProperty('epigraph') ? updateData.epigraph : child.epigraph,
-                              content: html,
-                              contentHtml: updated.contentHtml ?? child.contentHtml,
-                              pageBorder: typeof updated.pageBorder === 'boolean' ? updated.pageBorder : child.pageBorder,
-                              pageBorderImageUrl: updated.pageBorderImageUrl ?? child.pageBorderImageUrl,
-                              pageBorderWidth: updated.pageBorderWidth !== undefined ? updated.pageBorderWidth : child.pageBorderWidth,
-                              pageBorderSlicePercent: updated.pageBorderSlicePercent !== undefined ? updated.pageBorderSlicePercent : child.pageBorderSlicePercent,
-                              backgroundImageUrl: updated.backgroundImageUrl !== undefined ? updated.backgroundImageUrl : child.backgroundImageUrl,
-                              hideTitle: typeof updated.hideTitle === 'boolean' ? updated.hideTitle : child.hideTitle,
-                              version: updated.version ?? child.version,
-                            };
-                          }),
-                        };
-                      })
-                    );
+                    const nextChapters = chapters.map((chapter) => {
+                      if (chapter.id !== parentChapter.id) return chapter;
+                      return {
+                        ...chapter,
+                        children: chapter.children.map((child) => {
+                          if (child.id !== editingChapter.id) return child;
+                          const html = updated.contentHtml ?? updated.content ?? child.content;
+                          return {
+                            ...child,
+                            title: updated.title ?? child.title,
+                            epigraph: updateData.hasOwnProperty('epigraph') ? updateData.epigraph : child.epigraph,
+                            content: html,
+                            contentHtml: updated.contentHtml ?? child.contentHtml,
+                            pageBorder: typeof updated.pageBorder === 'boolean' ? updated.pageBorder : child.pageBorder,
+                            pageBorderImageUrl: updated.pageBorderImageUrl ?? child.pageBorderImageUrl,
+                            pageBorderWidth: updated.pageBorderWidth !== undefined ? updated.pageBorderWidth : child.pageBorderWidth,
+                            pageBorderSlicePercent: updated.pageBorderSlicePercent !== undefined ? updated.pageBorderSlicePercent : child.pageBorderSlicePercent,
+                            backgroundImageUrl: updated.backgroundImageUrl !== undefined ? updated.backgroundImageUrl : child.backgroundImageUrl,
+                            hideTitle: typeof updated.hideTitle === 'boolean' ? updated.hideTitle : child.hideTitle,
+                            version: updated.version ?? child.version,
+                          };
+                        }),
+                      };
+                    });
+                    setChapters(nextChapters);
+                    ensureAcknowledgementsChapter(BOOK_ID, nextChapters).then((newCh) => {
+                      if (newCh) setChapters((prev) => [...prev, newCh]);
+                    }).catch(() => {});
                   } else {
                     const err = new Error('Parent chapter not found for subchapter.');
                     err.code = 'parent-not-found';
@@ -610,13 +652,15 @@ function App() {
                   pageBorderSlicePercent: payload.pageBorderSlicePercent ?? null,
                   version: 0,
                 };
-                setChapters((prev) =>
-                  prev.map((ch) =>
-                    ch.id === parentChapterForNewSub.id
-                      ? { ...ch, children: [...(ch.children || []), newSub] }
-                      : ch
-                  )
+                const nextChaptersWithSub = chapters.map((ch) =>
+                  ch.id === parentChapterForNewSub.id
+                    ? { ...ch, children: [...(ch.children || []), newSub] }
+                    : ch
                 );
+                setChapters(nextChaptersWithSub);
+                ensureAcknowledgementsChapter(BOOK_ID, nextChaptersWithSub).then((newCh) => {
+                  if (newCh) setChapters((prev) => [...prev, newCh]);
+                }).catch(() => {});
               } else {
                 const chapterRef = await addChapter(BOOK_ID, payload);
                 const newChapter = {
@@ -637,7 +681,11 @@ function App() {
                   fontFamily: payload.fontFamily ?? null,
                   version: 0,
                 };
-                setChapters((prev) => [...prev, newChapter]);
+                const nextChaptersWithNew = [...chapters, newChapter];
+                setChapters(nextChaptersWithNew);
+                ensureAcknowledgementsChapter(BOOK_ID, nextChaptersWithNew).then((newCh) => {
+                  if (newCh) setChapters((prev) => [...prev, newCh]);
+                }).catch(() => {});
               }
 
               // No refresh - we already updated local state for both edit and add

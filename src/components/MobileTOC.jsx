@@ -3,6 +3,7 @@ import { useEditorMode } from '../hooks/useEditorMode';
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { isAcknowledgementsChapter } from '../utils/footnotes';
 import './MobileTOC.css';
 
 export const MobileTOC = ({
@@ -310,6 +311,8 @@ export const MobileTOC = ({
               >
                 ✎
               </button>
+              {!isAcknowledgementsChapter(chapter) && (
+                <>
               <button
                 className="mobile-toc-btn-icon"
                 onClick={(e) => {
@@ -338,6 +341,8 @@ export const MobileTOC = ({
               >
                 ☰
               </span>
+                </>
+              )}
             </div>
           )}
           {pageNum && (
@@ -629,6 +634,8 @@ export const MobileTOC = ({
                       >
                         ✎
                       </button>
+                      {!isAcknowledgementsChapter(chapter) && (
+                        <>
                       <button
                         className="mobile-toc-btn-icon"
                         onClick={(e) => {
@@ -650,6 +657,8 @@ export const MobileTOC = ({
                         ×
                       </button>
                       <span className="mobile-toc-drag-handle-inline" title="Drag to reorder">☰</span>
+                        </>
+                      )}
                     </div>
                   )}
                   {/* Don't show page numbers for special pages */}

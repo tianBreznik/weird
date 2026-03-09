@@ -1,5 +1,4 @@
 import { renderFootnotesSection } from './footnotes';
-import { measureFootnotesHeight } from './paginationHelpers';
 
 /**
  * Remove empty paragraphs from the start of elements array
@@ -107,26 +106,21 @@ export const processFootnotesInContent = (content, footnoteContentToNumber, allF
  * for details about this intentional mismatch.
  */
 export const calculatePagePadding = (pageFootnotes, currentPageFootnotes, hasKaraoke, isStandaloneFirstPage, measure, allFootnotes, isDesktop, pageWidth) => {
-  // Footnotes are absolutely positioned at bottom of page-body
-  // Content needs padding-bottom to reserve space for footnotes OR bottom margin
-  const footnotesHeight = pageFootnotes.length > 0 
-    ? measureFootnotesHeight(currentPageFootnotes, measure.body, allFootnotes, isDesktop, pageWidth)
-    : 0;
+  // Footnotes section is hidden (display:none) on both mobile and desktop reader.
+  // Footnotes are revealed via title-attribute tooltip (desktop hover / mobile tap).
+  // The HTML is kept in the page only for PDF export. No padding reservation needed.
   
-  // Standard bottom margin when there are no footnotes (for consistent page spacing)
+  // Standard bottom margin (for consistent page spacing)
   // CRITICAL: ONLY standalone first page uses smaller bottom margin (20px) to allow text to sit lower
   // Regular text now uses 32px (same as karaoke) to fill pages more fully
-  const BOTTOM_MARGIN_NO_FOOTNOTES = isStandaloneFirstPage ? 20 : 32; // standalone first page: 20px, others: 32px (same as karaoke)
+  const BOTTOM_MARGIN_NO_FOOTNOTES = isStandaloneFirstPage ? 20 : 32;
   
   // Bottom margin for karaoke pages (same as regular text now)
-  const BOTTOM_MARGIN_KARAOKE = 32; // Same as regular text
+  const BOTTOM_MARGIN_KARAOKE = 32;
   
-  // Always wrap content with padding-bottom: either for footnotes or for bottom margin
-  // Use larger margin for karaoke pages
   const bottomMargin = hasKaraoke ? BOTTOM_MARGIN_KARAOKE : BOTTOM_MARGIN_NO_FOOTNOTES;
-  const reservedSpace = pageFootnotes.length > 0 ? footnotesHeight : bottomMargin;
   
-  return reservedSpace;
+  return bottomMargin;
 };
 
 /**

@@ -1559,25 +1559,35 @@
   text-decoration: underline;
 }
 
+/* Mobile footnote tooltip – matches native title-attribute tooltip appearance */
+.footnote-tooltip {
+  background: #e8e8e8;
+  color: #1a1a1a;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  padding: 0.25em 0.5em;
+  border-radius: 1.5px;
+  border: 1px solid rgba(0,0,0,0.12);
+  max-width: min(80vw, 300px);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  pointer-events: none;
+  word-wrap: break-word;
+}
+
+/* Footnotes section: only visible during PDF export; hidden on both mobile and desktop reader */
 .footnotes-section {
+  display: none;
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
   margin-top: 0;
   padding-top: 0;
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 2rem + 1rem); /* Account for browser bar on mobile + extra padding to lift footnotes up */
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 2rem + 1rem);
   margin-bottom: 0;
-  border-top: none; /* Remove border-top, we use .footnotes-divider instead */
-  background: inherit; /* Match page background */
-  z-index: 1; /* Ensure footnotes are above content if needed */
-}
-
-/* Desktop: hide permanent footnotes section; footnotes reveal via native title attribute on hover */
-@media (min-width: 769px) {
-  .pdf-viewer .footnotes-section {
-    display: none !important;
-  }
+  border-top: none;
+  background: inherit;
+  z-index: 1;
 }
 
 /* During PDF export, show footnotes so they appear in the generated PDF */

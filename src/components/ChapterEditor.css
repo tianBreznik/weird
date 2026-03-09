@@ -795,6 +795,42 @@
 
 .content-editor-wrapper .ProseMirror:focus { border: none; outline: none; }
 
+/* Acknowledgements chapter: content is read-only, show locked state */
+.content-editor-wrapper.content-editor-acknowledgements-locked {
+  pointer-events: none;
+  opacity: 0.85;
+  cursor: default;
+}
+
+/* Acknowledgements toolbar: all buttons visible but grayed out except Frame and Background */
+.editor-toolbar.acknowledgements-locked .toolbar-btn:disabled,
+.editor-toolbar.acknowledgements-locked .toolbar-font-family-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.editor-toolbar.acknowledgements-locked .toolbar-font-size:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* Frame (border) controls stay active – do not gray out anything inside .toolbar-border-controls */
+.editor-toolbar.acknowledgements-locked .toolbar-border-controls .toolbar-btn,
+.editor-toolbar.acknowledgements-locked .toolbar-border-controls .toolbar-border-dropdown {
+  opacity: 1;
+  cursor: pointer;
+}
+.editor-toolbar.acknowledgements-locked .toolbar-border-controls select.toolbar-border-dropdown {
+  cursor: pointer;
+}
+.editor-toolbar.acknowledgements-locked .color-group.toolbar-locked,
+.editor-toolbar.acknowledgements-locked .highlight-picker-container.toolbar-locked {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.editor-toolbar.acknowledgements-locked .highlight-overlay:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .content-editor-wrapper .ProseMirror img { max-width: 100%; height: auto; display: block; margin: 8px 0; }
 
 /* Exception: inline images should NOT be block */

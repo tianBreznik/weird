@@ -3309,59 +3309,89 @@ export const PageReader = ({
     };
   }, []);
 
-  // Handle footnote clicks - jump to acknowledgements chapter (mobile only; desktop uses native title attribute)
+  // Handle footnote taps on mobile: show tooltip with footnote content (same text as desktop title attribute)
   useEffect(() => {
+    let activeTooltip = null;
+    let dismissTimer = null;
+
+    const removeTooltip = () => {
+      if (dismissTimer) { clearTimeout(dismissTimer); dismissTimer = null; }
+      if (activeTooltip) {
+        activeTooltip.remove();
+        activeTooltip = null;
+      }
+    };
+
     const handleFootnoteClick = (e) => {
-      if (typeof window !== 'undefined' && window.innerWidth > 768) return; // Desktop: footnotes reveal via native title attribute on hover
-      // Skip when clicking karaoke - let karaoke handler process it
+      if (typeof window !== 'undefined' && window.innerWidth > 768) return;
       if (e.target.closest?.('.karaoke-slice') || e.target.closest?.('[data-karaoke-id]')) return;
-      
+
+      // Tap outside an open tooltip dismisses it
+      if (activeTooltip && !e.target.closest('.footnote-ref')) {
+        removeTooltip();
+        return;
+      }
+
       const footnoteRef = e.target.closest('.footnote-ref');
       if (!footnoteRef) return;
-      
+
       e.preventDefault();
       e.stopPropagation();
-      
-      const footnoteNumber = footnoteRef.getAttribute('data-footnote-number');
-      if (!footnoteNumber) return;
-      
-      // Find acknowledgements chapter (should be last chapter)
-      const acknowledgementsChapter = chapters.find(ch => 
-        ch.title.toLowerCase().includes('acknowledgement') || 
-        ch.title.toLowerCase().includes('zahvale')
-      );
-      
-      if (acknowledgementsChapter) {
-        // Jump to first page of acknowledgements chapter
-        const firstPage = pages.find(p => p.chapterId === acknowledgementsChapter.id && p.pageIndex === 0);
-        if (firstPage) {
-          jumpToPage(firstPage.chapterIndex, firstPage.pageIndex);
-        }
+
+      // If tapping the same footnote again, dismiss
+      if (activeTooltip && activeTooltip._fnRef === footnoteRef) {
+        removeTooltip();
+        return;
       }
+      removeTooltip();
+
+      const titleText = footnoteRef.getAttribute('title');
+      if (!titleText) return;
+
+      const tooltip = document.createElement('div');
+      tooltip.className = 'footnote-tooltip';
+      tooltip.textContent = titleText;
+      tooltip._fnRef = footnoteRef;
+
+      // Position above the footnote ref
+      const rect = footnoteRef.getBoundingClientRect();
+      tooltip.style.position = 'fixed';
+      tooltip.style.left = `${Math.max(12, Math.min(rect.left + rect.width / 2, window.innerWidth - 12))}px`;
+      tooltip.style.top = `${rect.top - 8}px`;
+      tooltip.style.transform = 'translate(-50%, -100%)';
+      tooltip.style.zIndex = '999999';
+
+      document.body.appendChild(tooltip);
+      activeTooltip = tooltip;
+
+      // Clamp horizontally so it doesn't overflow
+      requestAnimationFrame(() => {
+        if (!tooltip.parentNode) return;
+        const tr = tooltip.getBoundingClientRect();
+        if (tr.left < 8) tooltip.style.left = `${8 + tr.width / 2}px`;
+        if (tr.right > window.innerWidth - 8) tooltip.style.left = `${window.innerWidth - 8 - tr.width / 2}px`;
+      });
+
+      // Auto-dismiss after a few seconds, matching native title tooltip behaviour
+      dismissTimer = setTimeout(removeTooltip, 3000);
     };
-    
-    // Set up global click handler for footnotes
-    window.footnoteClickHandler = (footnoteNumber) => {
-      const acknowledgementsChapter = chapters.find(ch => 
-        ch.title.toLowerCase().includes('acknowledgement') || 
-        ch.title.toLowerCase().includes('zahvale')
-      );
-      
-      if (acknowledgementsChapter) {
-        const firstPage = pages.find(p => p.chapterId === acknowledgementsChapter.id && p.pageIndex === 0);
-        if (firstPage) {
-          jumpToPage(firstPage.chapterIndex, firstPage.pageIndex);
-        }
-      }
-    };
-    
+
+    // Global handler used by onclick attributes in rendered footnote HTML
+    window.footnoteClickHandler = () => {};
+
+    // Also dismiss on any touch move (e.g. swiping to next page)
+    const handleTouchMove = () => { if (activeTooltip) removeTooltip(); };
+
     document.addEventListener('click', handleFootnoteClick);
-    
+    document.addEventListener('touchmove', handleTouchMove, { passive: true });
+
     return () => {
+      removeTooltip();
       document.removeEventListener('click', handleFootnoteClick);
+      document.removeEventListener('touchmove', handleTouchMove);
       delete window.footnoteClickHandler;
     };
-  }, [chapters, pages, jumpToPage]);
+  }, []);
 
   // Cleanup karaoke controllers on unmount
   useEffect(() => {

@@ -5,6 +5,7 @@ import './Chapter.css';
 import { SortableSubchapters } from './SortableSubchapters';
 import { setBookmark } from '../utils/bookmark';
 import { IsolatedButton } from './IsolatedButton';
+import { isAcknowledgementsChapter } from '../utils/footnotes';
 
 const KARAOKE_DEBUG = true;
 
@@ -410,6 +411,7 @@ const initializeKaraokePlayer = (rootElement, karaokeData) => {
 export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumber = null, parentChapterId = null, onEdit, onAddSubchapter, onDelete, dragHandleProps, defaultExpandedChapterId }) => {
   const [isExpanded, setIsExpanded] = useState(chapter.id === defaultExpandedChapterId);
   const { isEditor } = useEditorMode();
+  const isAcknowledgements = isAcknowledgementsChapter(chapter);
   const contentRef = useRef(null);
   const headerRef = useRef(null);
   const [isMobile, setIsMobile] = useState(
@@ -764,18 +766,22 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
           <div className="chapter-actions-container" onClick={(e) => e.stopPropagation()}>
             <div className="chapter-actions-inline">
               <IsolatedButton label="Edit" variant="edit" onClick={() => onEdit(chapter)} />
-              {level === 0 && (
+              {level === 0 && !isAcknowledgements && (
                 <IsolatedButton label="Add" variant="add" onClick={() => onAddSubchapter(chapter)} />
               )}
-              <IsolatedButton
-                label="Del"
-                variant="delete"
-                onClick={() => onDelete(chapter.id, level > 0, level > 0 ? parentChapterId : null)}
-              />
+              {!isAcknowledgements && (
+                <IsolatedButton
+                  label="Del"
+                  variant="delete"
+                  onClick={() => onDelete(chapter.id, level > 0, level > 0 ? parentChapterId : null)}
+                />
+              )}
             </div>
-            <span {...(dragHandleProps || {})} style={{ userSelect: 'none' }} aria-label="Drag handle">
-              ⋮⋮
-            </span>
+            {level === 0 && !isAcknowledgements && (
+              <span {...(dragHandleProps || {})} style={{ userSelect: 'none' }} aria-label="Drag handle">
+                ⋮⋮
+              </span>
+            )}
           </div>
         )}
         {isEditor && isMobile && (
@@ -783,24 +789,28 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
             <button type="button" className="edit" onClick={() => onEdit(chapter)}>
               Edit
             </button>
-            <span className="separator">|</span>
-            {level === 0 && (
+            {!isAcknowledgements && (
               <>
-                <button type="button" className="add" onClick={() => onAddSubchapter(chapter)}>
-                  Add
-                </button>
                 <span className="separator">|</span>
+                {level === 0 && (
+                  <>
+                    <button type="button" className="add" onClick={() => onAddSubchapter(chapter)}>
+                      Add
+                    </button>
+                    <span className="separator">|</span>
+                  </>
+                )}
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() =>
+                    onDelete(chapter.id, level > 0, level > 0 ? parentChapterId : null)
+                  }
+                >
+                  Delete
+                </button>
               </>
             )}
-            <button
-              type="button"
-              className="danger"
-              onClick={() =>
-                onDelete(chapter.id, level > 0, level > 0 ? parentChapterId : null)
-              }
-            >
-              Delete
-            </button>
           </div>
         )}
       </div>

@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { getAllFootnotes } from '../utils/footnotes';
+import { getAllFootnotes, isAcknowledgementsChapter, generateAcknowledgementsContent } from '../utils/footnotes';
 import { createMeasureContainer } from '../utils/paginationHelpers';
 import { applyHyphenationToHTML } from '../utils/paginationHelpers';
 import { sortChapters, determineChapterIndex, createEmptyPage, createEpigraphPage, createVideoPage, extractBackgroundVideos } from '../utils/paginationHelpers';
@@ -85,8 +85,13 @@ export const usePagePagination = ({
       // Determine chapterIndex: use order field, or special indices for first page/cover
       const chapterIndex = determineChapterIndex(chapter, chapterIdx);
       
+      // Acknowledgements chapter: content is generated from all footnotes, not stored HTML
+      const effectiveChapter = isAcknowledgementsChapter(chapter)
+        ? { ...chapter, contentHtml: generateAcknowledgementsContent(allFootnotes), content: generateAcknowledgementsContent(allFootnotes) }
+        : chapter;
+      
       // Build content array: chapter content + all subchapter content
-      const contentBlocks = buildChapterContentBlocks(chapter);
+      const contentBlocks = buildChapterContentBlocks(effectiveChapter);
       
       // Check if chapter has field notes blocks (to hide title)
       const chapterHasFieldNotes = contentBlocks.some(block => 

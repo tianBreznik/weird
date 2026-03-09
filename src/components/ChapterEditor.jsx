@@ -16,7 +16,7 @@ import { FootnotePlugin } from '../extensions/footnotePlugin.js';
 import { CHAPTER_FONT_OPTIONS, DEFAULT_CHAPTER_FONT } from '../constants/chapterFonts';
 import './ChapterEditor.css';
 
-export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDelete }) => {
+export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapter = false, onSave, onCancel, onDelete }) => {
   const [epigraph, setEpigraph] = useState(chapter?.epigraph || null);
   const [content, setContent] = useState('');
   const [backgroundImageUrl, setBackgroundImageUrl] = useState(chapter?.backgroundImageUrl || '');
@@ -115,6 +115,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
   
   // TipTap editor instance - use default heading/paragraph behavior from StarterKit
   const editor = useEditor({
+    editable: !isAcknowledgementsChapter,
     extensions: [
       StarterKit.configure({
         hardBreak: {
@@ -195,6 +196,11 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
       handleScrollToSelection: () => true,
     },
   });
+
+  // Keep editor read-only when editing the acknowledgements chapter
+  useEffect(() => {
+    if (editor) editor.setEditable(!isAcknowledgementsChapter);
+  }, [editor, isAcknowledgementsChapter]);
 
   const applyKaraokeEditorMarkers = () => {
     // TipTap handles karaoke blocks via custom node, so this may not be needed
@@ -1232,22 +1238,25 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
     const currentContent = editor ? editor.getHTML() : '';
     const extractedTitle = extractTitleFromContent(currentContent);
     
-    // Validate that title exists (skip validation for special pages: first page and cover page)
+    // Validate that title exists (skip for special pages and for acknowledgements chapter)
     const isSpecialPage = chapter?.isFirstPage || chapter?.isCover;
-    if (!extractedTitle.trim() && !isSpecialPage) {
+    if (!extractedTitle.trim() && !isSpecialPage && !isAcknowledgementsChapter) {
       alert('Prosimo, dodajte naslov poglavja z gumbom "Naslov" v orodni vrstici.');
       setSaving(false);
       return;
     }
     
     // For special pages, use the chapter title if no title is extracted from content
-    const titleToSave = extractedTitle.trim() || (isSpecialPage ? (chapter?.title || '') : '');
+    // For acknowledgements chapter, always keep the existing title (content is generated)
+    const titleToSave = isAcknowledgementsChapter
+      ? (chapter?.title || 'Acknowledgements')
+      : (extractedTitle.trim() || (isSpecialPage ? (chapter?.title || '') : ''));
     
     try {
       await onSave({
         title: titleToSave,
         epigraph: parentChapter ? null : epigraph, // Full-page epigraph is chapter-only
-        contentHtml: currentContent,
+        contentHtml: isAcknowledgementsChapter ? (chapter?.contentHtml ?? '') : currentContent, // Acknowledgements content is generated, do not overwrite
         version: entityVersion,
         backgroundImageUrl: backgroundImageUrl || null,
         pageBorder: !!(pageBorderImageUrl),
@@ -2482,13 +2491,14 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
         
         <div className="editor-content">
           <div className="page-frame">
-            <div className="editor-toolbar attached">
+            <div className={`editor-toolbar attached${isAcknowledgementsChapter ? ' acknowledgements-locked' : ''}`}>
               <div className="toolbar-buttons">
                 <button
                   className={`toolbar-btn ${activeFormats.isHeading ? 'active' : ''}`}
                   type="button"
                   onClick={handleTitleButtonClick}
                   title={activeFormats.isHeading ? "Pretvori v odstavek" : "Naslov poglavja"}
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span style={{ fontWeight: 'bold', fontSize: '1.1em' }}>
                     {activeFormats.isHeading ? 'T' : 'p'}
@@ -2499,6 +2509,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applyLineBreak}
                   className="toolbar-btn"
                   title="Prelom vrstice (Shift+Enter)"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span style={{ fontSize: '0.9em' }}>↵</span>
                 </button>
@@ -2507,6 +2518,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applyBold}
                   className={`toolbar-btn ${activeFormats.bold ? 'active' : ''}`}
                   title="Krepko"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <strong>B</strong>
                 </button>
@@ -2515,6 +2527,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applyItalic}
                   className={`toolbar-btn ${activeFormats.italic ? 'active' : ''}`}
                   title="Ležeče"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <em>I</em>
                 </button>
@@ -2523,6 +2536,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applyStrikethrough}
                   className={`toolbar-btn ${activeFormats.strikethrough ? 'active' : ''}`}
                   title="Prečrtano"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span style={{textDecoration: 'line-through'}}>S</span>
                 </button>
@@ -2531,6 +2545,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applyUnderline}
                   className={`toolbar-btn ${activeFormats.underline ? 'active' : ''}`}
                   title="Podčrtano"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span style={{textDecoration: 'underline'}}>U</span>
                 </button>
@@ -2544,6 +2559,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   }}
                   className="toolbar-font-size"
                   title="Velikost pisave"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <option value="default">Default</option>
                   <option value="10">10</option>
@@ -2566,8 +2582,9 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                       ref={fontTriggerRef}
                       type="button"
                       className={`toolbar-font-family-trigger ${fontDropdownOpen ? 'open' : ''}`}
-                      onClick={() => setFontDropdownOpen((o) => !o)}
+                      onClick={() => !isAcknowledgementsChapter && setFontDropdownOpen((o) => !o)}
                       title="Pisava poglavja (podpoglavja podedujejo)"
+                      disabled={isAcknowledgementsChapter}
                       style={{
                         fontFamily: (CHAPTER_FONT_OPTIONS.find((o) => o.value === (fontFamily ?? DEFAULT_CHAPTER_FONT)) || CHAPTER_FONT_OPTIONS[0]).value,
                       }}
@@ -2607,7 +2624,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                     )}
                   </div>
                 )}
-                {/* Border controls container */}
+                {/* Border controls container - always shown for chapters (incl. acknowledgements) */}
                 <div className="toolbar-border-controls">
                   {/* Upload border image for this chapter/subchapter */}
                   <button
@@ -2688,7 +2705,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={handleImageButtonClick}
                   className={`toolbar-btn ${uploadingImage ? 'uploading' : ''}`}
                   title={uploadingImage ? "Nalaganje slike..." : "Vstavi sliko"}
-                  disabled={uploadingImage}
+                  disabled={uploadingImage || isAcknowledgementsChapter}
                   style={uploadingImage ? {
                     '--upload-progress': `${imageUploadProgress}%`
                   } : {}}
@@ -2696,23 +2713,21 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   <span className="toolbar-btn-icon">🖼</span>
                   {uploadingImage && <div className="toolbar-btn-progress" />}
                 </button>
-                <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageSelected} style={{ display: 'none' }} disabled={uploadingImage} />
+                <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageSelected} style={{ display: 'none' }} disabled={uploadingImage || isAcknowledgementsChapter} />
                 <button
                   onClick={() => inlineImageInputRef.current?.click()}
                   className={`toolbar-btn ${uploadingImage ? 'uploading' : ''}`}
                   title={uploadingImage ? "Nalaganje..." : "Vstavi vrstno sliko (teče z besedilom)"}
-                  disabled={uploadingImage}
+                  disabled={uploadingImage || isAcknowledgementsChapter}
                 >
                   <span className="toolbar-btn-icon">📎</span>
                   {uploadingImage && <div className="toolbar-btn-progress" />}
                 </button>
-                <input ref={inlineImageInputRef} type="file" accept="image/*" onChange={handleInlineImageSelected} style={{ display: 'none' }} disabled={uploadingImage} />
+                <input ref={inlineImageInputRef} type="file" accept="image/*" onChange={handleInlineImageSelected} style={{ display: 'none' }} disabled={uploadingImage || isAcknowledgementsChapter} />
                 <button
                   onClick={() => {
-                    // Disable editor and blur it before opening dialog
-                    if (editor) {
-                      editor.commands.blur();
-                    }
+                    if (isAcknowledgementsChapter) return;
+                    if (editor) editor.commands.blur();
                     setShowKaraokeDialog(true);
                     setKaraokeText('');
                     setKaraokeAudioFile(null);
@@ -2722,6 +2737,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   }}
                   className="toolbar-btn karaoke-btn"
                   title="Vstavi karaoke"
+                  disabled={isAcknowledgementsChapter}
                 >
                   🎤
                 </button>
@@ -2733,7 +2749,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   }}
                   className={`toolbar-btn ${uploadingFieldNotes ? 'uploading' : ''}`}
                   title={uploadingFieldNotes ? "Nalaganje..." : "Vstavi zapiske s polja (skenirane strani)"}
-                  disabled={uploadingFieldNotes}
+                  disabled={uploadingFieldNotes || isAcknowledgementsChapter}
                 >
                   <span className="toolbar-btn-icon">📝</span>
                   {uploadingFieldNotes && <div className="toolbar-btn-progress" />}
@@ -2754,10 +2770,11 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                     e.target.value = '';
                   }} 
                   style={{ display: 'none' }} 
-                  disabled={uploadingFieldNotes} 
+                  disabled={uploadingFieldNotes || isAcknowledgementsChapter} 
                 />
                 <button
                   onClick={() => {
+                    if (isAcknowledgementsChapter) return;
                     if (!editor) {
                       alert('Editor not available');
                       return;
@@ -2829,6 +2846,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   }}
                   className="toolbar-btn"
                   title="Prenesi JSON časovnih oznak"
+                  disabled={isAcknowledgementsChapter}
                 >
                   ⬇️
                 </button>
@@ -2836,7 +2854,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={handleVideoButtonClick}
                   className={`toolbar-btn ${uploadingVideo ? 'uploading' : ''}`}
                   title={uploadingVideo ? "Nalaganje video..." : "Vstavi video"}
-                  disabled={uploadingVideo}
+                  disabled={uploadingVideo || isAcknowledgementsChapter}
                   style={uploadingVideo ? {
                     '--upload-progress': `${videoUploadProgress}%`
                   } : {}}
@@ -2844,17 +2862,17 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   <span className="toolbar-btn-icon">🎥</span>
                   {uploadingVideo && <div className="toolbar-btn-progress" />}
                 </button>
-                <input ref={videoFileInputRef} type="file" accept="video/*" onChange={handleVideoFileSelected} style={{ display: 'none' }} disabled={uploadingVideo} />
+                <input ref={videoFileInputRef} type="file" accept="video/*" onChange={handleVideoFileSelected} style={{ display: 'none' }} disabled={uploadingVideo || isAcknowledgementsChapter} />
                 <button
                   onClick={() => {
-                    if (editor) {
-                      editor.commands.blur();
-                    }
+                    if (isAcknowledgementsChapter) return;
+                    if (editor) editor.commands.blur();
                     setBackgroundVideoDraft({ targetPage: 1 });
                     setShowBackgroundVideoDialog(true);
                   }}
                   className="toolbar-btn"
                   title="Vstavi ozadje video"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span className="toolbar-btn-icon">🎬</span>
                 </button>
@@ -2888,11 +2906,12 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={handleInsertFootnote}
                   className="toolbar-btn"
                   title="Vstavi opombo"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <sup>¹</sup>
                 </button>
                 {/* Text color picker (no button) */}
-                <div className="color-group">
+                <div className={`color-group${isAcknowledgementsChapter ? ' toolbar-locked' : ''}`}>
                   <input
                     ref={colorInputRef}
                     type="color"
@@ -2900,10 +2919,11 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                     onChange={handleTextColorChange}
                     className="color-input"
                     title="Barva besedila"
+                    disabled={isAcknowledgementsChapter}
                   />
                 </div>
                 {/* Highlight H-swatch: state-driven swatch so it always shows current cursor highlight (native input doesn't repaint on programmatic value change) */}
-                <div className="highlight-picker-container" title="Označi (klikni za uporabo, Alt+klik za brisanje)">
+                <div className={`highlight-picker-container${isAcknowledgementsChapter ? ' toolbar-locked' : ''}`} title="Označi (klikni za uporabo, Alt+klik za brisanje)">
                   <div
                     className="highlight-swatch"
                     style={{ backgroundColor: highlightColor }}
@@ -2915,14 +2935,16 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                     value={highlightColor}
                     onChange={handleHighlightColorChange}
                     className="highlight-picker"
+                    disabled={isAcknowledgementsChapter}
                   />
-                  <button className="highlight-overlay" style={{ color: textColor }} onMouseDown={(e)=>e.preventDefault()} onClick={handleApplyHighlightClick}>H</button>
+                  <button type="button" className="highlight-overlay" style={{ color: textColor }} onMouseDown={(e)=>e.preventDefault()} onClick={handleApplyHighlightClick} disabled={isAcknowledgementsChapter}>H</button>
                 </div>
                 <span className="toolbar-sep" />
                 <button 
                   onClick={alignLeft}
                   className={`toolbar-btn ${activeFormats.alignLeft ? 'active' : ''}`}
                   title="Poravnaj levo"
+                  disabled={isAcknowledgementsChapter}
                 >
                   ⬑
                 </button>
@@ -2930,6 +2952,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={alignCenter}
                   className={`toolbar-btn ${activeFormats.alignCenter ? 'active' : ''}`}
                   title="Poravnaj na sredino"
+                  disabled={isAcknowledgementsChapter}
                 >
                   ≡
                 </button>
@@ -2937,6 +2960,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={alignRight}
                   className={`toolbar-btn ${activeFormats.alignRight ? 'active' : ''}`}
                   title="Poravnaj desno"
+                  disabled={isAcknowledgementsChapter}
                 >
                   ⬏
                 </button>
@@ -2944,6 +2968,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={alignJustify}
                   className={`toolbar-btn ${activeFormats.alignJustify ? 'active' : ''}`}
                   title="Poravnaj obojestransko"
+                  disabled={isAcknowledgementsChapter}
                 >
                   ☰
                 </button>
@@ -2955,6 +2980,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                       onClick={applyImageAlignLeft}
                       className={`toolbar-btn ${activeFormats.imageAlignLeft ? 'active' : ''}`}
                       title="Slika: Poravnaj levo (besedilo se ovije desno)"
+                      disabled={isAcknowledgementsChapter}
                     >
                       ⬅️
                     </button>
@@ -2962,6 +2988,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                       onClick={applyImageAlignCenter}
                       className={`toolbar-btn ${activeFormats.imageAlignCenter ? 'active' : ''}`}
                       title="Slika: Sredina (brez ovijanja)"
+                      disabled={isAcknowledgementsChapter}
                     >
                       ⬆️
                     </button>
@@ -2969,6 +2996,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                       onClick={applyImageAlignRight}
                       className={`toolbar-btn ${activeFormats.imageAlignRight ? 'active' : ''}`}
                       title="Slika: Poravnaj desno (besedilo se ovije levo)"
+                      disabled={isAcknowledgementsChapter}
                     >
                       ➡️
                     </button>
@@ -2979,6 +3007,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applyBlockquote}
                   className={`toolbar-btn ${activeFormats.blockquote ? 'active' : ''}`}
                   title="Citat"
+                  disabled={isAcknowledgementsChapter}
                 >
                   "
                 </button>
@@ -2986,6 +3015,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applySubscript}
                   className={`toolbar-btn ${activeFormats.subscript ? 'active' : ''}`}
                   title="Podpisano"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span style={{ fontSize: '0.9em' }}>x₂</span>
                 </button>
@@ -2993,6 +3023,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applySuperscript}
                   className={`toolbar-btn ${activeFormats.superscript ? 'active' : ''}`}
                   title="Nadpisano"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span style={{ fontSize: '0.9em' }}>x²</span>
                 </button>
@@ -3000,6 +3031,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applyIndent}
                   className="toolbar-btn"
                   title="Zamik"
+                  disabled={isAcknowledgementsChapter}
                 >
                   →
                 </button>
@@ -3007,6 +3039,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applyOutdent}
                   className="toolbar-btn"
                   title="Zmanjšaj zamik"
+                  disabled={isAcknowledgementsChapter}
                 >
                   ←
                 </button>
@@ -3014,6 +3047,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applyIntroParagraph}
                   className={`toolbar-btn ${activeFormats.introParagraph ? 'active' : ''}`}
                   title="Slog uvodnega odstavka"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span style={{ fontStyle: 'italic', fontSize: '1.1em' }}>¶</span>
                 </button>
@@ -3021,6 +3055,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applyWhisperParagraph}
                   className={`toolbar-btn ${activeFormats.whisperParagraph ? 'active' : ''}`}
                   title="Slog odstavka šepet / ob strani"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span style={{ fontSize: '0.95em', color: '#777' }}>¶</span>
                 </button>
@@ -3028,6 +3063,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={openParagraphEpigraphDialog}
                   className={`toolbar-btn ${(editor?.isActive('paragraphEpigraph') || activeFormats.epigraphParagraph) ? 'active' : ''}`}
                   title="Odstavek epigraf (citat + avtor)"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span style={{ fontStyle: 'italic' }}>"</span>
                 </button>
@@ -3035,6 +3071,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applyPoetry}
                   className={`toolbar-btn ${editor?.isActive('poetry') ? 'active' : ''}`}
                   title="Poetry formatting"
+                  disabled={isAcknowledgementsChapter}
                 >
                   📜
                 </button>
@@ -3042,6 +3079,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applyDinkus}
                   className="toolbar-btn"
                   title="Dinkus (section separator)"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span style={{ fontSize: '0.9em', letterSpacing: '0.1em' }}>* * *</span>
                 </button>
@@ -3049,10 +3087,10 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={applyDropCap}
                   className={`toolbar-btn ${activeFormats.dropCap ? 'active' : ''}`}
                   title="Velika začetnica"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span style={{ fontSize: '1.5em', lineHeight: '0.8' }}>A</span>
                 </button>
-                
               </div>
               <div className="toolbar-actions">
                 {!parentChapter && (
@@ -3060,6 +3098,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   className={`toolbar-btn epigraph-btn ${epigraph && (typeof epigraph === 'object' ? (epigraph.text || '').trim() : String(epigraph).trim()) ? 'active' : ''}`}
                   type="button"
                   onClick={() => {
+                    if (isAcknowledgementsChapter) return;
                     const current = epigraph && typeof epigraph === 'object'
                       ? epigraph
                       : { text: '', author: '', align: 'center' };
@@ -3071,6 +3110,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                     setShowEpigraphDialog(true);
                   }}
                   title="Epigraf poglavja"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span className="toolbar-btn-icon">✶</span>
                 </button>
@@ -3080,6 +3120,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={handleLinkButtonClick}
                   className={`toolbar-btn ${activeFormats.link ? 'active' : ''}`}
                   title="Povezava"
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span style={{textDecoration: 'none'}}>🔗</span>
                 </button>
@@ -3088,10 +3129,11 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                   onClick={() => setHideTitle(!hideTitle)}
                   className={`toolbar-btn ${hideTitle ? 'active' : ''}`}
                   title={hideTitle ? "Prikaži naslov" : "Skrij naslov"}
+                  disabled={isAcknowledgementsChapter}
                 >
                   <span>🫥</span>
                 </button>
-                {/* Chapter-level background image (used as full-bleed background in reader) */}
+                {/* Chapter-level background image (used as full-bleed background in reader) - shown for acknowledgements too */}
                 {!parentChapter && (
                   <button
                     type="button"
@@ -3178,6 +3220,7 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                 />
               </div>
             )}
+            {!isAcknowledgementsChapter && (
             <div className="ruler">
               <div className="ruler-track">
                 {Array.from({ length: 24 }).map((_, i) => (
@@ -3185,9 +3228,10 @@ export const ChapterEditor = ({ chapter, parentChapter, onSave, onCancel, onDele
                 ))}
               </div>
             </div>
+            )}
             {!showKaraokeDialog && editor && (
               <SimpleBar
-                className={`content-editor-wrapper ${effectiveEditorFont ? 'content-editor-has-font' : ''} ${editorHasSelection ? 'has-selection' : ''}`}
+                className={`content-editor-wrapper ${effectiveEditorFont ? 'content-editor-has-font' : ''} ${editorHasSelection ? 'has-selection' : ''} ${isAcknowledgementsChapter ? 'content-editor-acknowledgements-locked' : ''}`}
                 style={{
                   flex: 1,
                   minHeight: 0,

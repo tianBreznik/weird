@@ -3,6 +3,7 @@ import { useEditorMode } from '../hooks/useEditorMode';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { isAcknowledgementsChapter } from '../utils/footnotes';
 import './DesktopTOC.css';
 
 export const DesktopTOC = ({
@@ -176,34 +177,38 @@ export const DesktopTOC = ({
               >
                 ✎
               </button>
-              <button
-                className="desktop-toc-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAddSubchapter(chapter);
-                }}
-                title="Add subchapter"
-              >
-                +
-              </button>
-              <button
-                className="desktop-toc-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteChapter(chapter.id);
-                }}
-                title="Delete"
-              >
-                ×
-              </button>
-              <span 
-                className="desktop-toc-drag-handle" 
-                title="Drag to reorder"
-                {...attributes}
-                {...listeners}
-              >
-                ☰
-              </span>
+              {!isAcknowledgementsChapter(chapter) && (
+                <>
+                  <button
+                    className="desktop-toc-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAddSubchapter(chapter);
+                    }}
+                    title="Add subchapter"
+                  >
+                    +
+                  </button>
+                  <button
+                    className="desktop-toc-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteChapter(chapter.id);
+                    }}
+                    title="Delete"
+                  >
+                    ×
+                  </button>
+                  <span 
+                    className="desktop-toc-drag-handle" 
+                    title="Drag to reorder"
+                    {...attributes}
+                    {...listeners}
+                  >
+                    ☰
+                  </span>
+                </>
+              )}
             </div>
           )}
           {pageNum && (
@@ -407,6 +412,8 @@ export const DesktopTOC = ({
                       >
                         ✎
                       </button>
+                      {!isAcknowledgementsChapter(chapter) && (
+                        <>
                       <button
                         className="desktop-toc-btn"
                         onClick={(e) => {
@@ -427,6 +434,8 @@ export const DesktopTOC = ({
                       >
                         ×
                       </button>
+                        </>
+                      )}
                     </div>
                   )}
                   {pageNum && (

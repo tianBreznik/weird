@@ -75,6 +75,20 @@ export const parseFootnotes = (content) => {
 };
 
 /**
+ * Check if a chapter is the auto-generated acknowledgements chapter (by title).
+ * Used so we can generate its content from all footnotes and so we don't create duplicates.
+ */
+export const isAcknowledgementsChapter = (chapter) => {
+  if (!chapter) return false;
+  const raw = chapter.title != null ? String(chapter.title).trim() : '';
+  if (!raw) return false;
+  const t = raw.toLowerCase();
+  return t === 'acknowledgements' || t.includes('acknowledgement') || t.includes('zahvale');
+};
+
+export const ACKNOWLEDGEMENTS_CHAPTER_TITLE = 'Acknowledgements';
+
+/**
  * Get all footnotes from all chapters for global numbering
  * @param {Array} chapters - Array of chapter objects with content
  * @returns {Array} - Array of footnotes with global numbering
@@ -204,42 +218,16 @@ export const generateAcknowledgementsContent = (allFootnotes) => {
     return '<p>No acknowledgements.</p>';
   }
   
-  // Group by chapter for better organization
-  const byChapter = {};
-  allFootnotes.forEach((fn) => {
-    const key = fn.subchapterId 
-      ? `${fn.chapterId}-${fn.subchapterId}`
-      : fn.chapterId;
-    if (!byChapter[key]) {
-      byChapter[key] = {
-        chapterTitle: fn.chapterTitle,
-        subchapterTitle: fn.subchapterTitle,
-        footnotes: [],
-      };
-    }
-    byChapter[key].footnotes.push(fn);
-  });
-  
   let html = '<div class="acknowledgements-content">';
+  html += `<h2 class="acknowledgements-page-title">${ACKNOWLEDGEMENTS_CHAPTER_TITLE}</h2>`;
   
-  Object.values(byChapter).forEach((group) => {
-    html += `<div class="acknowledgements-section">`;
-    html += `<h3 class="acknowledgements-chapter-title">${group.chapterTitle}`;
-    if (group.subchapterTitle) {
-      html += `: ${group.subchapterTitle}`;
-    }
-    html += `</h3>`;
-    
-    group.footnotes.forEach((fn) => {
-      html += `
-        <div class="acknowledgement-item">
-          <span class="acknowledgement-number">${fn.globalNumber}.</span>
-          <span class="acknowledgement-content">${fn.content}</span>
-        </div>
-      `;
-    });
-    
-    html += `</div>`;
+  allFootnotes.forEach((fn) => {
+    html += `
+      <div class="acknowledgement-item">
+        <span class="acknowledgement-number">${fn.globalNumber}.</span>
+        <span class="acknowledgement-content">${fn.content}</span>
+      </div>
+    `;
   });
   
   html += '</div>';
