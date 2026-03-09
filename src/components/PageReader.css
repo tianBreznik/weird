@@ -495,7 +495,7 @@
   max-width: 100%;              /* Ensure paragraphs don't overflow container */
   box-sizing: border-box;       /* Include padding in width calculation */
   font-family: 'Times New Roman', 'Times', 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif !important; /* Explicit font for paragraphs */
-  /* Subtle text shadow for grainy/furry typewriter aesthetic - mobile only */
+  text-shadow: 0 0 1.2px rgba(0, 0, 0, 0.3), 0 0.2px 0.8px rgba(0, 0, 0, 0.2);
 }
 
 /* Karaoke paragraphs should also be justified, but disable hyphenation to preserve highlighting */
