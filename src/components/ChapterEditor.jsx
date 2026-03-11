@@ -1092,35 +1092,31 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
     };
   }, [content, chapter?.id, parentChapter?.id]);
 
-  // Sync toolbar with selection changes
+  // Sync toolbar with selection changes (event-driven instead of continuous polling)
   useEffect(() => {
     if (!editor) return;
 
-    let rafId;
-    const pollSelection = () => {
+    const handleSelectionUpdate = () => {
       try {
-        const { state } = editor;
-        const { from, to } = state.selection || {};
+        const { from, to } = editor.state.selection || {};
         const last = lastSelectionRef.current;
+        if (from === last.from && to === last.to) return;
 
-        if (from !== last.from || to !== last.to) {
-          lastSelectionRef.current = { from, to };
-          // Always refresh toolbar state when selection changes
-          // userChangedColorRef only prevents text color updates, not highlight color
-          refreshToolbarState();
-        }
+        lastSelectionRef.current = { from, to };
+        refreshToolbarState();
       } catch (e) {}
-      rafId = window.requestAnimationFrame(pollSelection);
     };
 
-    rafId = window.requestAnimationFrame(pollSelection);
+    // Use TipTap's event system instead of a requestAnimationFrame loop
+    editor.on('selectionUpdate', handleSelectionUpdate);
+
+    // Run once on mount so toolbar matches initial selection
+    handleSelectionUpdate();
 
     return () => {
-      if (rafId) {
-        window.cancelAnimationFrame(rafId);
-      }
+      editor.off('selectionUpdate', handleSelectionUpdate);
     };
-  }, [editor]);
+  }, [editor, refreshToolbarState]);
 
   // Close font dropdown when clicking outside (trigger or portal dropdown)
   useEffect(() => {
