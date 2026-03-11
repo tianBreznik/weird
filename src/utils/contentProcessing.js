@@ -123,7 +123,9 @@ export const processHTMLContent = async (htmlContent, isDesktop) => {
   document.body.appendChild(tempContainer);
   
   const contentDiv = document.createElement('div');
-  contentDiv.className = 'chapter-content';
+  // Use both chapter-content and page-content classes so measurements
+  // see the exact same image/paragraph CSS as the real reader.
+  contentDiv.className = 'chapter-content page-content';
   contentDiv.style.fontFamily = "'Times New Roman', 'Times', 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif";
   contentDiv.style.fontSize = isDesktop ? '1.3rem' : '1.3rem';
   contentDiv.style.lineHeight = isDesktop ? '1.35' : '1.35';
@@ -138,10 +140,22 @@ export const processHTMLContent = async (htmlContent, isDesktop) => {
     img.setAttribute('decoding', 'async');
   });
   
-  // Wait for images to load
+  // Wait for images to load so height measurements are accurate
   await waitForImagesToLoad(contentDiv);
   
   const elements = Array.from(contentDiv.children);
+
+  // Cache measured heights on each element before detaching from DOM
+  elements.forEach((el, index) => {
+    try {
+      const h = el.getBoundingClientRect ? el.getBoundingClientRect().height : el.offsetHeight;
+      if (h && h > 0) {
+        el.dataset.measuredHeight = String(h);
+      }
+    } catch (e) {
+      // ignore measurement errors
+    }
+  });
   
   // Cleanup
   document.body.removeChild(tempContainer);

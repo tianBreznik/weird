@@ -476,6 +476,13 @@ export const PageReader = ({
   const swipeInProgressRef = useRef(false);
   const [karaokeSources, setKaraokeSources] = useState({});
   const karaokeSourcesRef = useRef({});
+
+  // Optional pagination debug overlay controlled via ?debug=pagination
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const enabled = window.location.search.includes('debug=pagination');
+    document.body.classList.toggle('debug-pagination', enabled);
+  }, []);
   useEffect(() => {
     karaokeSourcesRef.current = karaokeSources;
   }, [karaokeSources]);

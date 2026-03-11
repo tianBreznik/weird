@@ -1075,6 +1075,26 @@
   clear: none !important;
 }
 
+/* ============================================================
+   Pagination debug overlay (enabled via ?debug=pagination)
+   ============================================================ */
+
+/* Outline top-level content blocks on a page */
+body.debug-pagination .page-content-main > p,
+body.debug-pagination .page-content-main > img,
+body.debug-pagination .page-content-main > blockquote,
+body.debug-pagination .page-content-main > div,
+body.debug-pagination .page-content-main > ul,
+body.debug-pagination .page-content-main > ol {
+  outline: 1px solid rgba(0, 120, 255, 0.6);
+  background-color: rgba(0, 120, 255, 0.04);
+}
+
+/* Highlight page content area with a red border */
+body.debug-pagination .page-sheet .page-body {
+  box-shadow: inset 0 0 0 2px rgba(220, 20, 60, 0.7);
+}
+
 /* Clear floats after images to prevent layout issues */
 .page-content::after {
   content: "";

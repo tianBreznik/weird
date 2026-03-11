@@ -446,32 +446,66 @@ export const paginateElement = ({
     applyParagraphStylesToContainer: applyWithFont
   });
   
-  // Subchapter diagnostics: log key values when processing subchapter content
-  if (isDesktop && block.type === 'subchapter') {
-    const tag = element.tagName?.toLowerCase() || '?';
-    const textPreview = (element.textContent || '').substring(0, 60) + ((element.textContent?.length || 0) > 60 ? '...' : '');
-    // Measure element height using same structure as checkElementFits/calculateRemainingHeight
-    const tempElOnly = document.createElement('div');
-    tempElOnly.style.width = contentWidth + 'px';
-    const measureParent = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
-    measureParent.appendChild(tempElOnly);
-    const elOnlyWrapper = document.createElement('div');
-    elOnlyWrapper.className = 'page-content-main';
-    const tempInner = document.createElement('div');
-    tempInner.innerHTML = element.outerHTML;
-    elOnlyWrapper.appendChild(tempInner.firstElementChild || tempInner);
-    applyWithFont(elOnlyWrapper, isDesktop);
-    tempElOnly.appendChild(elOnlyWrapper);
-    const elementOnlyHeight = tempElOnly.offsetHeight;
-    measureParent.removeChild(tempElOnly);
+  // DEV: detailed logging for pagination debugging when ?debug=pagination is present.
+  // This does not affect behavior; it only writes to console.
+  try {
+    if (typeof window !== 'undefined' && window.location.search.includes('debug=pagination')) {
+      const totalAvailableHeight = contentAvailableHeight + (finalReservedSpace || 0);
+      const tag = element.tagName?.toLowerCase() || 'unknown';
+      // Show only first 80 chars of text to keep logs readable
+      const textPreview = (element.textContent || '').trim().slice(0, 80);
+      // Best-effort height of the original element in the measurement container
+      let elementHeight = 0;
+      try {
+        if (element.getBoundingClientRect) {
+          elementHeight = element.getBoundingClientRect().height;
+        } else if (typeof element.offsetHeight === 'number') {
+          elementHeight = element.offsetHeight;
+        }
+      } catch (e) {}
+      // eslint-disable-next-line no-console
+      console.log('[PAGINATION]', {
+        tag,
+        textPreview,
+        elementIndex,
+        elementsLength,
+        isDesktop,
+        contentAvailableHeight,
+        finalReservedSpace,
+        totalAvailableHeight,
+        totalContentHeight,
+        remainingContentHeight,
+        elementFits,
+        elementHeight,
+      });
+    }
+  } catch (e) {
+    // ignore logging errors
   }
   
   // STEP 4: Handle element based on whether it fits and if it can be split
   if (isAtomicElement(element)) {
     // Atomic elements (images, videos, headings, karaoke): cannot be split
+    // For block images, prefer the height we measured earlier in processHTMLContent
+    // (stored on data-measured-height) over any fresh DOM measurements, because the
+    // element is now detached from the DOM and getBoundingClientRect() will be 0.
+    let effectiveElementFits = elementFits;
+    const tagName = element.tagName?.toLowerCase();
+    const isBlockImage =
+      tagName === 'img' && element.getAttribute('data-inline') !== 'true';
+    if (isBlockImage) {
+      const measured = element.dataset && element.dataset.measuredHeight
+        ? parseFloat(element.dataset.measuredHeight)
+        : 0;
+      if (measured && measured > 0) {
+        const IMAGE_BUFFER = 8; // px breathing room
+        effectiveElementFits = remainingContentHeight >= (measured + IMAGE_BUFFER);
+      }
+    }
+
     handleAtomicElement({
       element,
-      elementFits,
+      elementFits: effectiveElementFits,
       elementFootnotes,
       isHeadingElement,
       currentPageElements,
