@@ -440,6 +440,7 @@ const assignLetterTimingsToChars = (text, wordTimings = []) => {
  * Splits content into pages based on actual content height and handles navigation
  */
 export const PageReader = ({ 
+  bookId,
   chapters, 
   isEditor,
   onAddStickyNoteForPage,
@@ -3488,6 +3489,7 @@ export const PageReader = ({
           }}
         />
         <DesktopPageReader 
+          bookId={bookId}
           pages={pages} 
           karaokeSources={karaokeSources}
           chapters={chapters}

@@ -6,7 +6,13 @@ export default defineConfig({
   plugins: [react()],
   base: '/', // Use root path for custom domain
   server: {
-    host: true
+    host: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
   },
   build: {
     target: 'es2015', // Target ES2015 for better Safari compatibility

@@ -1558,6 +1558,19 @@ body.debug-pagination .page-sheet .page-body {
   }
 }
 
+/* PDF export: karaoke as plain text only – no fade, no yellow highlights */
+[data-pdf-export='true'] .karaoke-slice,
+[data-pdf-export='true'] .karaoke-player {
+  opacity: 1 !important;
+  animation: none !important;
+}
+[data-pdf-export='true'] .karaoke-slice .karaoke-char::after,
+[data-pdf-export='true'] .karaoke-player .karaoke-char::after,
+[data-pdf-export='true'] .karaoke-slice .karaoke-word::after,
+[data-pdf-export='true'] .karaoke-player .karaoke-word::after {
+  opacity: 0 !important; /* hide yellow highlight overlay; only base text appears in PDF */
+}
+
 @media (min-width: 769px) {
   .page-reader {
     display: none;

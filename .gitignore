@@ -25,3 +25,7 @@ dist-ssr
 .vercel
 
 EDITOR_QA.md
+
+docs/PDF_DOWNLOAD_TESTING.md
+
+server/README.md

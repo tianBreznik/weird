@@ -231,13 +231,9 @@
   z-index: 10 !important; /* Lower z-index than mobile (99999) since it's within page context */
 }
 
-/* Desktop: Font size for PDF-style layout */
+/* Desktop: Font size for PDF-style layout (per-chapter only; inline font sizes not supported) */
 .pdf-viewer .page-content {
-  font-size: 1.35rem !important; /* Desktop font size */
-}
-
-.pdf-viewer .page-content * {
-  font-size: inherit !important; /* Ensure all child elements inherit the reduced size */
+  font-size: 1.35rem !important; /* Desktop base font size; chapter-level overrides apply via wrapper */
 }
 
 /* Desktop: Allow overflow on page-content-main */

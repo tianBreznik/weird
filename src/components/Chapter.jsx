@@ -834,8 +834,9 @@ export const Chapter = ({ chapter, level = 0, chapterNumber = 1, subChapterNumbe
                 onReorder={async (orderedIds) => {
                   // Persist subchapter order for this chapter
                   try {
-                    const { reorderSubchapters } = await import('../services/firestore.js');
+                    const { reorderSubchapters, bumpContentVersion } = await import('../services/firestore.js');
                     await reorderSubchapters('primary', chapter.id, orderedIds);
+                    await bumpContentVersion('primary');
                   } catch {}
                 }}
                 renderRow={(childChapter, dragHandle, index) => (

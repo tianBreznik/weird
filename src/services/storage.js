@@ -273,4 +273,23 @@ export async function uploadVideoToStorage(file, { onProgress } = {}) {
   }
 }
 
+/**
+ * Uploads a PDF blob for a book to Firebase Storage.
+ * Path: books/{bookId}/weird-attachments.pdf
+ * @param {string} bookId - Book id (e.g. 'primary')
+ * @param {Blob} blob - PDF blob from jsPDF.output('blob')
+ * @returns {Promise<string>} Download URL
+ */
+export async function uploadPdfToStorage(bookId, blob) {
+  if (!storage) {
+    throw new Error('Firebase Storage is not initialized.');
+  }
+  const path = `books/${bookId}/weird-attachments.pdf`;
+  const storageRef = ref(storage, path);
+  const uploadTask = uploadBytesResumable(storageRef, blob);
+  const snapshot = await uploadTask;
+  const downloadURL = await getDownloadURL(snapshot.ref);
+  return downloadURL;
+}
+
 

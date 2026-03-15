@@ -106,8 +106,27 @@
 }
 
 .pdf-top-bar-btn:disabled {
-  opacity: 0.4;
   cursor: not-allowed;
+}
+
+.pdf-top-bar-btn--downloading:disabled {
+  opacity: 1; /* Keep button visible so spinner is clear */
+}
+
+.pdf-top-bar-download-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #d0d0d0;
+  border-top-color: #333;
+  border-radius: 50%;
+  animation: pdf-top-bar-spin 0.7s linear infinite;
+}
+
+@keyframes pdf-top-bar-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .pdf-top-bar-btn svg {

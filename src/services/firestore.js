@@ -4,6 +4,7 @@ import {
   doc,
   getDocs,
   getDoc,
+  setDoc,
   addDoc,
   deleteDoc,
   serverTimestamp,
@@ -17,6 +18,8 @@ const chaptersCol = (bookId) => collection(db, `books/${bookId}/chapters`);
 const chapterDoc = (bookId, chapterId) => doc(db, `books/${bookId}/chapters/${chapterId}`);
 const subchaptersCol = (bookId, chapterId) => collection(db, `books/${bookId}/chapters/${chapterId}/subchapters`);
 const subchapterDoc = (bookId, chapterId, subId) => doc(db, `books/${bookId}/chapters/${chapterId}/subchapters/${subId}`);
+
+const bookDoc = (bookId) => doc(db, 'books', bookId);
 
 export async function getChapterById(bookId, chapterId) {
   const snap = await getDoc(chapterDoc(bookId, chapterId));
@@ -195,6 +198,32 @@ export async function reorderSubchapters(bookId, chapterId, orderedIds) {
     batch.update(subchapterDoc(bookId, chapterId, id), { order: (index + 1) * 100, updatedAt: serverTimestamp() });
   });
   await batch.commit();
+}
+
+// Book-level metadata (contentVersion, pdfVersion, pdfUrl, pdfPageKeys, pdfPageHashes) for PDF generation
+export async function getBookMeta(bookId) {
+  const snap = await getDoc(bookDoc(bookId));
+  if (!snap.exists()) {
+    return { contentVersion: 0, pdfVersion: null, pdfUrl: null, pdfPageKeys: null, pdfPageHashes: null };
+  }
+  const d = snap.data();
+  return {
+    contentVersion: d.contentVersion ?? 0,
+    pdfVersion: d.pdfVersion ?? null,
+    pdfUrl: d.pdfUrl ?? null,
+    pdfPageKeys: d.pdfPageKeys ?? null,
+    pdfPageHashes: d.pdfPageHashes ?? null,
+  };
+}
+
+export async function updateBookMeta(bookId, data) {
+  await setDoc(bookDoc(bookId), data, { merge: true });
+}
+
+/** Call after any chapter or subchapter add/update/delete/reorder so PDF is considered stale. */
+export async function bumpContentVersion(bookId) {
+  const meta = await getBookMeta(bookId);
+  await setDoc(bookDoc(bookId), { contentVersion: (meta.contentVersion ?? 0) + 1 }, { merge: true });
 }
 
 

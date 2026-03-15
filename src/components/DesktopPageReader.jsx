@@ -2,20 +2,28 @@ import { useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback } fr
 import { createPortal } from 'react-dom';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import { PDFDocument } from 'pdf-lib';
 import { PDFViewer } from './PDFViewer';
 import { PDFTopBar } from './PDFTopBar';
 import { ReaderTopBar } from './ReaderTopBar';
 import { DesktopTOC } from './DesktopTOC';
 import { useKaraokePlayer } from '../hooks/useKaraokePlayer';
 import { getStickyNoteStyle } from '../utils/stickyNotePosition';
+import { getBookMeta, updateBookMeta } from '../services/firestore';
+import { uploadPdfToStorage } from '../services/storage';
 import paperTexture from '../assets/paper-7-origami-TEX.png';
 import borderFrame from '../assets/smallerborder.png';
+
+// Per-book bitmap cache so we only re-render (html2canvas) pages whose content changed.
+// Survives component unmount (e.g. after editing and returning to reader).
+const pageBitmapCacheByBook = new Map();
 
 /**
  * DesktopPageReader - Desktop-specific page reader component
  * Renders all pages in a scrollable two-page spread PDF-style viewer
  */
 export const DesktopPageReader = ({ 
+  bookId,
   pages, 
   karaokeSources = {},
   chapters = [],
@@ -54,6 +62,7 @@ export const DesktopPageReader = ({
 
   // Zoom level for desktop PDF pages (1 = 100%)
   const [zoom, setZoom] = useState(1);
+  const [isDownloadingPdf, setDownloadingPdf] = useState(false);
   const MIN_ZOOM = 0.7;
   const MAX_ZOOM = 1.6;
   const ZOOM_STEP = 0.1;
@@ -319,55 +328,392 @@ export const DesktopPageReader = ({
     const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
     setZoom(Number(clamped.toFixed(2)));
   };
-  
-  // Handler for download (placeholder for now)
+
+  // Cache per-page bitmaps so unchanged pages don't re-run html2canvas every time
+  // Map: pageKey -> { hash, dataUrl }
+  const pageBitmapCacheRef = useRef(new Map());
+
+  const computeHash = useCallback((str) => {
+    // Simple djb2-style hash, good enough for change detection
+    let hash = 5381;
+    for (let i = 0; i < str.length; i += 1) {
+      // eslint-disable-next-line no-bitwise
+      hash = ((hash << 5) + hash) ^ str.charCodeAt(i);
+    }
+    // eslint-disable-next-line no-bitwise
+    return (hash >>> 0).toString(16);
+  }, []);
+
+  // Expose a server-usable generator: returns PDF as base64 data (no download)
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    window.__generatePdfFromViewer = async () => {
+      const viewer = document.querySelector('.pdf-viewer-container');
+      if (!viewer) return null;
+
+      const pageSheets = Array.from(
+        viewer.querySelectorAll('.pdf-page-wrapper .page-sheet')
+      );
+      if (pageSheets.length === 0) return null;
+
+      const firstRect = pageSheets[0].getBoundingClientRect();
+      const pdf = new jsPDF({
+        orientation: firstRect.width >= firstRect.height ? 'l' : 'p',
+        unit: 'px',
+        format: [firstRect.width, firstRect.height],
+        compression: 'FAST',
+      });
+
+      const waitForImages = (root) => {
+        const imgs = Array.from(root.querySelectorAll('img'));
+        if (imgs.length === 0) return Promise.resolve();
+        return Promise.all(
+          imgs.map(
+            (img) =>
+              new Promise((resolve) => {
+                if (img.complete) {
+                  resolve();
+                  return;
+                }
+                img.addEventListener('load', resolve, { once: true });
+                img.addEventListener('error', resolve, { once: true });
+              })
+          )
+        );
+      };
+
+      const capturePage = async (pageEl, isFirst) => {
+        await waitForImages(pageEl);
+        const canvas = await html2canvas(pageEl, {
+          scale: Math.min(window.devicePixelRatio || 1, 2),
+          useCORS: true,
+          backgroundColor: '#ffffff',
+        });
+        const imgData = canvas.toDataURL('image/jpeg', 0.85);
+        if (!isFirst) pdf.addPage();
+        pdf.addImage(
+          imgData,
+          'JPEG',
+          0,
+          0,
+          firstRect.width,
+          firstRect.height
+        );
+      };
+
+      document.body.setAttribute('data-pdf-export', 'true');
+      await new Promise((r) => requestAnimationFrame(r));
+
+      for (let i = 0; i < pageSheets.length; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await capturePage(pageSheets[i], i === 0);
+      }
+
+      document.body.removeAttribute('data-pdf-export');
+      // Return base64 (no data: prefix) for server to convert
+      return pdf.output('datauristring').split(',')[1];
+    };
+  }, [pages]);
+
   const handleDownload = () => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
-    
+
     const viewer = document.querySelector('.pdf-viewer-container');
     if (!viewer) return;
 
-    // Find all page-sheet elements in order
     const pageSheets = Array.from(
       viewer.querySelectorAll('.pdf-page-wrapper .page-sheet')
     );
     if (pageSheets.length === 0) return;
 
-    // Use the first page to establish PDF dimensions (in pixels)
-    const firstRect = pageSheets[0].getBoundingClientRect();
-    const pdf = new jsPDF({
-      orientation: firstRect.width >= firstRect.height ? 'l' : 'p',
-      unit: 'px',
-      format: [firstRect.width, firstRect.height],
-    });
 
-    // Helper to capture one page and add to PDF
-    const capturePage = async (pageEl, isFirst) => {
-      const canvas = await html2canvas(pageEl, {
-        scale: 2, // higher resolution for sharper text
-        useCORS: true,
-        backgroundColor: '#ffffff',
-      });
-      const imgData = canvas.toDataURL('image/png');
-      if (!isFirst) {
-        pdf.addPage();
-      }
-      pdf.addImage(imgData, 'PNG', 0, 0, firstRect.width, firstRect.height);
-    };
-
+    setDownloadingPdf(true);
     (async () => {
-      // Show footnote blocks on desktop so they appear in the PDF (they're normally hidden, hover-only)
+      const triggerDownload = (blobOrUrl) => {
+        const a = document.createElement('a');
+        a.download = 'weird-attachments.pdf';
+        if (typeof blobOrUrl === 'string') {
+          a.href = blobOrUrl;
+        } else {
+          const url = URL.createObjectURL(blobOrUrl);
+          a.href = url;
+          setTimeout(() => URL.revokeObjectURL(url), 200);
+        }
+        a.click();
+      };
+
+      // 1) If we have bookId and a current PDF in Storage, download it
+      if (bookId) {
+        try {
+          const meta = await getBookMeta(bookId);
+          if (meta.pdfUrl && meta.pdfVersion != null && meta.pdfVersion === meta.contentVersion) {
+            if (import.meta.env.DEV) {
+              console.log('[PDF] Using cached PDF from Firestore books/%s (pdfVersion=%s)', bookId, meta.pdfVersion);
+            }
+            // Always force a download, independent of browser behavior:
+            // fetch the PDF, turn it into a blob, then download via an object URL.
+            const res = await fetch(meta.pdfUrl);
+            const blob = await res.blob();
+            triggerDownload(blob);
+            setDownloadingPdf(false);
+            return;
+          }
+        } catch {
+          // Fall through to generate
+        }
+      }
+
+      const firstRect = pageSheets[0].getBoundingClientRect();
+
+      // Content-only hash so re-renders (attribute order, etc.) don't invalidate cache.
+      // Normalize image URLs (strip query/token) so Storage token refresh doesn't invalidate hash.
+      const getStableContentString = (pageEl) => {
+        const content = pageEl.querySelector('.page-content');
+        const text = content?.innerText ?? content?.textContent ?? '';
+        const imgs = Array.from(pageEl.querySelectorAll('img'))
+          .map((img) => {
+            const src = img.src || '';
+            try {
+              const u = new URL(src);
+              u.search = '';
+              return u.toString();
+            } catch {
+              return src;
+            }
+          })
+          .sort();
+        return text + '\n' + imgs.join('\n');
+      };
+
+      const getPageKeyAndHash = (pageEl, index) => {
+        const ci = pageEl.getAttribute('data-chapter-index');
+        const pi = pageEl.getAttribute('data-page-index');
+        const pageKey =
+          (ci != null && pi != null)
+            ? `logical-${ci}-${pi}`
+            : (pageEl.getAttribute('data-page-key') || `page-${index}`);
+        const hash = computeHash(getStableContentString(pageEl));
+        return { pageKey, hash };
+      };
+
+      const waitForImages = (root) => {
+        const imgs = Array.from(root.querySelectorAll('img'));
+        if (imgs.length === 0) return Promise.resolve();
+        return Promise.all(
+          imgs.map(
+            (img) =>
+              new Promise((resolve) => {
+                if (img.complete) {
+                  resolve();
+                  return;
+                }
+                img.addEventListener('load', resolve, { once: true });
+                img.addEventListener('error', resolve, { once: true });
+              })
+          )
+        );
+      };
+
+      // Use book-scoped cache when available so cache survives unmount after edits
+        const cache = bookId
+          ? (pageBitmapCacheByBook.get(bookId) ?? (() => {
+              const m = new Map();
+              pageBitmapCacheByBook.set(bookId, m);
+              return m;
+            })())
+          : pageBitmapCacheRef.current;
+
+        const stats = { rendered: 0, reused: 0 };
+        const getOrRenderPageBitmap = async (pageEl, index) => {
+          const { pageKey, hash } = getPageKeyAndHash(pageEl, index);
+
+          const cached = cache.get(pageKey);
+          if (cached && cached.hash === hash) {
+            stats.reused += 1;
+            return cached.dataUrl;
+          }
+
+          await waitForImages(pageEl);
+          const canvas = await html2canvas(pageEl, {
+            scale: Math.min(window.devicePixelRatio || 1, 2),
+            useCORS: true,
+            backgroundColor: '#ffffff',
+          });
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          cache.set(pageKey, { hash, dataUrl });
+          stats.rendered += 1;
+          return dataUrl;
+        };
+
+      const renderPageToDataUrl = async (pageEl) => {
+        await waitForImages(pageEl);
+        const canvas = await html2canvas(pageEl, {
+          scale: Math.min(window.devicePixelRatio || 1, 2),
+          useCORS: true,
+          backgroundColor: '#ffffff',
+        });
+        return canvas.toDataURL('image/jpeg', 0.85);
+      };
+
       document.body.setAttribute('data-pdf-export', 'true');
       await new Promise((r) => requestAnimationFrame(r));
 
       try {
-        for (let i = 0; i < pageSheets.length; i += 1) {
-          // eslint-disable-next-line no-await-in-loop
-          await capturePage(pageSheets[i], i === 0);
+        // 2a) Incremental: reuse pages from stored PDF when content hash matches (works across devices)
+        let meta = null;
+        try {
+          meta = bookId ? await getBookMeta(bookId) : null;
+        } catch (metaErr) {
+          if (import.meta.env.DEV) console.warn('[PDF] getBookMeta failed (e.g. network), using full generation:', metaErr);
         }
-        pdf.save('weird-attachments.pdf');
+        const canIncremental =
+          bookId &&
+          meta?.pdfUrl &&
+          Array.isArray(meta.pdfPageKeys) &&
+          meta.pdfPageKeys.length > 0 &&
+          meta.pdfPageHashes &&
+          typeof meta.pdfPageHashes === 'object';
+
+        if (import.meta.env.DEV && bookId) {
+          if (!canIncremental) {
+            const reason = !meta?.pdfUrl
+              ? 'no pdfUrl'
+              : !Array.isArray(meta?.pdfPageKeys) || meta.pdfPageKeys.length === 0
+                ? 'no pdfPageKeys (do one full download to save them)'
+                : !meta?.pdfPageHashes
+                  ? 'no pdfPageHashes'
+                  : 'unknown';
+            console.log('[PDF] Skipping incremental:', reason);
+          }
+        }
+
+        if (canIncremental) {
+          try {
+            const res = await fetch(meta.pdfUrl);
+            if (!res.ok) throw new Error('Fetch failed');
+            const oldPdfBytes = new Uint8Array(await res.arrayBuffer());
+            const oldDoc = await PDFDocument.load(oldPdfBytes);
+            const newDoc = await PDFDocument.create();
+            const firstOldPage = oldDoc.getPage(0);
+            const pageWidth = firstOldPage.getWidth();
+            const pageHeight = firstOldPage.getHeight();
+
+            const newPageKeys = [];
+            const newPageHashes = {};
+            let copiedCount = 0;
+            let renderedCount = 0;
+
+            for (let i = 0; i < pageSheets.length; i += 1) {
+              const { pageKey, hash } = getPageKeyAndHash(pageSheets[i], i);
+              const oldIndex = meta.pdfPageKeys.indexOf(pageKey);
+              const canCopy =
+                oldIndex >= 0 && meta.pdfPageHashes[pageKey] === hash;
+
+              if (canCopy) {
+                const [copiedPage] = await newDoc.copyPages(oldDoc, [oldIndex]);
+                newDoc.addPage(copiedPage);
+                copiedCount += 1;
+              } else {
+                const dataUrl = await renderPageToDataUrl(pageSheets[i]);
+                const embed = await newDoc.embedJpg(dataUrl);
+                const page = newDoc.addPage([pageWidth, pageHeight]);
+                page.drawImage(embed, {
+                  x: 0,
+                  y: 0,
+                  width: pageWidth,
+                  height: pageHeight,
+                });
+                renderedCount += 1;
+              }
+              newPageKeys.push(pageKey);
+              newPageHashes[pageKey] = hash;
+            }
+
+            const pdfBytes = await newDoc.save();
+            const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+            const pdfUrl = await uploadPdfToStorage(bookId, blob);
+            const freshMeta = await getBookMeta(bookId);
+            await updateBookMeta(bookId, {
+              pdfUrl,
+              pdfVersion: freshMeta.contentVersion,
+              contentVersion: freshMeta.contentVersion,
+              pdfPageKeys: newPageKeys,
+              pdfPageHashes: newPageHashes,
+            });
+            if (import.meta.env.DEV) {
+              console.log(
+                '[PDF] Incremental: %d pages copied from Storage, %d rendered (html2canvas)',
+                copiedCount,
+                renderedCount
+              );
+            }
+            triggerDownload(blob);
+            setDownloadingPdf(false);
+            return;
+          } catch (incErr) {
+            if (import.meta.env.DEV) {
+              console.warn('[PDF] Incremental build failed, falling back to full generation:', incErr);
+            }
+          }
+        }
+
+        // 2b) Full generation: jsPDF + collect page keys/hashes for next time
+        const pdf = new jsPDF({
+          orientation: firstRect.width >= firstRect.height ? 'l' : 'p',
+          unit: 'px',
+          format: [firstRect.width, firstRect.height],
+          compression: 'FAST',
+        });
+
+        const pdfPageKeys = [];
+        const pdfPageHashes = {};
+
+        for (let i = 0; i < pageSheets.length; i += 1) {
+          const { pageKey, hash } = getPageKeyAndHash(pageSheets[i], i);
+          pdfPageKeys.push(pageKey);
+          pdfPageHashes[pageKey] = hash;
+          // eslint-disable-next-line no-await-in-loop
+          const imgData = await getOrRenderPageBitmap(pageSheets[i], i);
+          if (i !== 0) {
+            pdf.addPage();
+          }
+          pdf.addImage(
+            imgData,
+            'JPEG',
+            0,
+            0,
+            firstRect.width,
+            firstRect.height
+          );
+        }
+        if (import.meta.env.DEV && (stats.rendered > 0 || stats.reused > 0)) {
+          console.log('[PDF] Full: %d rendered (html2canvas), %d reused from cache', stats.rendered, stats.reused);
+        }
+        const blob = pdf.output('blob');
+        if (bookId) {
+          try {
+            const pdfUrl = await uploadPdfToStorage(bookId, blob);
+            const freshMeta = await getBookMeta(bookId);
+            await updateBookMeta(bookId, {
+              pdfUrl,
+              pdfVersion: freshMeta.contentVersion,
+              contentVersion: freshMeta.contentVersion,
+              pdfPageKeys,
+              pdfPageHashes,
+            });
+            if (import.meta.env.DEV) {
+              console.log('[PDF] Metadata saved to Firestore (pdfVersion=%s, %d page keys)', bookId, freshMeta.contentVersion, pdfPageKeys.length);
+            }
+          } catch (err) {
+            console.warn('PDF upload/update failed, downloading locally:', err);
+          }
+          triggerDownload(blob);
+        } else {
+          pdf.save('weird-attachments.pdf');
+        }
       } finally {
         document.body.removeAttribute('data-pdf-export');
+        setDownloadingPdf(false);
       }
     })();
   };
@@ -987,6 +1333,7 @@ export const DesktopPageReader = ({
         zoom={zoom}
         onZoomChange={handleZoomChange}
         onDownload={handleDownload}
+        isDownloading={isDownloadingPdf}
         filename="weird-attachments.pdf"
       />
       <PDFViewer

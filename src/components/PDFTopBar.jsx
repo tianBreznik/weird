@@ -20,7 +20,8 @@ export const PDFTopBar = ({
   onFitToWidth,
   onFitToPage,
   onPrint,
-  onDownload
+  onDownload,
+  isDownloading = false
 }) => {
   const [pageInput, setPageInput] = useState(currentPage || 1);
   // Keep zoomInput as a raw string (may include %), to avoid fighting user edits
@@ -191,17 +192,22 @@ export const PDFTopBar = ({
       </div>
 
       <div className="pdf-top-bar-right">
-        {/* Download button - icon only */}
+        {/* Download button - icon only; shows buffering spinner while generating */}
         <button
-          className="pdf-top-bar-btn"
+          className={`pdf-top-bar-btn ${isDownloading ? 'pdf-top-bar-btn--downloading' : ''}`}
           onClick={onDownload}
+          disabled={isDownloading}
           title="Download PDF"
           aria-label="Download PDF"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M8 10L8 2M8 10L5 7M8 10L11 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M2 12L2 13C2 13.5523 2.44772 14 3 14L13 14C13.5523 14 14 13.5523 14 13L14 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
+          {isDownloading ? (
+            <span className="pdf-top-bar-download-spinner" aria-hidden="true" />
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M8 10L8 2M8 10L5 7M8 10L11 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M2 12L2 13C2 13.5523 2.44772 14 3 14L13 14C13.5523 14 14 13.5523 14 13L14 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          )}
         </button>
       </div>
     </div>

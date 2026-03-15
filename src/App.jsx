@@ -3,7 +3,7 @@ import { Chapter, applyInkEffectToTextMobile } from './components/Chapter';
 import { ChapterEditor } from './components/ChapterEditor';
 import { EditorSetup } from './pages/EditorSetup';
 import { useEditorMode } from './hooks/useEditorMode';
-import { getChapters, getSubchapters, addChapter, addSubchapter, updateChapter, updateSubchapter, deleteChapter, deleteSubchapter, getChapterById, getSubchapterById, reorderChapters } from './services/firestore';
+import { getChapters, getSubchapters, addChapter, addSubchapter, updateChapter, updateSubchapter, deleteChapter, deleteSubchapter, getChapterById, getSubchapterById, reorderChapters, bumpContentVersion } from './services/firestore';
 import { getAllFootnotes, isAcknowledgementsChapter, ACKNOWLEDGEMENTS_CHAPTER_TITLE } from './utils/footnotes';
 import './App.css';
 import { getBookmark } from './utils/bookmark';
@@ -317,11 +317,11 @@ function App() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Disable body/html scrolling when PageReader is active
+  // Disable body/html scrolling when PageReader is active (mobile reader preview)
   useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
     const isReaderActive = isMobile && !isEditor && previewingAsReader;
-    
+
     if (isReaderActive) {
       document.body.classList.add('with-page-reader');
       document.documentElement.classList.add('with-page-reader');
@@ -329,7 +329,7 @@ function App() {
       document.body.classList.remove('with-page-reader');
       document.documentElement.classList.remove('with-page-reader');
     }
-    
+
     return () => {
       document.body.classList.remove('with-page-reader');
       document.documentElement.classList.remove('with-page-reader');
@@ -348,6 +348,7 @@ function App() {
     const newNotes = [...(chapter.stickyNotes || []), { pageIndex, imageUrl }];
     try {
       const updated = await updateChapter(BOOK_ID, chapterId, { stickyNotes: newNotes }, chapter.version ?? 0);
+      await bumpContentVersion(BOOK_ID);
       setChapters((prev) =>
         prev.map((c) =>
           c.id !== chapterId ? c : { ...c, stickyNotes: newNotes, version: updated?.version ?? c.version }
@@ -362,6 +363,7 @@ function App() {
     setChapters((prev) => prev.filter((ch) => ch.id !== chapterId));
     try {
       await deleteChapter(BOOK_ID, chapterId);
+      await bumpContentVersion(BOOK_ID);
     } catch (err) {
       await refreshRef.current?.();
     }
@@ -377,6 +379,7 @@ function App() {
     );
     try {
       await deleteSubchapter(BOOK_ID, parentChapterId, subchapterId);
+      await bumpContentVersion(BOOK_ID);
     } catch (err) {
       await refreshRef.current?.();
     }
@@ -390,6 +393,7 @@ function App() {
     });
     try {
       await reorderChapters(BOOK_ID, orderedIds);
+      await bumpContentVersion(BOOK_ID);
     } catch (err) {
       await refreshRef.current?.();
     }
@@ -414,6 +418,7 @@ function App() {
       {/* Render PageReader when chapters are loaded, but keep loader visible until pages are ready */}
       {!loading && chapters.length > 0 && (!isMobile || backgroundsReady) && (
         <PageReader
+          bookId={BOOK_ID}
           chapters={chapters}
           isEditor={isEditor}
           onAddStickyNoteForPage={onAddStickyNoteForPage}
@@ -494,7 +499,10 @@ function App() {
                 const reordered = arrayMove([...chapters], oldIndex, newIndex);
                 setChapters(reordered);
                 const orderedIds = reordered.map(c => c.id);
-                try { await reorderChapters(BOOK_ID, orderedIds); } catch {}
+                try {
+                  await reorderChapters(BOOK_ID, orderedIds);
+                  await bumpContentVersion(BOOK_ID);
+                } catch {}
               }}
             >
               <SortableContext items={chapters.map(c => c.id)} strategy={verticalListSortingStrategy}>
@@ -511,6 +519,7 @@ function App() {
                       } else {
                         await deleteChapter(BOOK_ID, chapterId);
                       }
+                      await bumpContentVersion(BOOK_ID);
                       await refresh();
                     }}
                     defaultExpandedChapterId={defaultExpandedChapterId}
@@ -592,6 +601,7 @@ function App() {
                     };
                   });
                   setChapters(nextChapters);
+                  await bumpContentVersion(BOOK_ID);
                   ensureAcknowledgementsChapter(BOOK_ID, nextChapters).then((newCh) => {
                     if (newCh) setChapters((prev) => [...prev, newCh]);
                   }).catch(() => {});
@@ -626,6 +636,7 @@ function App() {
                       };
                     });
                     setChapters(nextChapters);
+                    await bumpContentVersion(BOOK_ID);
                     ensureAcknowledgementsChapter(BOOK_ID, nextChapters).then((newCh) => {
                       if (newCh) setChapters((prev) => [...prev, newCh]);
                     }).catch(() => {});
@@ -658,6 +669,7 @@ function App() {
                     : ch
                 );
                 setChapters(nextChaptersWithSub);
+                await bumpContentVersion(BOOK_ID);
                 ensureAcknowledgementsChapter(BOOK_ID, nextChaptersWithSub).then((newCh) => {
                   if (newCh) setChapters((prev) => [...prev, newCh]);
                 }).catch(() => {});
@@ -683,6 +695,7 @@ function App() {
                 };
                 const nextChaptersWithNew = [...chapters, newChapter];
                 setChapters(nextChaptersWithNew);
+                await bumpContentVersion(BOOK_ID);
                 ensureAcknowledgementsChapter(BOOK_ID, nextChaptersWithNew).then((newCh) => {
                   if (newCh) setChapters((prev) => [...prev, newCh]);
                 }).catch(() => {});
@@ -723,18 +736,18 @@ function App() {
           }}
           onDelete={async (chapterId, isSubchapter = false, parentChapterId = null) => {
             if (editingChapter) {
-              // Check if it's a main chapter or subchapter
               const isMainChapter = chapters.some(c => c.id === editingChapter.id);
               if (isMainChapter) {
                 await deleteChapter(BOOK_ID, editingChapter.id);
+                await bumpContentVersion(BOOK_ID);
                 await refresh();
               } else {
-                // For subchapters, we need to find the parent chapter ID
-                const parentChapter = chapters.find(c => 
+                const parentChapter = chapters.find(c =>
                   c.children.some(child => child.id === editingChapter.id)
                 );
                 if (parentChapter) {
                   await deleteSubchapter(BOOK_ID, parentChapter.id, editingChapter.id);
+                  await bumpContentVersion(BOOK_ID);
                   await refresh();
                 }
               }
@@ -744,6 +757,7 @@ function App() {
               } else {
                 await deleteChapter(BOOK_ID, chapterId);
               }
+              await bumpContentVersion(BOOK_ID);
               await refresh();
             }
           }}

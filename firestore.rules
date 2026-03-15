@@ -2,6 +2,14 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Book-level metadata (contentVersion, pdfVersion, pdfUrl) for PDF generation
+    // Same policy as chapters: public read, app-level security for writes
+    match /books/{bookId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if true;
+    }
+
     // Allow reads of all books and chapters (public content)
     // Writes are allowed for everyone - app-level device whitelist checks enforce security
     // Email authentication is only used to whitelist devices, not for ongoing access
