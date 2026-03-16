@@ -1814,19 +1814,20 @@ body.debug-pagination .page-sheet .page-body {
 }
 
 
-/* TEMP: hard-coded classic book border for all pages (mobile/reader) */
-.page-sheet {
-  border: 2px solid #000 !important;            /* inner black line, slightly thicker */
-  box-shadow: 0 0 0 2px #777 !important;        /* outer gray outline, slightly thicker/darker */
-  border-radius: 0 !important;                  /* square corners, no rounding */
-  border-image: none !important;                /* temporarily disable border-image */
+/* Previously: TEMP hard-coded classic book border for all pages (mobile/reader).
+   Border frame is now controlled per-chapter via pageBorder* settings, so this
+   global frame is disabled. */
+/* .page-sheet {
+  border: 2px solid #000 !important;
+  box-shadow: 0 0 0 2px #777 !important;
+  border-radius: 0 !important;
+  border-image: none !important;
 }
 
-/* TEMP: remove hard-coded border on mobile only (keep it for desktop/PDF) */
 @media (max-width: 768px) {
   .page-sheet {
     border: none !important;
     box-shadow: none !important;
   }
-}
+} */
 

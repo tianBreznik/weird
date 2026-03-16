@@ -21,10 +21,12 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
   const [content, setContent] = useState('');
   const [backgroundImageUrl, setBackgroundImageUrl] = useState(chapter?.backgroundImageUrl || '');
   const [pageBorderImageUrl, setPageBorderImageUrl] = useState(chapter?.pageBorderImageUrl || '');
-  // Border width for chapter/subchapter frames (desktop reader only)
-  const [pageBorderWidth, setPageBorderWidth] = useState(chapter?.pageBorderWidth || 8);
+  // Border width for chapter/subchapter frames (desktop reader only) - visible frame thickness in px
+  const [pageBorderWidth, setPageBorderWidth] = useState(
+    Math.max(5, chapter?.pageBorderWidth || 10)
+  );
   // Border slice percentage for border-image (controls corner size, default 4% for 1024×1024px images)
-  const [pageBorderSlicePercent, setPageBorderSlicePercent] = useState(chapter?.pageBorderSlicePercent || 4);
+  const [pageBorderSlicePercent, setPageBorderSlicePercent] = useState(chapter?.pageBorderSlicePercent ?? 5);
   const [hideTitle, setHideTitle] = useState(!!chapter?.hideTitle);
   const [fontFamily, setFontFamily] = useState(chapter?.fontFamily ?? DEFAULT_CHAPTER_FONT);
   const [saving, setSaving] = useState(false);
@@ -656,8 +658,9 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
       // Load existing chapter-level background image and border settings if present
       setBackgroundImageUrl(chapter?.backgroundImageUrl || '');
       setPageBorderImageUrl(chapter?.pageBorderImageUrl || '');
-      setPageBorderWidth(chapter?.pageBorderWidth || 8);
-      setPageBorderSlicePercent(chapter?.pageBorderSlicePercent || 4);
+      // Clamp to a sensible minimum so old values like 1px don't produce invisible frames
+      setPageBorderWidth(Math.max(5, chapter?.pageBorderWidth || 10));
+      setPageBorderSlicePercent(chapter?.pageBorderSlicePercent ?? 5);
       setFontFamily(chapter?.fontFamily ?? DEFAULT_CHAPTER_FONT);
       if (rawEpigraph && typeof rawEpigraph === 'object') {
         setEpigraph({
@@ -2644,15 +2647,12 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                     disabled={!pageBorderImageUrl}
                     title="Border width (px)"
                   >
-                    <option value="4">4</option>
-                    <option value="6">6</option>
-                    <option value="8">8</option>
+                    <option value="5">5</option>
                     <option value="10">10</option>
-                    <option value="12">12</option>
-                    <option value="16">16</option>
+                    <option value="15">15</option>
                     <option value="20">20</option>
-                    <option value="24">24</option>
-                    <option value="32">32</option>
+                    <option value="25">25</option>
+                    <option value="30">30</option>
                   </select>
                   {/* Border slice percentage dropdown */}
                   <select
@@ -2660,14 +2660,19 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                     value={pageBorderSlicePercent}
                     onChange={(e) => setPageBorderSlicePercent(parseInt(e.target.value, 10))}
                     disabled={!pageBorderImageUrl}
-                    title="Corner size (%) - 4% optimal for 1024×1024px images"
+                    title="Corner size (%) - higher values use more of the frame image"
                   >
-                    <option value="2">2%</option>
-                    <option value="3">3%</option>
-                    <option value="4">4%</option>
                     <option value="5">5%</option>
-                    <option value="6">6%</option>
-                    <option value="8">8%</option>
+                    <option value="10">10%</option>
+                    <option value="15">15%</option>
+                    <option value="20">20%</option>
+                    <option value="25">25%</option>
+                    <option value="30">30%</option>
+                    <option value="35">35%</option>
+                    <option value="40">40%</option>
+                    <option value="45">45%</option>
+                    <option value="50">50%</option>
+                    <option value="55">55%</option>
                   </select>
                 </div>
                 <input
@@ -2686,6 +2691,28 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                         onProgress: (p) => setImageUploadProgress(p),
                       });
                       setPageBorderImageUrl(url);
+
+                      // Auto-calibrate border width and slice percent based on image dimensions.
+                      // Desktop page size is fixed, so once we derive sane defaults from the
+                      // frame asset they will produce a consistent frame across devices.
+                      const img = new Image();
+                      img.onload = () => {
+                        try {
+                          const w = img.naturalWidth || 0;
+                          const h = img.naturalHeight || 0;
+                          const s = Math.min(w, h) || 1024;
+                          // Corner thickness in pixels on the source image (4% of min dimension)
+                          const cornerThickness = s * 0.04;
+                          const slicePercent = Math.round((cornerThickness / s) * 100);
+                          // Map corner thickness to on-page frame thickness (divide by 5 → ~8px for 1024px)
+                          const borderWidthPx = Math.round(cornerThickness / 5);
+                          setPageBorderSlicePercent(slicePercent);
+                          setPageBorderWidth(borderWidthPx);
+                        } catch {
+                          // Keep existing manual values on error
+                        }
+                      };
+                      img.src = url;
                     } catch (err) {
                       alert(err?.message || 'Nalaganje slike okvirja je spodletelo.');
                     } finally {

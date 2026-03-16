@@ -132,6 +132,12 @@
   filter: drop-shadow(0 1px 3px rgba(0,0,0,0.15));
 }
 
+/* PDF export: hide sticky notes and add-sticky button so they are not in the scan */
+[data-pdf-export="true"] .pdf-viewer .page-sticky-note,
+[data-pdf-export="true"] .pdf-viewer .page-add-sticky-wrap {
+  display: none !important;
+}
+
 /* Editor mode: add sticky button on page (desktop PDF reader only, left side) */
 .pdf-viewer .page-add-sticky-wrap {
   position: absolute;
@@ -296,11 +302,13 @@
 }
 
 
-/* TEMP: hard-coded classic book border for all pages in desktop PDF viewer */
-.pdf-viewer .page-sheet {
-  border: 2px solid #000 !important;            /* inner black line, slightly thicker */
-  box-shadow: 0 0 0 2px #777 !important;        /* outer gray outline, slightly thicker/darker */
-  border-radius: 0 !important;                  /* square corners, no rounding */
-  border-image: none !important;                /* temporarily disable border-image */
-}
+/* Previously: TEMP hard-coded classic book border for all pages in desktop PDF viewer.
+   This is now handled per-chapter via inline border-image styles in DesktopPageReader,
+   so the global frame is disabled. */
+/* .pdf-viewer .page-sheet {
+  border: 2px solid #000 !important;
+  box-shadow: 0 0 0 2px #777 !important;
+  border-radius: 0 !important;
+  border-image: none !important;
+} */
 

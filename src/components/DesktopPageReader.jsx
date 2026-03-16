@@ -9,7 +9,7 @@ import { ReaderTopBar } from './ReaderTopBar';
 import { DesktopTOC } from './DesktopTOC';
 import { useKaraokePlayer } from '../hooks/useKaraokePlayer';
 import { getStickyNoteStyle } from '../utils/stickyNotePosition';
-import { getBookMeta, updateBookMeta } from '../services/firestore';
+import { getBookMeta, updateBookMeta, clearBookPdfCache } from '../services/firestore';
 import { uploadPdfToStorage } from '../services/storage';
 import paperTexture from '../assets/paper-7-origami-TEX.png';
 import borderFrame from '../assets/smallerborder.png';
@@ -356,13 +356,96 @@ export const DesktopPageReader = ({
       );
       if (pageSheets.length === 0) return null;
 
-      const firstRect = pageSheets[0].getBoundingClientRect();
-      const pdf = new jsPDF({
-        orientation: firstRect.width >= firstRect.height ? 'l' : 'p',
-        unit: 'px',
-        format: [firstRect.width, firstRect.height],
-        compression: 'FAST',
-      });
+      const getCaptureElement = (sheet) => sheet;
+
+      const compositeFrameWithContent = (contentDataUrl, frameImageUrl, frameWidthPx, sheetWidth, sheetHeight, slicePercent = 5) =>
+        new Promise((resolve) => {
+          const totalW = sheetWidth + 2 * frameWidthPx;
+          const totalH = sheetHeight + 2 * frameWidthPx;
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            try {
+              const iw = img.naturalWidth;
+              const ih = img.naturalHeight;
+              const slicePct = Math.min(49, Math.max(1, Number(slicePercent) || 5)) / 100;
+              const sliceX = Math.floor(iw * slicePct);
+              const sliceY = Math.floor(ih * slicePct);
+              const canvas = document.createElement('canvas');
+              canvas.width = totalW;
+              canvas.height = totalH;
+              const ctx = canvas.getContext('2d');
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(0, 0, totalW, totalH);
+              const frameW = frameWidthPx;
+              const draw = (sx, sy, sw, sh, dx, dy, dw, dh) => {
+                if (sw > 0 && sh > 0 && dw > 0 && dh > 0) {
+                  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+                }
+              };
+              const edgeW = Math.max(1, iw - 2 * sliceX);
+              const edgeH = Math.max(1, ih - 2 * sliceY);
+              const destEdgeW = totalW - 2 * frameW;
+              const destEdgeH = totalH - 2 * frameW;
+              const cornerScale = Math.min(frameW / Math.max(1, sliceX), frameW / Math.max(1, sliceY));
+              const cornerDw = sliceX * cornerScale;
+              const cornerDh = sliceY * cornerScale;
+              const oxTL = (frameW - cornerDw) / 2;
+              const oyTL = (frameW - cornerDh) / 2;
+              draw(0, 0, sliceX, sliceY, 0 + oxTL, 0 + oyTL, cornerDw, cornerDh);
+              draw(iw - sliceX, 0, sliceX, sliceY, totalW - frameW + (frameW - cornerDw) / 2, 0 + oyTL, cornerDw, cornerDh);
+              draw(0, ih - sliceY, sliceX, sliceY, 0 + oxTL, totalH - frameW + (frameW - cornerDh) / 2, cornerDw, cornerDh);
+              draw(iw - sliceX, ih - sliceY, sliceX, sliceY, totalW - frameW + (frameW - cornerDw) / 2, totalH - frameW + (frameW - cornerDh) / 2, cornerDw, cornerDh);
+              const scaleTop = frameW / sliceY;
+              const tileW = edgeW * scaleTop;
+              const nTop = Math.max(1, Math.ceil(destEdgeW / tileW));
+              const offsetTop = (destEdgeW - nTop * tileW) / 2;
+              for (let k = 0; k < nTop; k++) {
+                draw(sliceX, 0, edgeW, sliceY, frameW + offsetTop + k * tileW, 0, tileW, frameW);
+              }
+              const tileWB = edgeW * scaleTop;
+              const nBottom = Math.max(1, Math.ceil(destEdgeW / tileWB));
+              const offsetBottom = (destEdgeW - nBottom * tileWB) / 2;
+              for (let k = 0; k < nBottom; k++) {
+                draw(sliceX, ih - sliceY, edgeW, sliceY, frameW + offsetBottom + k * tileWB, totalH - frameW, tileWB, frameW);
+              }
+              const scaleSide = frameW / sliceX;
+              const tileH = edgeH * scaleSide;
+              const nLeft = Math.max(1, Math.ceil(destEdgeH / tileH));
+              const offsetLeft = (destEdgeH - nLeft * tileH) / 2;
+              for (let k = 0; k < nLeft; k++) {
+                draw(0, sliceY, sliceX, edgeH, 0, frameW + offsetLeft + k * tileH, frameW, tileH);
+              }
+              const tileHR = edgeH * scaleSide;
+              const nRight = Math.max(1, Math.ceil(destEdgeH / tileHR));
+              const offsetRight = (destEdgeH - nRight * tileHR) / 2;
+              for (let k = 0; k < nRight; k++) {
+                draw(iw - sliceX, sliceY, sliceX, edgeH, totalW - frameW, frameW + offsetRight + k * tileHR, frameW, tileHR);
+              }
+              const contentImg = new Image();
+              contentImg.crossOrigin = 'anonymous';
+              contentImg.onload = () => {
+                ctx.drawImage(contentImg, frameW, frameW, sheetWidth, sheetHeight);
+                resolve(canvas.toDataURL('image/jpeg', 0.85));
+              };
+              contentImg.onerror = () => {
+                if (import.meta.env.DEV) console.warn('[PDF] Content image failed in frame composite');
+                resolve(null);
+              };
+              contentImg.src = contentDataUrl;
+            } catch (e) {
+              if (import.meta.env.DEV) console.warn('[PDF] Frame composite error:', e);
+              resolve(null);
+            }
+          };
+          img.onerror = () => {
+            if (import.meta.env.DEV) {
+              console.warn('[PDF] Frame image failed to load (CORS or network):', frameImageUrl);
+            }
+            resolve(null);
+          };
+          img.src = frameImageUrl;
+        });
 
       const waitForImages = (root) => {
         const imgs = Array.from(root.querySelectorAll('img'));
@@ -382,31 +465,60 @@ export const DesktopPageReader = ({
         );
       };
 
-      const capturePage = async (pageEl, isFirst) => {
-        await waitForImages(pageEl);
-        const canvas = await html2canvas(pageEl, {
+      document.body.setAttribute('data-pdf-export', 'true');
+      await new Promise((r) => requestAnimationFrame(r));
+
+      const capturePage = async (sheet, index) => {
+        const sw = sheet.offsetWidth;
+        const sh = sheet.offsetHeight;
+        const hasBorder = sheet.getAttribute('data-has-border') === 'true';
+        const frameW = hasBorder ? parseInt(sheet.getAttribute('data-frame-width'), 10) || 10 : 0;
+        await waitForImages(sheet);
+        const contentCanvas = await html2canvas(sheet, {
           scale: Math.min(window.devicePixelRatio || 1, 2),
           useCORS: true,
           backgroundColor: '#ffffff',
         });
-        const imgData = canvas.toDataURL('image/jpeg', 0.85);
-        if (!isFirst) pdf.addPage();
-        pdf.addImage(
-          imgData,
-          'JPEG',
-          0,
-          0,
-          firstRect.width,
-          firstRect.height
-        );
+        const contentDataUrl = contentCanvas.toDataURL('image/jpeg', 0.85);
+        let imgData = contentDataUrl;
+        let w = sw;
+        let h = sh;
+        if (hasBorder) {
+          const frameUrl = sheet.getAttribute('data-border-image-url');
+          const slicePct = hasBorder ? (parseInt(sheet.getAttribute('data-border-slice-percent'), 10) || 5) : null;
+          if (frameUrl) {
+            if (import.meta.env.DEV) console.log('[PDF] frame composite', { frameW, slicePct, sw, sh });
+            const composite = await compositeFrameWithContent(contentDataUrl, frameUrl, frameW, sw, sh, slicePct);
+            if (composite) {
+              imgData = composite;
+              w = sw + 2 * frameW;
+              h = sh + 2 * frameW;
+            }
+          }
+        }
+        if (index === 0) {
+          pdf.addImage(imgData, 'JPEG', 0, 0, w, h);
+        } else {
+          pdf.addPage([w, h], 'p');
+          pdf.addImage(imgData, 'JPEG', 0, 0, w, h);
+        }
       };
 
-      document.body.setAttribute('data-pdf-export', 'true');
-      await new Promise((r) => requestAnimationFrame(r));
+      const firstSheet = pageSheets[0];
+      const firstHasBorder = firstSheet.getAttribute('data-has-border') === 'true';
+      const firstFrameW = firstHasBorder ? parseInt(firstSheet.getAttribute('data-frame-width'), 10) || 10 : 0;
+      const firstW = firstSheet.offsetWidth + 2 * firstFrameW;
+      const firstH = firstSheet.offsetHeight + 2 * firstFrameW;
+      const pdf = new jsPDF({
+        orientation: firstW >= firstH ? 'l' : 'p',
+        unit: 'px',
+        format: [firstW, firstH],
+        compression: 'FAST',
+      });
 
       for (let i = 0; i < pageSheets.length; i += 1) {
         // eslint-disable-next-line no-await-in-loop
-        await capturePage(pageSheets[i], i === 0);
+        await capturePage(pageSheets[i], i);
       }
 
       document.body.removeAttribute('data-pdf-export');
@@ -415,7 +527,7 @@ export const DesktopPageReader = ({
     };
   }, [pages]);
 
-  const handleDownload = () => {
+  const handleDownload = (forceRegenerate = false) => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
     const viewer = document.querySelector('.pdf-viewer-container');
@@ -426,9 +538,13 @@ export const DesktopPageReader = ({
     );
     if (pageSheets.length === 0) return;
 
-
     setDownloadingPdf(true);
     (async () => {
+      if (import.meta.env.DEV && forceRegenerate && bookId) {
+        await clearBookPdfCache(bookId);
+        console.log('[PDF] Cleared PDF cache for book %s; generating from scratch', bookId);
+      }
+
       const triggerDownload = (blobOrUrl) => {
         const a = document.createElement('a');
         a.download = 'weird-attachments.pdf';
@@ -463,7 +579,97 @@ export const DesktopPageReader = ({
         }
       }
 
-      const firstRect = pageSheets[0].getBoundingClientRect();
+      // Always capture the sheet; html2canvas does not support border-image, so we composite the frame in PDF
+      const getCaptureElement = (sheet) => sheet;
+
+      const compositeFrameWithContent = (contentDataUrl, frameImageUrl, frameWidthPx, sheetWidth, sheetHeight, slicePercent = 5) =>
+        new Promise((resolve) => {
+          const totalW = sheetWidth + 2 * frameWidthPx;
+          const totalH = sheetHeight + 2 * frameWidthPx;
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            try {
+              const iw = img.naturalWidth;
+              const ih = img.naturalHeight;
+              const slicePct = Math.min(49, Math.max(1, Number(slicePercent) || 5)) / 100;
+              const sliceX = Math.floor(iw * slicePct);
+              const sliceY = Math.floor(ih * slicePct);
+              const canvas = document.createElement('canvas');
+              canvas.width = totalW;
+              canvas.height = totalH;
+              const ctx = canvas.getContext('2d');
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(0, 0, totalW, totalH);
+              const frameW = frameWidthPx;
+              const draw = (sx, sy, sw, sh, dx, dy, dw, dh) => {
+                if (sw > 0 && sh > 0 && dw > 0 && dh > 0) {
+                  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+                }
+              };
+              const edgeW = Math.max(1, iw - 2 * sliceX);
+              const edgeH = Math.max(1, ih - 2 * sliceY);
+              const destEdgeW = totalW - 2 * frameW;
+              const destEdgeH = totalH - 2 * frameW;
+              const cornerScale = Math.min(frameW / Math.max(1, sliceX), frameW / Math.max(1, sliceY));
+              const cornerDw = sliceX * cornerScale;
+              const cornerDh = sliceY * cornerScale;
+              const oxTL = (frameW - cornerDw) / 2;
+              const oyTL = (frameW - cornerDh) / 2;
+              draw(0, 0, sliceX, sliceY, 0 + oxTL, 0 + oyTL, cornerDw, cornerDh);
+              draw(iw - sliceX, 0, sliceX, sliceY, totalW - frameW + (frameW - cornerDw) / 2, 0 + oyTL, cornerDw, cornerDh);
+              draw(0, ih - sliceY, sliceX, sliceY, 0 + oxTL, totalH - frameW + (frameW - cornerDh) / 2, cornerDw, cornerDh);
+              draw(iw - sliceX, ih - sliceY, sliceX, sliceY, totalW - frameW + (frameW - cornerDw) / 2, totalH - frameW + (frameW - cornerDh) / 2, cornerDw, cornerDh);
+              const scaleTop = frameW / sliceY;
+              const tileW = edgeW * scaleTop;
+              const nTop = Math.max(1, Math.ceil(destEdgeW / tileW));
+              const offsetTop = (destEdgeW - nTop * tileW) / 2;
+              for (let k = 0; k < nTop; k++) {
+                draw(sliceX, 0, edgeW, sliceY, frameW + offsetTop + k * tileW, 0, tileW, frameW);
+              }
+              const tileWB = edgeW * scaleTop;
+              const nBottom = Math.max(1, Math.ceil(destEdgeW / tileWB));
+              const offsetBottom = (destEdgeW - nBottom * tileWB) / 2;
+              for (let k = 0; k < nBottom; k++) {
+                draw(sliceX, ih - sliceY, edgeW, sliceY, frameW + offsetBottom + k * tileWB, totalH - frameW, tileWB, frameW);
+              }
+              const scaleSide = frameW / sliceX;
+              const tileH = edgeH * scaleSide;
+              const nLeft = Math.max(1, Math.ceil(destEdgeH / tileH));
+              const offsetLeft = (destEdgeH - nLeft * tileH) / 2;
+              for (let k = 0; k < nLeft; k++) {
+                draw(0, sliceY, sliceX, edgeH, 0, frameW + offsetLeft + k * tileH, frameW, tileH);
+              }
+              const tileHR = edgeH * scaleSide;
+              const nRight = Math.max(1, Math.ceil(destEdgeH / tileHR));
+              const offsetRight = (destEdgeH - nRight * tileHR) / 2;
+              for (let k = 0; k < nRight; k++) {
+                draw(iw - sliceX, sliceY, sliceX, edgeH, totalW - frameW, frameW + offsetRight + k * tileHR, frameW, tileHR);
+              }
+              const contentImg = new Image();
+              contentImg.crossOrigin = 'anonymous';
+              contentImg.onload = () => {
+                ctx.drawImage(contentImg, frameW, frameW, sheetWidth, sheetHeight);
+                resolve(canvas.toDataURL('image/jpeg', 0.85));
+              };
+              contentImg.onerror = () => {
+                if (import.meta.env.DEV) console.warn('[PDF] Content image failed in frame composite');
+                resolve(null);
+              };
+              contentImg.src = contentDataUrl;
+            } catch (e) {
+              if (import.meta.env.DEV) console.warn('[PDF] Frame composite error:', e);
+              resolve(null);
+            }
+          };
+          img.onerror = () => {
+            if (import.meta.env.DEV) {
+              console.warn('[PDF] Frame image failed to load (CORS or network):', frameImageUrl);
+            }
+            resolve(null);
+          };
+          img.src = frameImageUrl;
+        });
 
       // Content-only hash so re-renders (attribute order, etc.) don't invalidate cache.
       // Normalize image URLs (strip query/token) so Storage token refresh doesn't invalidate hash.
@@ -482,7 +688,16 @@ export const DesktopPageReader = ({
             }
           })
           .sort();
-        return text + '\n' + imgs.join('\n');
+
+        // Include frame parameters so per-chapter/subchapter border changes
+        // invalidate only the affected pages, not the whole book.
+        const hasBorder = pageEl.getAttribute('data-has-border') === 'true';
+        const frameUrl = hasBorder ? (pageEl.getAttribute('data-border-image-url') || '') : '';
+        const frameW = hasBorder ? (pageEl.getAttribute('data-frame-width') || '') : '';
+        const slicePct = hasBorder ? (pageEl.getAttribute('data-border-slice-percent') || '') : '';
+        const frameSignature = hasBorder ? `\nFRAME:${frameUrl}|${frameW}|${slicePct}` : '';
+
+        return text + '\n' + imgs.join('\n') + frameSignature;
       };
 
       const getPageKeyAndHash = (pageEl, index) => {
@@ -524,8 +739,8 @@ export const DesktopPageReader = ({
           : pageBitmapCacheRef.current;
 
         const stats = { rendered: 0, reused: 0 };
-        const getOrRenderPageBitmap = async (pageEl, index) => {
-          const { pageKey, hash } = getPageKeyAndHash(pageEl, index);
+        const getOrRenderPageBitmap = async (sheetEl, index) => {
+          const { pageKey, hash } = getPageKeyAndHash(sheetEl, index);
 
           const cached = cache.get(pageKey);
           if (cached && cached.hash === hash) {
@@ -533,8 +748,9 @@ export const DesktopPageReader = ({
             return cached.dataUrl;
           }
 
-          await waitForImages(pageEl);
-          const canvas = await html2canvas(pageEl, {
+          const captureEl = getCaptureElement(sheetEl);
+          await waitForImages(captureEl);
+          const canvas = await html2canvas(captureEl, {
             scale: Math.min(window.devicePixelRatio || 1, 2),
             useCORS: true,
             backgroundColor: '#ffffff',
@@ -545,9 +761,9 @@ export const DesktopPageReader = ({
           return dataUrl;
         };
 
-      const renderPageToDataUrl = async (pageEl) => {
-        await waitForImages(pageEl);
-        const canvas = await html2canvas(pageEl, {
+      const renderPageToDataUrl = async (captureEl) => {
+        await waitForImages(captureEl);
+        const canvas = await html2canvas(captureEl, {
           scale: Math.min(window.devicePixelRatio || 1, 2),
           useCORS: true,
           backgroundColor: '#ffffff',
@@ -557,6 +773,14 @@ export const DesktopPageReader = ({
 
       document.body.setAttribute('data-pdf-export', 'true');
       await new Promise((r) => requestAnimationFrame(r));
+
+      const firstSheet = pageSheets[0];
+      const firstHasBorder = firstSheet.getAttribute('data-has-border') === 'true';
+      const firstFrameW = firstHasBorder ? parseInt(firstSheet.getAttribute('data-frame-width'), 10) || 10 : 0;
+      const firstRect = {
+        width: firstSheet.offsetWidth + 2 * firstFrameW,
+        height: firstSheet.offsetHeight + 2 * firstFrameW,
+      };
 
       try {
         // 2a) Incremental: reuse pages from stored PDF when content hash matches (works across devices)
@@ -594,9 +818,6 @@ export const DesktopPageReader = ({
             const oldPdfBytes = new Uint8Array(await res.arrayBuffer());
             const oldDoc = await PDFDocument.load(oldPdfBytes);
             const newDoc = await PDFDocument.create();
-            const firstOldPage = oldDoc.getPage(0);
-            const pageWidth = firstOldPage.getWidth();
-            const pageHeight = firstOldPage.getHeight();
 
             const newPageKeys = [];
             const newPageHashes = {};
@@ -614,15 +835,29 @@ export const DesktopPageReader = ({
                 newDoc.addPage(copiedPage);
                 copiedCount += 1;
               } else {
-                const dataUrl = await renderPageToDataUrl(pageSheets[i]);
+                const sheet = pageSheets[i];
+                const sw = sheet.offsetWidth;
+                const sh = sheet.offsetHeight;
+                const contentDataUrl = await renderPageToDataUrl(sheet);
+                const hasBorder = sheet.getAttribute('data-has-border') === 'true';
+                const frameW = hasBorder ? parseInt(sheet.getAttribute('data-frame-width'), 10) || 10 : 0;
+                const frameUrl = hasBorder ? sheet.getAttribute('data-border-image-url') : null;
+                const slicePct = hasBorder ? sheet.getAttribute('data-border-slice-percent') : null;
+                let dataUrl = contentDataUrl;
+                let w = sw;
+                let h = sh;
+                if (hasBorder && frameUrl) {
+                  if (import.meta.env.DEV) console.log('[PDF] frame composite (incremental)', { frameW, slicePct, sw, sh });
+                  const composite = await compositeFrameWithContent(contentDataUrl, frameUrl, frameW, sw, sh, slicePct);
+                  if (composite) {
+                    dataUrl = composite;
+                    w = sw + 2 * frameW;
+                    h = sh + 2 * frameW;
+                  }
+                }
                 const embed = await newDoc.embedJpg(dataUrl);
-                const page = newDoc.addPage([pageWidth, pageHeight]);
-                page.drawImage(embed, {
-                  x: 0,
-                  y: 0,
-                  width: pageWidth,
-                  height: pageHeight,
-                });
+                const page = newDoc.addPage([w, h]);
+                page.drawImage(embed, { x: 0, y: 0, width: w, height: h });
                 renderedCount += 1;
               }
               newPageKeys.push(pageKey);
@@ -669,22 +904,34 @@ export const DesktopPageReader = ({
         const pdfPageHashes = {};
 
         for (let i = 0; i < pageSheets.length; i += 1) {
-          const { pageKey, hash } = getPageKeyAndHash(pageSheets[i], i);
+          const sheet = pageSheets[i];
+          const { pageKey, hash } = getPageKeyAndHash(sheet, i);
           pdfPageKeys.push(pageKey);
           pdfPageHashes[pageKey] = hash;
+          const sw = sheet.offsetWidth;
+          const sh = sheet.offsetHeight;
           // eslint-disable-next-line no-await-in-loop
-          const imgData = await getOrRenderPageBitmap(pageSheets[i], i);
-          if (i !== 0) {
-            pdf.addPage();
+          const contentDataUrl = await getOrRenderPageBitmap(sheet, i);
+          const hasBorder = sheet.getAttribute('data-has-border') === 'true';
+          const frameW = hasBorder ? parseInt(sheet.getAttribute('data-frame-width'), 10) || 10 : 0;
+          const frameUrl = hasBorder ? sheet.getAttribute('data-border-image-url') : null;
+          const slicePct = hasBorder ? (parseInt(sheet.getAttribute('data-border-slice-percent'), 10) || 5) : null;
+          let imgData = contentDataUrl;
+          let w = sw;
+          let h = sh;
+          if (hasBorder && frameUrl) {
+            if (import.meta.env.DEV) console.log('[PDF] frame composite (full)', { frameW, slicePct, sw, sh });
+            const composite = await compositeFrameWithContent(contentDataUrl, frameUrl, frameW, sw, sh, slicePct);
+            if (composite) {
+              imgData = composite;
+              w = sw + 2 * frameW;
+              h = sh + 2 * frameW;
+            }
           }
-          pdf.addImage(
-            imgData,
-            'JPEG',
-            0,
-            0,
-            firstRect.width,
-            firstRect.height
-          );
+          if (i !== 0) {
+            pdf.addPage([w, h], 'p');
+          }
+          pdf.addImage(imgData, 'JPEG', 0, 0, w, h);
         }
         if (import.meta.env.DEV && (stats.rendered > 0 || stats.reused > 0)) {
           console.log('[PDF] Full: %d rendered (html2canvas), %d reused from cache', stats.rendered, stats.reused);
@@ -1034,21 +1281,19 @@ export const DesktopPageReader = ({
     // border-image: url('/smallerborder.png') 32 26 fill stretch;
     // border-image-outset: 16px;
     const hasBorder = !!page?.borderImageUrl;
-    const borderWidth = page?.borderWidth || 8; // default 8px like original
     const borderImageUrl = page?.borderImageUrl;
 
-    // Standardized border-image implementation:
-    // - slicePercent: user-configurable (default 4% for 1024x1024px images = ~41px corners)
-    // - borderOutset: equals borderWidth (1:1 ratio) for proper frame spacing
-    // - Use 'round' repeat to maintain aspect ratio on rectangular pages (prevents distortion)
-    const borderOutset = borderWidth; // 1:1 ratio (8px → 8px, 16px → 16px, etc.)
-    const slicePercent = page?.borderSlicePercent || 4; // Default 4% for 1024x1024px images
+    // Interpret pageBorderWidth as visible frame thickness, not as inward border.
+    // We keep border-width at 0 so the frame does not cut into the page; the
+    // `/ frameWidthpx` part of border-image controls thickness, and
+    // border-image-outset pushes the frame outward so it sits like a picture frame.
+    const frameWidth = Math.max(5, page?.borderWidth || 10);
+    const slicePercent = page?.borderSlicePercent ?? 5;
 
-    // Inline border-image styles so each chapter/subchapter can have its own frame
     const borderStyle = hasBorder && borderImageUrl ? {
-      border: `${borderWidth}px solid transparent`,
-      borderImage: `url(${borderImageUrl}) ${slicePercent}% fill round`,
-      borderImageOutset: `${borderOutset}px`,
+      border: '0 solid transparent',
+      borderImage: `url(${borderImageUrl}) ${slicePercent}% / ${frameWidth}px round`,
+      borderImageOutset: `${frameWidth}px`,
       borderRadius: 0,
     } : {};
 
@@ -1058,6 +1303,10 @@ export const DesktopPageReader = ({
         style={{ ...pageStyle, ...borderStyle }}
         data-chapter-index={page.chapterIndex}
         data-page-index={page.pageIndex}
+        data-has-border={hasBorder ? 'true' : undefined}
+        data-frame-width={hasBorder ? frameWidth : undefined}
+        data-border-image-url={hasBorder ? borderImageUrl : undefined}
+        data-border-slice-percent={hasBorder ? slicePercent : undefined}
       >
         {/* Background image as absolutely positioned element behind content */}
         {(hasBackgroundImage || fieldNotesImageUrl) && (
@@ -1271,7 +1520,7 @@ export const DesktopPageReader = ({
       const pageKey = page.isTOC 
         ? `toc-${index}` 
         : `page-${page.chapterIndex}-${page.pageIndex}-${contentHash}`;
-      
+
       return (
         <div
           key={pageKey}

@@ -21,6 +21,7 @@ export const PDFTopBar = ({
   onFitToPage,
   onPrint,
   onDownload,
+  onForceRegenerate,
   isDownloading = false
 }) => {
   const [pageInput, setPageInput] = useState(currentPage || 1);
@@ -192,10 +193,24 @@ export const PDFTopBar = ({
       </div>
 
       <div className="pdf-top-bar-right">
+        {/* Dev-only Regenerate button (temporarily disabled)
+        {onForceRegenerate && (
+          <button
+            type="button"
+            className="pdf-top-bar-btn pdf-top-bar-btn--regenerate"
+            onClick={onForceRegenerate}
+            disabled={isDownloading}
+            title="Regenerate PDF from scratch and download"
+            aria-label="Regenerate PDF"
+          >
+            Regenerate
+          </button>
+        )}
+        */}
         {/* Download button - icon only; shows buffering spinner while generating */}
         <button
           className={`pdf-top-bar-btn ${isDownloading ? 'pdf-top-bar-btn--downloading' : ''}`}
-          onClick={onDownload}
+          onClick={() => onDownload?.()}
           disabled={isDownloading}
           title="Download PDF"
           aria-label="Download PDF"

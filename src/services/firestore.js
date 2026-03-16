@@ -226,4 +226,13 @@ export async function bumpContentVersion(bookId) {
   await setDoc(bookDoc(bookId), { contentVersion: (meta.contentVersion ?? 0) + 1 }, { merge: true });
 }
 
+/** Clear stored PDF metadata so the next download will generate a new PDF from scratch. */
+export async function clearBookPdfCache(bookId) {
+  await setDoc(
+    bookDoc(bookId),
+    { pdfUrl: null, pdfVersion: null, pdfPageKeys: null, pdfPageHashes: null },
+    { merge: true }
+  );
+}
+
 
