@@ -5,6 +5,7 @@ import jsPDF from 'jspdf';
 import { PDFDocument } from 'pdf-lib';
 import { PDFViewer } from './PDFViewer';
 import { PDFTopBar } from './PDFTopBar';
+import { DitheredLoader } from './DitheredLoader';
 import { ReaderTopBar } from './ReaderTopBar';
 import { DesktopTOC } from './DesktopTOC';
 import { useKaraokePlayer } from '../hooks/useKaraokePlayer';
@@ -1558,12 +1559,56 @@ export const DesktopPageReader = ({
       scrollContainer.scrollTop = pageElement.offsetTop - topBarHeight - 62;
     }
   }, [pagesWithTOC, currentChapterIndex, currentPageIndex, isInitializing]);
+
+  // When showing only the inline loader page (before any real pages are ready),
+  // place it at the same scroll position the first real page will use so the
+  // transition feels seamless.
+  useLayoutEffect(() => {
+    if (pages.length !== 0) return;
+    const scrollContainer = document.querySelector('.pdf-viewer');
+    const pageElement = document.getElementById('pdf-page-0');
+    const topBar = document.querySelector('.pdf-top-bar');
+    const topBarHeight = topBar ? topBar.offsetHeight : 0;
+    if (scrollContainer && pageElement) {
+      scrollContainer.scrollTop = pageElement.offsetTop - topBarHeight - 62;
+    }
+  }, [pages.length]);
   
   
-  // Early return AFTER all hooks
+  // Early return: one "page" with the loader in the same slot as the first page; real pages replace it when loaded
   if (pages.length === 0) {
     return (
-      <div className="page-reader-loading" />
+      <>
+        <PDFTopBar
+          currentPage={1}
+          totalPages={1}
+          onPageChange={() => {}}
+          onPreviousPage={() => {}}
+          onNextPage={() => {}}
+          onZoomIn={() => {}}
+          onZoomOut={() => {}}
+          zoom={1}
+          onZoomChange={() => {}}
+          onDownload={() => {}}
+          isDownloading={false}
+          filename="weird-attachments.pdf"
+        />
+        <PDFViewer
+          currentPage={1}
+          totalPages={1}
+          onPageChange={() => {}}
+          filename="weird-attachments.pdf"
+          zoom={1}
+        >
+          <div className="pdf-pages-container">
+            <div className="pdf-page-wrapper" id="pdf-page-0">
+              <article className="page-sheet">
+                <DitheredLoader inline />
+              </article>
+            </div>
+          </div>
+        </PDFViewer>
+      </>
     );
   }
 

@@ -1,18 +1,38 @@
 import { useEffect, useRef, useState } from 'react';
 import './DitheredLoader.css';
 
-export const DitheredLoader = ({ active }) => {
+// Shape noise only: fixed threshold, noise perturbs the line contours over time
+const EDGE_ANIMATION = {
+  speed: 0.04,
+  threshold: 0.18,
+  shapeNoiseAmount: 0.12,
+  // Spatial scale of noise in pixels (higher = more structural, less speckly). e.g. 6–12
+  noiseScale: 8,
+};
+
+// When true, skip the edge/dither pipeline and show just the simple
+// "Loading..." label drawn directly to the canvas (same style as img.onerror).
+const SIMPLE_LOADING_LABEL = true;
+
+export const DitheredLoader = ({ active = true, inline = false }) => {
+  const containerRef = useRef(null);
   const canvasRef = useRef(null);
   const sparkleCanvasRef = useRef(null);
+  const labelCanvasRef = useRef(null);
   const imageRef = useRef(null);
   const sparkleAnimationRef = useRef(null);
   const ditherDataRef = useRef(null); // Store dithered image data for influence map
+  const pixelScaleRef = useRef(2); // Downscale factor used for edge image (for sparkle alignment)
+  const edgeCanvasRef = useRef(null); // Small canvas for edge map
+  const edgeStrengthRef = useRef(null); // { data: Float32Array(nms), maxMag, w, h } for threshold animation
   // Extra refs for JS-driven pixel melt
   const originalImageDataRef = useRef(null);
   const pixelIndicesRef = useRef(null);
   const dissolveAnimationRef = useRef(null);
   const dissolveProgressRef = useRef(0);
   const noiseAnimationRef = useRef(null);
+  const edgeDriftAnimationRef = useRef(null);
+  const labelAnimationRef = useRef(null);
   const [isVisible, setIsVisible] = useState(false);
   const [isDissolving, setIsDissolving] = useState(false);
 
@@ -23,105 +43,289 @@ export const DitheredLoader = ({ active }) => {
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
-    // Set canvas size to match viewport
-    const resizeCanvas = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+    const getSize = () => {
+      if (inline && containerRef.current) {
+        const w = containerRef.current.clientWidth;
+        const h = containerRef.current.clientHeight;
+        return { w: w > 0 ? w : window.innerWidth, h: h > 0 ? h : window.innerHeight };
+      }
+      return { w: window.innerWidth, h: window.innerHeight };
     };
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
 
-    // Load the dithered image
+    const resizeCanvas = () => {
+      const { w, h } = getSize();
+      canvas.width = w;
+      canvas.height = h;
+      // Keep label canvas in sync so text is positioned correctly
+      if (labelCanvasRef.current) {
+        labelCanvasRef.current.width = w;
+        labelCanvasRef.current.height = h;
+      }
+    };
+
+    if (!inline) {
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+    }
+
     const img = new Image();
-    img.crossOrigin = 'anonymous';
     img.src = '/ditherfirst.jpg';
 
-    img.onload = () => {
+    const runPipeline = () => {
+      const w = canvas.width;
+      const h = canvas.height;
+      if (w <= 0 || h <= 0) return;
+
+      // Simple label-only mode (inline desktop): draw white background + \"Loading attachments...\" text and skip
+      if (SIMPLE_LOADING_LABEL && inline) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = '#ff0000';
+        ctx.font = '16px serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Loading attachments...', w / 2, h / 2);
+        return;
+      }
+
       imageRef.current = img;
-      
-      // Draw image to canvas
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      
-      // Get image data
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
-      
-      // First pass: Increase contrast and reduce brightness for more black
-      const contrast = 4.5; // Higher contrast = more intense dithering
-      const brightness = -60; // Reduce brightness to push toward black
-      const intercept = 128 * (1 - contrast);
-      
-      for (let i = 0; i < data.length; i += 4) {
-        // Apply contrast and brightness to RGB channels
-        data[i] = Math.max(0, Math.min(255, (data[i] * contrast) + intercept + brightness));     // R
-        data[i + 1] = Math.max(0, Math.min(255, (data[i + 1] * contrast) + intercept + brightness)); // G
-        data[i + 2] = Math.max(0, Math.min(255, (data[i + 2] * contrast) + intercept + brightness)); // B
+      ctx.drawImage(img, 0, 0, w, h);
+
+      // Build edge-detected, pixelated loader from local image
+
+      // Downscale for cheaper processing; milder = less pixelated (finer blocks)
+      const scale = 1.2;
+      pixelScaleRef.current = scale;
+      const sw = Math.max(1, Math.floor(w / scale));
+      const sh = Math.max(1, Math.floor(h / scale));
+      const small = document.createElement('canvas');
+      small.width = sw;
+      small.height = sh;
+      const sctx = small.getContext('2d');
+      sctx.drawImage(canvas, 0, 0, sw, sh);
+
+      // 1) Grayscale on small canvas + light Gaussian blur to suppress noise
+      let imageData = sctx.getImageData(0, 0, sw, sh);
+      const src = imageData.data;
+      for (let i = 0; i < src.length; i += 4) {
+        const r = src[i];
+        const g = src[i + 1];
+        const b = src[i + 2];
+        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+        src[i] = src[i + 1] = src[i + 2] = gray;
       }
-      
-      // Second pass: Apply ordered dithering (Bayer dither)
-      // 4x4 Bayer matrix for ordered dithering
-      const bayerMatrix = [
-        [0, 8, 2, 10],
-        [12, 4, 14, 6],
-        [3, 11, 1, 9],
-        [15, 7, 13, 5]
-      ];
-      
-      const threshold = 200; // Much higher threshold = many more black pixels (much less gray)
-      const intensity = 2.0; // Increase this to make dithering more intense (1.0 = normal, higher = more intense)
-      
-      for (let i = 0; i < data.length; i += 4) {
-        const x = (i / 4) % canvas.width;
-        const y = Math.floor((i / 4) / canvas.width);
-        
-        // Calculate luminance from contrast-adjusted values
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
-        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-        
-        // Get Bayer matrix value for this pixel
-        const matrixX = x % 4;
-        const matrixY = y % 4;
-        const matrixValue = bayerMatrix[matrixY][matrixX];
-        
-        // Apply dithering threshold with intensity multiplier
-        // Scale the matrix value more aggressively for stronger dithering
-        const ditherThreshold = threshold + ((matrixValue * 16 - 128) * intensity);
-        const output = luminance > ditherThreshold ? 255 : 0;
-        
-        // Set to black or white
-        data[i] = output;     // R
-        data[i + 1] = output; // G
-        data[i + 2] = output; // B
-        // Alpha stays the same
+
+      // 1b) Simple 3x3 Gaussian blur on grayscale buffer to reduce speckle
+      const blurKernel = [1, 2, 1, 2, 4, 2, 1, 2, 1];
+      const blurDiv = 16;
+      const blurred = new Uint8ClampedArray(src.length);
+      const getGraySmall = (x, y) => {
+        if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
+        const idx = (y * sw + x) * 4;
+        return src[idx];
+      };
+      for (let y = 0; y < sh; y += 1) {
+        for (let x = 0; x < sw; x += 1) {
+          let acc = 0;
+          let k = 0;
+          for (let ky = -1; ky <= 1; ky += 1) {
+            for (let kx = -1; kx <= 1; kx += 1) {
+              acc += getGraySmall(x + kx, y + ky) * blurKernel[k];
+              k += 1;
+            }
+          }
+          const g = acc / blurDiv;
+          const idx = (y * sw + x) * 4;
+          blurred[idx] = blurred[idx + 1] = blurred[idx + 2] = g;
+          blurred[idx + 3] = 255;
+        }
       }
-      
-      // Put dithered image data back
-      ctx.putImageData(imageData, 0, 0);
-      
-      // Store dithered data for sparkle influence map and pixel melt
+
+      // 2) Canny-like edge detection on small canvas
+      const edgeImageData = sctx.createImageData(sw, sh);
+      const dst = edgeImageData.data;
+      const sobelX = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
+      const sobelY = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
+
+      const getGray = (x, y) => {
+        if (x < 0 || x >= sw || y < 0 || y >= sh) return 0;
+        const idx = (y * sw + x) * 4;
+        return blurred[idx];
+      };
+
+      const magBuf = new Float32Array(sw * sh);
+      const dirBuf = new Float32Array(sw * sh);
+
+      for (let y = 0; y < sh; y += 1) {
+        for (let x = 0; x < sw; x += 1) {
+          let gx = 0;
+          let gy = 0;
+          let k = 0;
+          for (let ky = -1; ky <= 1; ky += 1) {
+            for (let kx = -1; kx <= 1; kx += 1) {
+              const g = getGray(x + kx, y + ky);
+              gx += g * sobelX[k];
+              gy += g * sobelY[k];
+              k += 1;
+            }
+          }
+          const mag = Math.sqrt(gx * gx + gy * gy);
+          const angle = Math.atan2(gy, gx); // -pi..pi
+          const idx = y * sw + x;
+          magBuf[idx] = mag;
+          dirBuf[idx] = angle;
+        }
+      }
+
+      // 3) Non-maximum suppression (very simple)
+      const nmsBuf = new Float32Array(sw * sh);
+      const dirToBin = (angle) => {
+        const a = (angle * 180) / Math.PI;
+        const deg = (a < 0 ? a + 180 : a);
+        if ((deg >= 0 && deg < 22.5) || (deg >= 157.5 && deg < 180)) return 0; // 0°
+        if (deg >= 22.5 && deg < 67.5) return 45;
+        if (deg >= 67.5 && deg < 112.5) return 90;
+        return 135;
+      };
+
+      for (let y = 1; y < sh - 1; y += 1) {
+        for (let x = 1; x < sw - 1; x += 1) {
+          const idx = y * sw + x;
+          const mag = magBuf[idx];
+          const bin = dirToBin(dirBuf[idx]);
+          let m1 = 0;
+          let m2 = 0;
+          if (bin === 0) {
+            m1 = magBuf[idx - 1];
+            m2 = magBuf[idx + 1];
+          } else if (bin === 45) {
+            m1 = magBuf[idx - sw + 1];
+            m2 = magBuf[idx + sw - 1];
+          } else if (bin === 90) {
+            m1 = magBuf[idx - sw];
+            m2 = magBuf[idx + sw];
+          } else {
+            m1 = magBuf[idx - sw - 1];
+            m2 = magBuf[idx + sw + 1];
+          }
+          nmsBuf[idx] = mag >= m1 && mag >= m2 ? mag : 0;
+        }
+      }
+
+      // 4) Store edge strength for threshold animation (before hysteresis)
+      let maxMag = 0;
+      for (let i = 0; i < nmsBuf.length; i += 1) {
+        if (nmsBuf[i] > maxMag) maxMag = nmsBuf[i];
+      }
+      edgeStrengthRef.current = { data: new Float32Array(nmsBuf), maxMag, w: sw, h: sh };
+
+      // 5) Hysteresis thresholding for initial binary edge map
+      const high = maxMag * 0.2;
+      const low = high * 0.45;
+      const strong = 255;
+      const weak = 75;
+      const edgeMap = new Uint8Array(sw * sh);
+
+      for (let i = 0; i < nmsBuf.length; i += 1) {
+        const v = nmsBuf[i];
+        if (v >= high) edgeMap[i] = strong;
+        else if (v >= low) edgeMap[i] = weak;
+        else edgeMap[i] = 0;
+      }
+
+      // Promote weak pixels connected to strong pixels
+      const index = (x, y) => y * sw + x;
+      for (let y = 1; y < sh - 1; y += 1) {
+        for (let x = 1; x < sw - 1; x += 1) {
+          const i = index(x, y);
+          if (edgeMap[i] !== weak) continue;
+          let hasStrong = false;
+          for (let oy = -1; oy <= 1 && !hasStrong; oy += 1) {
+            for (let ox = -1; ox <= 1; ox += 1) {
+              if (ox === 0 && oy === 0) continue;
+              const j = index(x + ox, y + oy);
+              if (edgeMap[j] === strong) {
+                hasStrong = true;
+                break;
+              }
+            }
+          }
+          edgeMap[i] = hasStrong ? strong : 0;
+        }
+      }
+
+      // Write edge map into small canvas as black edges on white
+      for (let y = 0; y < sh; y += 1) {
+        for (let x = 0; x < sw; x += 1) {
+          const i = y * sw + x;
+          const o = i * 4;
+          const isEdge = edgeMap[i] === strong;
+          const val = isEdge ? 0 : 255;
+          dst[o] = dst[o + 1] = dst[o + 2] = val;
+          dst[o + 3] = 255;
+        }
+      }
+      sctx.putImageData(edgeImageData, 0, 0);
+      edgeCanvasRef.current = small;
+
+      // Upscale to full canvas with nearest-neighbor for pixelated look
+      ctx.clearRect(0, 0, w, h);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(small, 0, 0, w, h);
+
+      // Use final edge image as working data
+      imageData = ctx.getImageData(0, 0, w, h);
+
+      // Store processed data for sparkle influence map and dissolve.
       const dataCopy = new Uint8ClampedArray(imageData.data);
       ditherDataRef.current = {
         data: dataCopy,
         width: canvas.width,
         height: canvas.height
       };
+      // Pre-warm an ImageData instance so the dissolve doesn't need to call
+      // getImageData again on first frame.
       originalImageDataRef.current = {
-        data: dataCopy,
+        imageData: new ImageData(dataCopy, canvas.width, canvas.height),
         width: canvas.width,
         height: canvas.height
       };
 
-      // Precompute a shuffled list of pixel indices once for dissolve
+      // Precompute a shuffled list of pixel "seed" indices once for dissolve.
+      // Use a stride so we don't track every single pixel; each seed will clear
+      // a small 2x2 block, making the effect chunkier and lighter.
       const pixelCount = canvas.width * canvas.height;
-      const indices = Array.from({ length: pixelCount }, (_, i) => i);
+      const stride = 4; // sample every 4th pixel
+      const indices = [];
+      for (let i = 0; i < pixelCount; i += stride) {
+        indices.push(i);
+      }
       for (let i = indices.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [indices[i], indices[j]] = [indices[j], indices[i]];
       }
       pixelIndicesRef.current = indices;
     };
+
+    img.onload = () => {
+      if (inline) {
+        resizeCanvas();
+        if (canvas.width > 0 && canvas.height > 0) runPipeline();
+      } else {
+        runPipeline();
+      }
+    };
+
+    let ro = null;
+    if (inline && containerRef.current) {
+      ro = new ResizeObserver(() => {
+        resizeCanvas();
+        if (imageRef.current && canvas.width > 0 && canvas.height > 0) runPipeline();
+      });
+      ro.observe(containerRef.current);
+      resizeCanvas();
+      if (canvas.width > 0 && canvas.height > 0 && imageRef.current) runPipeline();
+    }
 
     img.onerror = () => {
       // Fallback if image fails to load
@@ -134,25 +338,162 @@ export const DitheredLoader = ({ active }) => {
     };
 
     return () => {
-      window.removeEventListener('resize', resizeCanvas);
-      if (sparkleAnimationRef.current) {
-        cancelAnimationFrame(sparkleAnimationRef.current);
+      if (!inline) window.removeEventListener('resize', resizeCanvas);
+      if (ro && containerRef.current) ro.disconnect();
+      if (sparkleAnimationRef.current) cancelAnimationFrame(sparkleAnimationRef.current);
+      if (dissolveAnimationRef.current) { cancelAnimationFrame(dissolveAnimationRef.current); dissolveAnimationRef.current = null; }
+      if (noiseAnimationRef.current) { cancelAnimationFrame(noiseAnimationRef.current); noiseAnimationRef.current = null; }
+      if (edgeDriftAnimationRef.current) { cancelAnimationFrame(edgeDriftAnimationRef.current); edgeDriftAnimationRef.current = null; }
+      if (labelAnimationRef.current) { cancelAnimationFrame(labelAnimationRef.current); labelAnimationRef.current = null; }
+    };
+  }, [inline]);
+
+  // Animate the three dots in "Loading attachments..." when using SIMPLE_LOADING_LABEL.
+  useEffect(() => {
+    if (!SIMPLE_LOADING_LABEL) return;
+    // Desktop inline: draw label directly into the main canvas.
+    // Mobile (full-screen): draw label into the overlay label canvas.
+    const canvas = inline ? canvasRef.current : labelCanvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let frame = 0;
+    const animateLabel = () => {
+      if (!active) {
+        labelAnimationRef.current = null;
+        return;
       }
-      if (dissolveAnimationRef.current) {
-        cancelAnimationFrame(dissolveAnimationRef.current);
-        dissolveAnimationRef.current = null;
+      const w = canvas.width;
+      const h = canvas.height;
+      if (w <= 0 || h <= 0) {
+        labelAnimationRef.current = requestAnimationFrame(animateLabel);
+        return;
       }
-      if (noiseAnimationRef.current) {
-        cancelAnimationFrame(noiseAnimationRef.current);
-        noiseAnimationRef.current = null;
+
+      const dots = (Math.floor(frame / 30) % 4); // 0..3 dots, change slowly
+      const text = `Loading attachments${'.'.repeat(dots)}`;
+
+      // Clear previous text (transparent) and redraw
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#ff0000';
+      // Desktop inline: larger, classic serif; Mobile: slightly smaller, crisp sans-serif
+      ctx.font = inline ? '16px serif' : '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, w / 2, h / 2);
+
+      frame += 1;
+      labelAnimationRef.current = requestAnimationFrame(animateLabel);
+    };
+
+    if (active && !labelAnimationRef.current) {
+      labelAnimationRef.current = requestAnimationFrame(animateLabel);
+    }
+
+    return () => {
+      if (labelAnimationRef.current) {
+        cancelAnimationFrame(labelAnimationRef.current);
+        labelAnimationRef.current = null;
       }
     };
-  }, []);
+  }, [active, inline]);
 
-  // White-area noise effect: apply hash-based noise only to white pixels
+  // Edge threshold animation — lines come in and out of existence as threshold moves
   useEffect(() => {
+    // In simple label-only inline mode we skip the edge animation; on mobile we can keep it
+    if (SIMPLE_LOADING_LABEL && inline) return;
+    const canvas = canvasRef.current;
+    if (!canvas || !active || isDissolving) {
+      if (edgeDriftAnimationRef.current) {
+        cancelAnimationFrame(edgeDriftAnimationRef.current);
+        edgeDriftAnimationRef.current = null;
+      }
+      return;
+    }
+
+    let frame = 0;
+    const animateThreshold = () => {
+      if (!active || isDissolving) {
+        edgeDriftAnimationRef.current = null;
+        return;
+      }
+      const strength = edgeStrengthRef.current;
+      const edgeCanvas = edgeCanvasRef.current;
+      if (!strength || !edgeCanvas) {
+        edgeDriftAnimationRef.current = requestAnimationFrame(animateThreshold);
+        return;
+      }
+      const { data: nms, maxMag, w: sw, h: sh } = strength;
+      const t = frame * EDGE_ANIMATION.speed;
+      const shapeNoise = EDGE_ANIMATION.shapeNoiseAmount ?? 0;
+      const threshBase = maxMag * (EDGE_ANIMATION.threshold ?? 0.18);
+      const ti = Math.floor(t);
+      const tf = t - ti;
+      const scale = Math.max(1, EDGE_ANIMATION.noiseScale ?? 8);
+      const hash = (ix, iy, z) => {
+        let n = (ix * 374761393) ^ (iy * 668265263) ^ (z * 1274126177);
+        n = (n ^ (n >> 13)) * 1274126177;
+        n = (n ^ (n >> 16)) >>> 0;
+        return n / 4294967295;
+      };
+      const smoothNoise = (x, y) => {
+        const sx = x / scale;
+        const sy = y / scale;
+        const ix0 = Math.floor(sx);
+        const iy0 = Math.floor(sy);
+        const fx = sx - ix0;
+        const fy = sy - iy0;
+        const n00 = hash(ix0, iy0, ti) + tf * (hash(ix0, iy0, ti + 1) - hash(ix0, iy0, ti));
+        const n10 = hash(ix0 + 1, iy0, ti) + tf * (hash(ix0 + 1, iy0, ti + 1) - hash(ix0 + 1, iy0, ti));
+        const n01 = hash(ix0, iy0 + 1, ti) + tf * (hash(ix0, iy0 + 1, ti + 1) - hash(ix0, iy0 + 1, ti));
+        const n11 = hash(ix0 + 1, iy0 + 1, ti) + tf * (hash(ix0 + 1, iy0 + 1, ti + 1) - hash(ix0 + 1, iy0 + 1, ti));
+        const nx0 = n00 + fx * (n10 - n00);
+        const nx1 = n01 + fx * (n11 - n01);
+        return nx0 + fy * (nx1 - nx0);
+      };
+      const sctx = edgeCanvas.getContext('2d');
+      const imgData = sctx.createImageData(sw, sh);
+      const d = imgData.data;
+      for (let i = 0; i < nms.length; i += 1) {
+        const x = i % sw;
+        const y = (i / sw) | 0;
+        const noise01 = smoothNoise(x, y);
+        const offset = shapeNoise * (noise01 - 0.5) * maxMag * 0.25;
+        const threshHere = threshBase + offset;
+        const v = nms[i] >= threshHere ? 0 : 255;
+        d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v;
+        d[i * 4 + 3] = 255;
+      }
+      sctx.putImageData(imgData, 0, 0);
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(edgeCanvas, 0, 0, sw, sh, 0, 0, w, h);
+      frame += 1;
+      edgeDriftAnimationRef.current = requestAnimationFrame(animateThreshold);
+    };
+
+    edgeDriftAnimationRef.current = requestAnimationFrame(animateThreshold);
+    return () => {
+      if (edgeDriftAnimationRef.current) {
+        cancelAnimationFrame(edgeDriftAnimationRef.current);
+        edgeDriftAnimationRef.current = null;
+      }
+    };
+  }, [active, isDissolving]);
+
+  // White-area noise effect (skipped when edge drift is used)
+  useEffect(() => {
+    // In simple label-only inline mode we don't use noise; on mobile we can keep it
+    if (SIMPLE_LOADING_LABEL && inline) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
+    if (edgeCanvasRef.current) return; // Use drift animation instead
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -185,6 +526,11 @@ export const DitheredLoader = ({ active }) => {
         noiseAnimationRef.current = null;
         return;
       }
+      // Once edge canvas exists, drift animation takes over — stop noise so drift is visible
+      if (edgeCanvasRef.current) {
+        noiseAnimationRef.current = null;
+        return;
+      }
 
       if (!ditherDataRef.current) {
         noiseAnimationRef.current = requestAnimationFrame(animateNoise);
@@ -211,18 +557,15 @@ export const DitheredLoader = ({ active }) => {
           const di = idx * 4;
           const baseVal = baseCopy[di];
 
-          if (baseVal === 255) {
-            const n0 = 2 * hash2(x, y, tBucket) - 1;
-            const n1 = 2 * hash2(x, y, tBucket + 1) - 1;
+          // Only operate on black pixels; keep them black and opaque (no gray).
+          if (baseVal === 0) {
+            const n0 = hash2(x, y, tBucket);
+            const n1 = hash2(x, y, tBucket + 1);
             const n = n0 + tFrac * (n1 - n0);
-
-            let val = baseVal + amplitude * n;
-            if (val < 0) val = 0;
-            if (val > 255) val = 255;
-
-            d[di] = val;
-            d[di + 1] = val;
-            d[di + 2] = val;
+            d[di] = 0;
+            d[di + 1] = 0;
+            d[di + 2] = 0;
+            d[di + 3] = 255;
           }
         }
       }
@@ -242,8 +585,10 @@ export const DitheredLoader = ({ active }) => {
     };
   }, [active, isDissolving]);
 
-  // Sparkle effect - random white points appearing and disappearing, influenced by dither pattern
+  // Sparkle effect - random black blocks appearing and disappearing (temporarily disabled)
+  const sparklesEnabled = false;
   useEffect(() => {
+    if (!sparklesEnabled) return;
     const sparkleCanvas = sparkleCanvasRef.current;
     if (!sparkleCanvas) return;
 
@@ -283,36 +628,37 @@ export const DitheredLoader = ({ active }) => {
 
     const createSparkles = () => {
       if (!ditherDataRef.current) return; // Wait for dither data
-      
-      // Create array of sparkle points, influenced by dither pattern
-      const sparkleCount = 10000; // Number of sparkles
+      const scale = pixelScaleRef.current || 1.5;
+      const w = sparkleCanvas.width;
+      const h = sparkleCanvas.height;
+      const gridW = Math.max(1, Math.floor(w / scale));
+      const gridH = Math.max(1, Math.floor(h / scale));
+      // Fewer sparkles; each is exactly one block (scale×scale) so they match edge pixelation
+      const sparkleCount = 1200;
       sparkles = [];
-      
-      // Try to place sparkles, with higher probability on white pixels
       let attempts = 0;
-      const maxAttempts = sparkleCount * 3; // Allow more attempts to find good positions
-      
+      const maxAttempts = sparkleCount * 8;
+      const used = new Set(); // avoid duplicate cells
       while (sparkles.length < sparkleCount && attempts < maxAttempts) {
         attempts++;
-        const x = Math.random() * sparkleCanvas.width;
-        const y = Math.random() * sparkleCanvas.height;
-        
-        // Sample dither pattern at this position
+        const gx = Math.floor(Math.random() * gridW);
+        const gy = Math.floor(Math.random() * gridH);
+        const key = `${gx},${gy}`;
+        if (used.has(key)) continue;
+        const x = gx * scale + scale * 0.5;
+        const y = gy * scale + scale * 0.5;
         const ditherValue = sampleDitherPattern(x, y);
-        
-        // Higher probability of placing sparkle on white pixels (ditherValue close to 1)
-        // Use weighted random: more likely on white, but still allow some on black
-        const placementProbability = ditherValue * 0.8 + 0.2; // 20% base chance, up to 100% on white
-        
+        const placementProbability = ditherValue * 0.6 + 0.2;
         if (Math.random() < placementProbability) {
+          used.add(key);
           sparkles.push({
-            x,
-            y,
-            size: Math.random() * 1.2 + 0.3, // Random size between 0.3 and 1.5
-            baseOpacity: ditherValue * 0.5 + 0.3, // Base opacity influenced by dither (0.3-0.8)
-            opacity: Math.random(), // Random starting opacity
-            speed: Math.random() * 0.15 + 0.1, // Much faster animation speed
-            phase: Math.random() * Math.PI * 2, // Random phase for sine wave
+            gx,
+            gy,
+            scale,
+            baseOpacity: ditherValue * 0.35 + 0.3,
+            opacity: Math.random(),
+            speed: Math.random() * 0.12 + 0.08,
+            phase: Math.random() * Math.PI * 2,
           });
         }
       }
@@ -324,27 +670,19 @@ export const DitheredLoader = ({ active }) => {
       // Clear canvas
       sparkleCtx.clearRect(0, 0, sparkleCanvas.width, sparkleCanvas.height);
       
-      // Update and draw each sparkle
+      // Draw each sparkle as one grid-aligned block (same pixelation as edge image)
       sparkles.forEach((sparkle) => {
-        // Use sine wave for smooth fade in/out
-        const sineOpacity = (Math.sin(sparkle.phase) + 1) / 2; // Convert to 0-1 range
-        
-        // Combine sine wave with base opacity from dither pattern
+        const sineOpacity = (Math.sin(sparkle.phase) + 1) / 2;
         sparkle.opacity = sineOpacity * sparkle.baseOpacity;
-        
-        // Update phase for animation
         sparkle.phase += sparkle.speed;
-        if (sparkle.phase > Math.PI * 2) {
-          sparkle.phase -= Math.PI * 2;
-        }
+        if (sparkle.phase > Math.PI * 2) sparkle.phase -= Math.PI * 2;
 
-        // Draw white point - influenced by dither pattern
-        if (sparkle.opacity > 0.05) { // Lower threshold to show more sparkles
-          sparkleCtx.fillStyle = `rgba(255, 255, 255, ${sparkle.opacity})`;
-          sparkleCtx.beginPath();
-          sparkleCtx.arc(sparkle.x, sparkle.y, sparkle.size, 0, Math.PI * 2);
-          sparkleCtx.fill();
-        }
+        if (sparkle.opacity <= 0.05) return;
+        const s = sparkle.scale;
+        const x = sparkle.gx * s;
+        const y = sparkle.gy * s;
+        sparkleCtx.fillStyle = `rgba(0, 0, 0, ${sparkle.opacity})`;
+        sparkleCtx.fillRect(x, y, s, s);
       });
 
       sparkleAnimationRef.current = requestAnimationFrame(animateSparkles);
@@ -379,7 +717,10 @@ export const DitheredLoader = ({ active }) => {
   }, []);
 
   // Respond to active flag from parent: when active becomes false, start a local
-  // JS-driven pixel melt. We never tell the parent when we're done; this is purely visual.
+  // JS-driven dissolve. The original implementation re-processed all pixels
+  // seen so far on every frame, which could be heavy and choppy on slower
+  // devices. This version treats the dissolve more like a particle system by
+  // processing a fixed batch of random pixels per frame.
   useEffect(() => {
     if (active) {
       setIsVisible(true);
@@ -397,45 +738,70 @@ export const DitheredLoader = ({ active }) => {
         setIsVisible(false);
         return;
       }
-
       setIsDissolving(true);
       dissolveProgressRef.current = 0;
 
-      const { width, height } = originalImageDataRef.current;
-      const n = width * height;
-      const dissolveSpeed = 0.08;
+      const { imageData, width, height } = originalImageDataRef.current;
+      const totalPixels = pixelIndicesRef.current.length;
+      // Cap the amount of work per frame so the effect stays light even on
+      // large screens. Use a large batch so each frame clears a big chunk of
+      // pixels (chunkier, more lightweight dissolve), aiming for ~30 frames.
+      const targetFrames = 30;
+      const maxBatch = 20000;
+      const estimatedBatch = Math.max(1, Math.floor(totalPixels / targetFrames));
+      const minBatch = Math.max(1, Math.floor(estimatedBatch * 0.8));
+      let clearedCount = 0;
+
+      // Work on a mutable copy of the image data (pre-warmed at load time)
+      const img = new ImageData(
+        new Uint8ClampedArray(imageData.data),
+        width,
+        height
+      );
+      const d = img.data;
 
       const animateDissolve = () => {
         if (!pixelIndicesRef.current) return;
-
-        const toDissolve = Math.min(
-          Math.floor(dissolveProgressRef.current * n),
-          pixelIndicesRef.current.length
-        );
-
-        if (toDissolve > 0) {
-          const img = ctx.getImageData(0, 0, width, height);
-          const d = img.data;
-          for (let i = 0; i < toDissolve; i++) {
-            const idx = pixelIndicesRef.current[i] * 4;
-            d[idx + 3] = 0;
-          }
-          ctx.putImageData(img, 0, 0);
-        }
-
-        // Fade sparkles in sync with dissolve
-        if (sparkleCanvasRef.current) {
-          sparkleCanvasRef.current.style.opacity = String(1 - dissolveProgressRef.current);
-        }
-
-        dissolveProgressRef.current += dissolveSpeed;
-
-        if (dissolveProgressRef.current >= 1) {
+        if (clearedCount >= totalPixels) {
           // Melt complete
           setIsDissolving(false);
           setIsVisible(false);
           dissolveAnimationRef.current = null;
           return;
+        }
+
+        // Ramp batch size up with progress: small at start, larger later.
+        const progress = clearedCount / totalPixels;
+        const dynamicBatch = Math.min(
+          maxBatch,
+          Math.floor(minBatch + progress * (estimatedBatch - minBatch))
+        );
+        const nextCount = Math.min(clearedCount + dynamicBatch, totalPixels);
+        for (let i = clearedCount; i < nextCount; i += 1) {
+          const base = pixelIndicesRef.current[i];
+          const x = base % width;
+          const y = Math.floor(base / width);
+          // Clear a 2x2 block for chunkier pixels
+          for (let oy = 0; oy < 2; oy += 1) {
+            const py = y + oy;
+            if (py >= height) continue;
+            for (let ox = 0; ox < 2; ox += 1) {
+              const px = x + ox;
+              if (px >= width) continue;
+              const idx = (py * width + px) * 4;
+              d[idx + 3] = 0;
+            }
+          }
+        }
+        clearedCount = nextCount;
+        const newProgress = clearedCount / totalPixels;
+        dissolveProgressRef.current = newProgress;
+
+        ctx.putImageData(img, 0, 0);
+
+        // Fade sparkles in sync with dissolve
+        if (sparkleCanvasRef.current) {
+          sparkleCanvasRef.current.style.opacity = String(1 - newProgress);
         }
 
         dissolveAnimationRef.current = requestAnimationFrame(animateDissolve);
@@ -447,13 +813,15 @@ export const DitheredLoader = ({ active }) => {
 
   const classes = [
     'dithered-loader',
-    !isVisible ? 'dithered-loader--hidden' : '',
+    inline ? 'dithered-loader--inline' : '',
+    !inline && !isVisible ? 'dithered-loader--hidden' : '',
   ]
     .filter(Boolean)
     .join(' ');
 
   return (
     <div
+      ref={containerRef}
       className={classes}
       onAnimationEnd={(e) => {
         if (e.animationName === 'dither-noise-dissolve') {
@@ -464,6 +832,7 @@ export const DitheredLoader = ({ active }) => {
     >
       <canvas ref={canvasRef} className="dithered-canvas" />
       <canvas ref={sparkleCanvasRef} className="sparkle-canvas" />
+      <canvas ref={labelCanvasRef} className="dithered-label-canvas" />
     </div>
   );
 };

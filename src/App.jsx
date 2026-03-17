@@ -415,8 +415,8 @@ function App() {
         }
       >
         {/* PageReader: Rendered on both mobile and desktop (desktop shows PDF viewer) */}
-      {/* Render PageReader when chapters are loaded, but keep loader visible until pages are ready */}
-      {!loading && chapters.length > 0 && (!isMobile || backgroundsReady) && (
+      {/* On desktop, render from the start so the PDF top bar is visible during load; on mobile wait for chapters + backgrounds */}
+      {((!isMobile) ? !showSetup : (!loading && chapters.length > 0 && backgroundsReady)) && (
         <PageReader
           bookId={BOOK_ID}
           chapters={chapters}
@@ -436,16 +436,17 @@ function App() {
           onPagesReady={onPagesReady}
         />
       )}
-      {/* Show loader while app is preparing pages; the loader itself will handle
-          a local dissolve when this flag goes from true -> false. */}
-      <DitheredLoader
-        active={
-          loading ||
-          (isMobile && !backgroundsReady) ||
-          chapters.length === 0 ||
-          !pagesReady
-        }
-      />
+      {/* Full-screen loader only on mobile; on desktop the loader is in the first page slot (DesktopPageReader) */}
+      {isMobile && (
+        <DitheredLoader
+          active={
+            loading ||
+            !backgroundsReady ||
+            chapters.length === 0 ||
+            !pagesReady
+          }
+        />
+      )}
 
       {/* Desktop: Old scroll-based layout - hidden (replaced by PageReader PDF viewer) */}
       {false && !isMobile && (

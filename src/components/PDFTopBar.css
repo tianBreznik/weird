@@ -11,7 +11,7 @@
   align-items: center;
   justify-content: flex-start; /* Left group starts at padding; center is absolutely centered */
   padding: 0 16px;
-  z-index: 1000;
+  z-index: 10001; /* Above DitheredLoader (10000) so bar is visible during load */
   transition: right 0.3s ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   position: fixed;
