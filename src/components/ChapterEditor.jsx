@@ -3168,7 +3168,7 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                       }
                     }}
                   >
-                    <span style={{ fontSize: '0.9em' }}>BG</span>
+                    <span style={{ fontSize: '1.05em' }}>🏞️</span>
                   </button>
                 )}
                 <button 
