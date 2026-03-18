@@ -67,9 +67,13 @@ export const checkElementFits = ({
 }) => {
   const testElements = [...currentPageElements, element.outerHTML];
   const tempTotalContainer = document.createElement('div');
-  tempTotalContainer.style.width = isDesktop ? contentWidth + 'px' : measure.body.clientWidth + 'px';
-  // For desktop, append to pageContent to match actual DOM structure; for mobile, body is fine
-  const measureParent = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
+  // Use the same content width for both desktop and mobile so that the
+  // measurement container matches the real page-content width.
+  tempTotalContainer.style.width = contentWidth + 'px';
+  // Always prefer measure.pageContent when available so that mobile
+  // measurements pass through the same .page-content structure as the
+  // live reader (height: 90%, max-height: 95%, overflow: hidden, etc.).
+  const measureParent = measure.pageContent || measure.body;
   measureParent.appendChild(tempTotalContainer);
   
   // Wrap in page-content-main with padding-bottom to match actual rendering
@@ -109,9 +113,12 @@ export const checkElementFits = ({
     overflowAmount = totalContentHeight - totalAvailableHeight;
     elementFits = overflowAmount <= 15;
   } else {
-    // Mobile: keep the stricter safety-margin based check.
+    // Mobile: allow a small positive overflow (up to ~10px) so that
+    // paragraphs that visually fit near the bottom of the page do not
+    // get pushed to the next page too aggressively.
     overflowAmount = totalContentHeight - totalAvailableHeight;
-    elementFits = totalContentHeight <= totalAvailableHeight - safetyMargin;
+    const MOBILE_OVERFLOW_TOLERANCE = 10;
+    elementFits = overflowAmount <= MOBILE_OVERFLOW_TOLERANCE;
   }
   
   return { elementFits, totalContentHeight, overflowAmount, totalAvailableHeight };
@@ -131,8 +138,12 @@ export const calculateRemainingHeight = ({
   applyParagraphStylesToContainer
 }) => {
   const tempCurrentPageContainer = document.createElement('div');
-  tempCurrentPageContainer.style.width = isDesktop ? contentWidth + 'px' : measure.body.clientWidth + 'px';
-  const measureParent = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
+  // Match checkElementFits: use contentWidth for both desktop and mobile
+  // so width aligns with the real page-content.
+  tempCurrentPageContainer.style.width = contentWidth + 'px';
+  // Always prefer measure.pageContent when available so mobile measurements
+  // go through the same .page-content structure as the real reader.
+  const measureParent = measure.pageContent || measure.body;
   measureParent.appendChild(tempCurrentPageContainer);
   
   // Same structure as checkElementFits: wrap in page-content-main for identical measurement

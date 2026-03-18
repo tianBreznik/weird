@@ -64,8 +64,24 @@ export const DitheredLoader = ({ active = true, inline = false }) => {
     };
 
     if (!inline) {
+      // Mobile full-screen loader: we only want the simple "Loading attachments..."
+      // label (drawn on the overlay labelCanvas), and NO dithered/edge background.
+      // So we just keep the main canvas sized and blank/white, and skip the entire
+      // image + edge-detection pipeline.
       resizeCanvas();
       window.addEventListener('resize', resizeCanvas);
+      // Optional neutral background behind the text label
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      return () => {
+        window.removeEventListener('resize', resizeCanvas);
+        if (sparkleAnimationRef.current) cancelAnimationFrame(sparkleAnimationRef.current);
+        if (dissolveAnimationRef.current) { cancelAnimationFrame(dissolveAnimationRef.current); dissolveAnimationRef.current = null; }
+        if (noiseAnimationRef.current) { cancelAnimationFrame(noiseAnimationRef.current); noiseAnimationRef.current = null; }
+        if (edgeDriftAnimationRef.current) { cancelAnimationFrame(edgeDriftAnimationRef.current); edgeDriftAnimationRef.current = null; }
+        if (labelAnimationRef.current) { cancelAnimationFrame(labelAnimationRef.current); labelAnimationRef.current = null; }
+      };
     }
 
     const img = new Image();

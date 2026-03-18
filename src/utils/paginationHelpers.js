@@ -197,7 +197,16 @@ export const createMeasureContainer = (isDesktop, pageWidth, pageHeight) => {
   container.style.left = '-9999px';
   container.style.top = '0';
   container.style.width = isDesktop ? `${pageWidth}px` : '100%';
-  container.style.height = pageHeight + 'px';
+  // Desktop uses a fixed PDF page height; mobile should track the *visible*
+  // viewport height so measurements match what the user sees (iOS Safari
+  // URL bar makes 100vh larger than the visible area).
+  if (isDesktop) {
+    container.style.height = `${pageHeight}px`;
+  } else {
+    const viewportHeight =
+      (typeof window !== 'undefined' && window.innerHeight) || pageHeight || window.screen?.height || 0;
+    container.style.height = viewportHeight ? `${viewportHeight}px` : '100dvh';
+  }
   // Desktop: no container padding (page-sheet is direct child, matches PDFViewer.css structure)
   // Mobile: container has padding for centering
   container.style.padding = isDesktop ? '0' : '2rem 1.5rem 0.5rem';

@@ -457,6 +457,7 @@ export const PageReader = ({
   onToggleEditorReader,
   onPagesReady,
 }) => {
+  const isMobile = (typeof window !== 'undefined') ? window.innerWidth <= 768 : false;
   const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [pages, setPages] = useState([]);
@@ -3757,8 +3758,9 @@ export const PageReader = ({
                 }}
               />
             )}
-            {/* Per-page sticky notes (chapter-level, clear-background scan on edge) */}
-            {pageToDisplay?.chapterId && !pageToDisplay.isCover && !pageToDisplay.isFirstPage && !pageToDisplay.isEpigraph && !pageToDisplay.isVideo && (() => {
+            {/* Per-page sticky notes (chapter-level, clear-background scan on edge).
+                Do not render on mobile to keep the mobile reader clean. */}
+            {(!isMobile) && pageToDisplay?.chapterId && !pageToDisplay.isCover && !pageToDisplay.isFirstPage && !pageToDisplay.isEpigraph && !pageToDisplay.isVideo && (() => {
               const chapter = chapters.find(c => c.id === pageToDisplay.chapterId);
               const notes = Array.isArray(chapter?.stickyNotes) ? chapter.stickyNotes.filter(n => n.pageIndex === pageToDisplay.pageIndex && n.imageUrl) : [];
               return notes.map((note, idx) => (
