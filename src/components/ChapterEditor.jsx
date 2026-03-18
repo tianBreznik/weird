@@ -60,7 +60,6 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
   const [editorHasSelection, setEditorHasSelection] = useState(false);
   const imageInputRef = useRef(null);
   const inlineImageInputRef = useRef(null);
-  const videoFileInputRef = useRef(null);
   const fieldNotesImageInputRef = useRef(null);
   const autosaveTimerRef = useRef(null);
   const colorInputRef = useRef(null);
@@ -70,9 +69,7 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
   const dialogOpenRef = useRef(false); // Track if dialog is open to prevent editor interference
   const lastSelectionRef = useRef({ from: null, to: null }); // Track last selection for polling
   const [uploadingImage, setUploadingImage] = useState(false);
-  const [uploadingVideo, setUploadingVideo] = useState(false);
   const [imageUploadProgress, setImageUploadProgress] = useState(0);
-  const [videoUploadProgress, setVideoUploadProgress] = useState(0);
   const [showKaraokeDialog, setShowKaraokeDialog] = useState(false);
   const [karaokeText, setKaraokeText] = useState('');
   const [karaokeAudioFile, setKaraokeAudioFile] = useState(null);
@@ -88,13 +85,9 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
     author: '',
     align: 'center',
   });
-  const [showBackgroundVideoDialog, setShowBackgroundVideoDialog] = useState(false);
-  const [backgroundVideoDraft, setBackgroundVideoDraft] = useState({
-    targetPage: 1,
-    file: null,
-  });
-  const backgroundVideoFileInputRef = useRef(null);
   const backgroundImageInputRef = useRef(null);
+  const chapterBgLongPressTimerRef = useRef(null);
+  const chapterBgSkipClickRef = useRef(false);
   const pageBorderImageInputRef = useRef(null);
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [linkDraft, setLinkDraft] = useState({
@@ -518,25 +511,6 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
         link: editor.isActive('link'),
         // Check if image is selected and its alignment
         // For atom nodes like images, check nodeBefore, nodeAfter, and nodeAt positions
-        // Check if video is selected and its mode
-        videoSelected: (() => {
-          try {
-            const { selection } = editor.state;
-            const { $from } = selection;
-            // Check multiple positions for atom nodes
-            let videoNode = $from.nodeBefore || $from.nodeAfter;
-            if (!videoNode || videoNode.type.name !== 'video') {
-              // Also check the node at the current position
-              const nodeAt = $from.parent.child($from.index());
-              if (nodeAt && nodeAt.type.name === 'video') {
-                videoNode = nodeAt;
-              }
-            }
-            return videoNode && videoNode.type.name === 'video' ? videoNode : null;
-          } catch {
-            return null;
-          }
-        })(),
         imageAlignLeft: (() => {
           try {
             const { selection } = editor.state;
@@ -1885,10 +1859,6 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
     if (imageInputRef.current) imageInputRef.current.click();
   };
 
-  const handleVideoButtonClick = () => {
-    if (videoFileInputRef.current) videoFileInputRef.current.click();
-  };
-
   const handleInsertFootnote = () => {
     if (!editor) {
       return;
@@ -1988,157 +1958,6 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
         refreshToolbarState();
       }
     } catch (error) {
-    }
-  };
-
-  const handleVideoFileSelected = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    setUploadingVideo(true);
-    setVideoUploadProgress(0);
-    
-    try {
-      const downloadURL = await uploadVideoToStorage(file, {
-        onProgress: (progress) => {
-          setVideoUploadProgress(progress);
-        }
-      });
-    
-      if (!editor) return;
-      
-      // Use TipTap's insertContent to insert Video node
-      editor.chain().focus().insertContent({
-        type: 'video',
-        attrs: {
-          src: downloadURL,
-          controls: true,
-          style: 'max-width:100%;height:auto;display:block;margin:8px 0;',
-          mode: 'blank-page', // Default to blank page mode
-        },
-      }).run();
-      
-      // Select the video node so the mode toggle button appears
-      // Use setTimeout to allow the editor state to settle after insertion
-      setTimeout(() => {
-        if (!editor) return;
-        
-        // Get fresh state inside setTimeout to avoid stale position issues
-        const { state } = editor;
-        const { doc } = state;
-        
-        // Search for the video node we just inserted by its src attribute
-        let videoPos = null;
-        doc.descendants((node, pos) => {
-          if (node.type.name === 'video' && node.attrs.src === downloadURL) {
-            videoPos = pos;
-            return false; // Stop searching
-          }
-        });
-        
-        // If we found the video node, select it
-        if (videoPos !== null) {
-          // Resolve the position against the current state
-          const resolvedPos = doc.resolve(videoPos);
-          editor.commands.setTextSelection(resolvedPos);
-        }
-        
-        refreshToolbarState();
-      }, 100);
-    } catch (err) {
-      alert(err.message || 'Video upload failed. Please try again.');
-    } finally {
-      setUploadingVideo(false);
-      setVideoUploadProgress(0);
-      if (videoFileInputRef.current) videoFileInputRef.current.value = '';
-    }
-  };
-
-  const handleToggleVideoMode = () => {
-    if (!editor) return;
-    
-    try {
-      const { selection } = editor.state;
-      const { $from } = selection;
-      
-      // Find the video node
-      let videoNode = $from.nodeBefore || $from.nodeAfter;
-      if (!videoNode || videoNode.type.name !== 'video') {
-        const nodeAt = $from.parent.child($from.index());
-        if (nodeAt && nodeAt.type.name === 'video') {
-          videoNode = nodeAt;
-        }
-      }
-      
-      if (videoNode && videoNode.type.name === 'video') {
-        const currentMode = videoNode.attrs.mode || 'blank-page';
-        const newMode = currentMode === 'blank-page' ? 'background' : 'blank-page';
-        
-        // Update the video node's mode attribute
-        editor.chain().focus().updateAttributes('video', {
-          mode: newMode,
-        }).run();
-        
-        refreshToolbarState();
-      }
-    } catch (error) {
-    }
-  };
-
-  const handleBackgroundVideoFileSelected = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      // Store file temporarily, will upload when dialog is submitted
-      setBackgroundVideoDraft((prev) => ({ ...prev, file }));
-    }
-  };
-
-  const handleBackgroundVideoSubmit = async () => {
-    if (!backgroundVideoDraft.file) {
-      alert('Please select a video file.');
-      return;
-    }
-
-    if (!backgroundVideoDraft.targetPage || backgroundVideoDraft.targetPage < 1) {
-      alert('Please enter a valid page number (1 or higher).');
-      return;
-    }
-
-    setUploadingVideo(true);
-    setVideoUploadProgress(0);
-
-    try {
-      const downloadURL = await uploadVideoToStorage(backgroundVideoDraft.file, {
-        onProgress: (progress) => {
-          setVideoUploadProgress(progress);
-        }
-      });
-
-      if (!editor) return;
-
-      // Insert video node with background mode and targetPage
-      editor.chain().focus().insertContent({
-        type: 'video',
-        attrs: {
-          src: downloadURL,
-          controls: true,
-          style: 'max-width:100%;height:auto;display:block;margin:8px 0;',
-          mode: 'background',
-          targetPage: backgroundVideoDraft.targetPage,
-        },
-      }).run();
-
-      // Close dialog and reset
-      setShowBackgroundVideoDialog(false);
-      setBackgroundVideoDraft({ targetPage: 1 });
-      if (backgroundVideoFileInputRef.current) backgroundVideoFileInputRef.current.value = '';
-      
-      refreshToolbarState();
-    } catch (err) {
-      alert(err.message || 'Video upload failed. Please try again.');
-    } finally {
-      setUploadingVideo(false);
-      setVideoUploadProgress(0);
     }
   };
 
@@ -2630,7 +2449,7 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                     type="button"
                     onClick={() => pageBorderImageInputRef.current?.click()}
                     className={`toolbar-btn ${pageBorderImageUrl ? 'active' : ''} ${uploadingImage ? 'uploading' : ''}`}
-                    title={uploadingImage ? "Nalaganje..." : (pageBorderImageUrl ? 'Change border image' : 'Upload border image')}
+                    title={uploadingImage ? 'Nalaganje...' : pageBorderImageUrl ? 'Zamenjaj sliko okvirja strani' : 'Naloži sliko okvirja strani'}
                     disabled={uploadingImage}
                     style={uploadingImage ? {
                       '--upload-progress': `${imageUploadProgress}%`
@@ -2645,7 +2464,7 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                     value={pageBorderWidth}
                     onChange={(e) => setPageBorderWidth(parseInt(e.target.value, 10))}
                     disabled={!pageBorderImageUrl}
-                    title="Border width (px)"
+                    title="Širina okvirja (px)"
                   >
                     <option value="5">5</option>
                     <option value="10">10</option>
@@ -2660,7 +2479,7 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                     value={pageBorderSlicePercent}
                     onChange={(e) => setPageBorderSlicePercent(parseInt(e.target.value, 10))}
                     disabled={!pageBorderImageUrl}
-                    title="Corner size (%) - higher values use more of the frame image"
+                    title="Velikost vogala (%) – večja vrednost uporabi večji del slike okvirja"
                   >
                     <option value="5">5%</option>
                     <option value="10">10%</option>
@@ -2874,58 +2693,6 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                   ⬇️
                 </button>
                 <button
-                  onClick={handleVideoButtonClick}
-                  className={`toolbar-btn ${uploadingVideo ? 'uploading' : ''}`}
-                  title={uploadingVideo ? "Nalaganje video..." : "Vstavi video"}
-                  disabled={uploadingVideo || isAcknowledgementsChapter}
-                  style={uploadingVideo ? {
-                    '--upload-progress': `${videoUploadProgress}%`
-                  } : {}}
-                >
-                  <span className="toolbar-btn-icon">🎥</span>
-                  {uploadingVideo && <div className="toolbar-btn-progress" />}
-                </button>
-                <input ref={videoFileInputRef} type="file" accept="video/*" onChange={handleVideoFileSelected} style={{ display: 'none' }} disabled={uploadingVideo || isAcknowledgementsChapter} />
-                <button
-                  onClick={() => {
-                    if (isAcknowledgementsChapter) return;
-                    if (editor) editor.commands.blur();
-                    setBackgroundVideoDraft({ targetPage: 1 });
-                    setShowBackgroundVideoDialog(true);
-                  }}
-                  className="toolbar-btn"
-                  title="Vstavi ozadje video"
-                  disabled={isAcknowledgementsChapter}
-                >
-                  <span className="toolbar-btn-icon">🎬</span>
-                </button>
-                <input ref={backgroundVideoFileInputRef} type="file" accept="video/*" onChange={handleBackgroundVideoFileSelected} style={{ display: 'none' }} />
-                {/* Video mode toggle disabled for now - focusing on blank-page mode only */}
-                {/* {activeFormats.videoSelected && (
-                  <button
-                    onClick={handleToggleVideoMode}
-                    className="toolbar-btn"
-                    title={activeFormats.videoSelected.attrs.mode === 'background' 
-                      ? "Video Mode: Background (Click to switch to Blank Page)" 
-                      : "Video Mode: Blank Page (Click to switch to Background)"}
-                    style={{
-                      backgroundColor: activeFormats.videoSelected.attrs.mode === 'background' 
-                        ? 'rgba(59, 130, 246, 0.15)' 
-                        : 'rgba(107, 114, 128, 0.15)',
-                      border: `1px solid ${activeFormats.videoSelected.attrs.mode === 'background' 
-                        ? 'rgba(59, 130, 246, 0.3)' 
-                        : 'rgba(107, 114, 128, 0.3)'}`
-                    }}
-                  >
-                    <span className="toolbar-btn-icon">
-                      {activeFormats.videoSelected.attrs.mode === 'background' ? '🎬' : '📄'}
-                    </span>
-                    <span style={{ fontSize: '0.7rem', marginLeft: '4px', fontWeight: 500 }}>
-                      {activeFormats.videoSelected.attrs.mode === 'background' ? 'BG' : 'Page'}
-                    </span>
-                  </button>
-                )} */}
-                <button
                   onClick={handleInsertFootnote}
                   className="toolbar-btn"
                   title="Vstavi opombo"
@@ -3093,7 +2860,7 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                 <button
                   onClick={applyPoetry}
                   className={`toolbar-btn ${editor?.isActive('poetry') ? 'active' : ''}`}
-                  title="Poetry formatting"
+                  title="Poezija (oblikovanje vrstic)"
                   disabled={isAcknowledgementsChapter}
                 >
                   📜
@@ -3160,12 +2927,56 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                 {!parentChapter && (
                   <button
                     type="button"
-                    className="toolbar-btn"
-                    title="Ozadje poglavja (slika za ozadje strani)"
-                    onClick={() => {
-                      if (backgroundImageInputRef.current) {
-                        backgroundImageInputRef.current.click();
+                    className={`toolbar-btn ${backgroundImageUrl ? 'active' : ''}`}
+                    title={
+                      backgroundImageUrl
+                        ? 'Ozadje poglavja: klikni za zamenjavo. Alt+klik ali dolgi pritisk: odstrani.'
+                        : 'Ozadje poglavja (slika za ozadje strani)'
+                    }
+                    onTouchStart={() => {
+                      if (!backgroundImageUrl) return;
+                      chapterBgLongPressTimerRef.current = window.setTimeout(() => {
+                        chapterBgLongPressTimerRef.current = null;
+                        setBackgroundImageUrl('');
+                        chapterBgSkipClickRef.current = true;
+                        window.setTimeout(() => {
+                          chapterBgSkipClickRef.current = false;
+                        }, 500);
+                        try {
+                          navigator.vibrate?.(25);
+                        } catch {
+                          /* ignore */
+                        }
+                      }, 650);
+                    }}
+                    onTouchEnd={() => {
+                      if (chapterBgLongPressTimerRef.current) {
+                        clearTimeout(chapterBgLongPressTimerRef.current);
+                        chapterBgLongPressTimerRef.current = null;
                       }
+                    }}
+                    onTouchCancel={() => {
+                      if (chapterBgLongPressTimerRef.current) {
+                        clearTimeout(chapterBgLongPressTimerRef.current);
+                        chapterBgLongPressTimerRef.current = null;
+                      }
+                    }}
+                    onTouchMove={() => {
+                      if (chapterBgLongPressTimerRef.current) {
+                        clearTimeout(chapterBgLongPressTimerRef.current);
+                        chapterBgLongPressTimerRef.current = null;
+                      }
+                    }}
+                    onClick={(e) => {
+                      if (chapterBgSkipClickRef.current) {
+                        chapterBgSkipClickRef.current = false;
+                        return;
+                      }
+                      if (e.altKey && backgroundImageUrl) {
+                        setBackgroundImageUrl('');
+                        return;
+                      }
+                      backgroundImageInputRef.current?.click();
                     }}
                   >
                     <span style={{ fontSize: '1.05em' }}>🏞️</span>
@@ -3188,60 +2999,33 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                 </button>
               </div>
             </div>
-            {/* Chapter background image controls (preview + hidden file input) */}
             {!parentChapter && (
-              <div className="chapter-background-control">
-                <div className="chapter-background-header">
-                  <span className="chapter-background-label">Ozadje poglavja</span>
-                  {backgroundImageUrl && (
-                    <button
-                      type="button"
-                      className="chapter-background-clear"
-                      onClick={() => setBackgroundImageUrl('')}
-                    >
-                      Odstrani
-                    </button>
-                  )}
-                </div>
-                <div className="chapter-background-preview-wrapper">
-                  {backgroundImageUrl ? (
-                    <div
-                      className="chapter-background-preview"
-                      style={{ backgroundImage: `url(${backgroundImageUrl})` }}
-                    />
-                  ) : (
-                    <div className="chapter-background-placeholder">
-                      Ni izbrane slike ozadja
-                    </div>
-                  )}
-                </div>
-                <input
-                  ref={backgroundImageInputRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    setUploadingImage(true);
-                    try {
-                      const url = await uploadImageToStorage(file, {
-                        compress: true,
-                        onProgress: (p) => setImageUploadProgress(p),
-                      });
-                      setBackgroundImageUrl(url);
-                    } catch (err) {
-                      alert(err?.message || 'Nalaganje slike ozadja je spodletelo.');
-                    } finally {
-                      setUploadingImage(false);
-                      setImageUploadProgress(0);
-                      if (backgroundImageInputRef.current) {
-                        backgroundImageInputRef.current.value = '';
-                      }
+              <input
+                ref={backgroundImageInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setUploadingImage(true);
+                  try {
+                    const url = await uploadImageToStorage(file, {
+                      compress: true,
+                      onProgress: (p) => setImageUploadProgress(p),
+                    });
+                    setBackgroundImageUrl(url);
+                  } catch (err) {
+                    alert(err?.message || 'Nalaganje slike ozadja je spodletelo.');
+                  } finally {
+                    setUploadingImage(false);
+                    setImageUploadProgress(0);
+                    if (backgroundImageInputRef.current) {
+                      backgroundImageInputRef.current.value = '';
                     }
-                  }}
-                />
-              </div>
+                  }
+                }}
+              />
             )}
             {!isAcknowledgementsChapter && (
             <div className="ruler">
@@ -3510,86 +3294,6 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                   }}
                 >
                   Shrani epigraf
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Background Video dialog */}
-      {showBackgroundVideoDialog && createPortal(
-        <div 
-          className="karaoke-dialog-overlay"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowBackgroundVideoDialog(false);
-            }
-          }}
-        >
-          <div 
-            className="karaoke-dialog epigraph-dialog-wrapper"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              className="close-btn close-top"
-              onClick={() => setShowBackgroundVideoDialog(false)}
-            >
-              ✕
-            </button>
-            <div className="karaoke-dialog-content epigraph-dialog">
-              <h2 className="epigraph-dialog-title">Ozadje video</h2>
-              <div className="form-group">
-                <label htmlFor="background-video-file">Video datoteka</label>
-                <input
-                  ref={backgroundVideoFileInputRef}
-                  id="background-video-file"
-                  type="file"
-                  accept="video/*"
-                  onChange={handleBackgroundVideoFileSelected}
-                  disabled={uploadingVideo}
-                />
-                {backgroundVideoDraft.file && (
-                  <div style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: '#666' }}>
-                    Izbrano: {backgroundVideoDraft.file.name}
-                  </div>
-                )}
-                {uploadingVideo && (
-                  <div style={{ marginTop: '0.5rem' }}>
-                    <div style={{ fontSize: '0.9rem', color: '#666', marginBottom: '0.25rem' }}>
-                      Nalaganje... {videoUploadProgress}%
-                    </div>
-                    <div style={{ width: '100%', height: '4px', backgroundColor: '#e0e0e0', borderRadius: '2px', overflow: 'hidden' }}>
-                      <div style={{ width: `${videoUploadProgress}%`, height: '100%', backgroundColor: '#4285f4', transition: 'width 0.3s' }} />
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="form-group">
-                <label htmlFor="background-video-page">Številka strani (glede na poglavje)</label>
-                <input
-                  id="background-video-page"
-                  type="number"
-                  min="1"
-                  value={backgroundVideoDraft.targetPage}
-                  onChange={(e) =>
-                    setBackgroundVideoDraft((prev) => ({ ...prev, targetPage: parseInt(e.target.value, 10) || 1 }))
-                  }
-                  disabled={uploadingVideo}
-                />
-                <div style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666' }}>
-                  Video bo prikazan kot ozadje na strani {backgroundVideoDraft.targetPage} tega poglavja.
-                </div>
-              </div>
-              <div className="epigraph-actions">
-                <button
-                  type="button"
-                  className="epigraph-save-btn"
-                  onClick={handleBackgroundVideoSubmit}
-                  disabled={uploadingVideo || !backgroundVideoDraft.file}
-                >
-                  {uploadingVideo ? 'Nalaganje...' : 'Vstavi ozadje video'}
                 </button>
               </div>
             </div>
