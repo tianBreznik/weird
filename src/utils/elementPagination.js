@@ -98,9 +98,23 @@ export const checkElementFits = ({
   // heading is on page caused content to break earlier and leave visible empty space.
   const safetyMargin = isStandaloneFirstPage ? -100 : 2;
   const totalAvailableHeight = contentAvailableHeight + (finalReservedSpace || 0);
-  const elementFits = isStandaloneFirstPage ? true : (totalContentHeight <= totalAvailableHeight - safetyMargin);
+  let elementFits;
+  let overflowAmount;
+  if (isStandaloneFirstPage) {
+    elementFits = true;
+    overflowAmount = 0;
+  } else if (isDesktop) {
+    // Desktop: allow a small positive overflow (up to ~15px) so paragraphs that
+    // visually fit near the bottom of the page do NOT trigger a split.
+    overflowAmount = totalContentHeight - totalAvailableHeight;
+    elementFits = overflowAmount <= 15;
+  } else {
+    // Mobile: keep the stricter safety-margin based check.
+    overflowAmount = totalContentHeight - totalAvailableHeight;
+    elementFits = totalContentHeight <= totalAvailableHeight - safetyMargin;
+  }
   
-  return { elementFits, totalContentHeight };
+  return { elementFits, totalContentHeight, overflowAmount, totalAvailableHeight };
 };
 
 /**
@@ -185,6 +199,13 @@ export const shouldSplitElement = ({
 }) => {
   // If element fits, check if it actually fits with padding
   if (elementFits) {
+    // Desktop: once we've decided the full element "fits" under the relaxed
+    // desktop model (including small overflow tolerance), do NOT split it.
+    // This prevents unnecessary splits when the whole paragraph could stay on
+    // the current page.
+    if (typeof window !== 'undefined' && window.innerWidth > 768) {
+      return false;
+    }
     const shouldTrySplitDueToSmallSpace = remainingContentHeight < 50 && 
                                           remainingContentHeight > 0 &&
                                           element.textContent && 
@@ -240,6 +261,14 @@ export const processSplitResult = ({
   startNewPage,
   block
 }) => {
+  // NOTE (desktop pagination):
+  // 1) The primary issue we're tackling now is *when* to trigger a split at all
+  //    (checkElementFits / shouldSplitElement). This function only runs once a
+  //    split has already been approved.
+  // 2) Follow‑up we should revisit later: after splitting, if the "second" part
+  //    would also fit on the current page under the relaxed desktop model, we
+  //    could abandon the split and keep the whole paragraph on a single page
+  //    instead of forcing a tiny tail onto the next page.
   const { first, second } = splitResult;
   
   if (!first || remainingContentHeight <= 0) {
@@ -295,25 +324,113 @@ export const processSplitResult = ({
   measureParent.removeChild(firstPartTestContainer);
   
   const firstPartRemainingSpace = baseAvailableHeight - firstPartHeight;
-  
-  // Case 1: First part leaves significant unused space (> 30px) and overflow was small (< 30px)
-  if (firstPartRemainingSpace > 30 && overflowAmount < 30) {
-    // Don't split - include whole element with small overflow
-    elementFootnotes.forEach(num => currentPageFootnotes.add(num));
-    currentPageElements.push(element.outerHTML);
-    return;
-  }
-  
-  // Case 2: First part leaves very little to no space (< 15px) and overflow was small (< 30px)
-  if (firstPartRemainingSpace < 15 && overflowAmount < 30) {
-    // Push whole element to next page - avoid split that would leave tiny first part
-    if (currentPageElements.length > 0) {
-      pushPage(block);
+
+  // Desktop vs mobile behavior: we only tweak the heuristics on desktop.
+  if (!isDesktop) {
+    // Existing mobile behavior: conservative split rules
+    // Case 1: First part leaves significant unused space (> 30px) and overflow was small (< 30px)
+    if (firstPartRemainingSpace > 30 && overflowAmount < 30) {
+      // Don't split - include whole element with small overflow
+      elementFootnotes.forEach(num => currentPageFootnotes.add(num));
+      currentPageElements.push(element.outerHTML);
+      return;
     }
-    startNewPage(false);
-    elementFootnotes.forEach(num => currentPageFootnotes.add(num));
-    currentPageElements.push(element.outerHTML);
-    return;
+    
+    // Case 2: First part leaves very little to no space (< 15px) and overflow was small (< 30px)
+    if (firstPartRemainingSpace < 15 && overflowAmount < 30) {
+      // Push whole element to next page - avoid split that would leave tiny first part
+      if (currentPageElements.length > 0) {
+        pushPage(block);
+      }
+      startNewPage(false);
+      elementFootnotes.forEach(num => currentPageFootnotes.add(num));
+      currentPageElements.push(element.outerHTML);
+      return;
+    }
+    // Case 3 (mobile): fall through to split below.
+  } else {
+    // Desktop: geometry‑driven rules focused on visual fill.
+    const R = firstPartRemainingSpace;
+    const O = overflowAmount || 0;
+
+    // Secondary desktop fix:
+    // After computing a split, re-check whether keeping the ENTIRE element
+    // on this page is acceptable under the relaxed desktop overflow model.
+    // If yes, abandon the split and keep the whole paragraph together to
+    // avoid tiny tails like "alive." ending up alone on the next page.
+    try {
+      if (second) {
+        const fullElementTestContainer = document.createElement('div');
+        const fullMeasureWidth =
+          (isDesktop && contentWidth) ? contentWidth : measure.body.clientWidth;
+        fullElementTestContainer.style.width = fullMeasureWidth + 'px';
+        const fullMeasureParent =
+          (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
+        fullMeasureParent.appendChild(fullElementTestContainer);
+
+        const fullContentWrapper = document.createElement('div');
+        fullContentWrapper.className = 'page-content-main';
+        fullContentWrapper.style.paddingBottom = finalReservedSpace + 'px';
+
+        const fullTestElements = [...currentPageElements, element.outerHTML];
+        fullTestElements.forEach(el => {
+          const temp = document.createElement('div');
+          temp.innerHTML = el;
+          fullContentWrapper.appendChild(temp.firstElementChild || temp);
+        });
+
+        applyParagraphStylesToContainer(fullContentWrapper, isDesktop);
+        fullElementTestContainer.appendChild(fullContentWrapper);
+
+        const fullTotalHeight = fullElementTestContainer.offsetHeight;
+        fullMeasureParent.removeChild(fullElementTestContainer);
+
+        const fullTotalAvailableHeight = baseAvailableHeight + finalReservedSpace;
+        const fullOverflow = fullTotalHeight - fullTotalAvailableHeight;
+
+        // Allow a slightly generous overflow here (matching the relaxed
+        // desktop tolerance in checkElementFits). If the whole element fits
+        // under this model, keep it on the current page and skip splitting.
+        const FULL_DESKTOP_OVERFLOW_TOLERANCE = 15;
+        const fullElementFitsRelaxed = fullOverflow <= FULL_DESKTOP_OVERFLOW_TOLERANCE;
+
+        if (fullElementFitsRelaxed) {
+          elementFootnotes.forEach(num => currentPageFootnotes.add(num));
+          currentPageElements.push(element.outerHTML);
+          return;
+        }
+      }
+    } catch (e) {
+      // If any measurement fails, fall back to existing desktop logic below.
+    }
+
+    // A. Good fill band: use the split to pack the page tighter.
+    if (R >= 0 && R <= 40) {
+      // proceed to split below
+    } else if (R > 40 && O < 20) {
+      // B. Plenty of space left and overflow would be small: keep whole element on this page.
+      elementFootnotes.forEach(num => currentPageFootnotes.add(num));
+      currentPageElements.push(element.outerHTML);
+      return;
+    } else if (R < 10 && isFirstPartTooShort) {
+      // C. Tiny remaining space and first part is essentially a fragment: push whole element.
+      if (currentPageElements.length > 0) {
+        pushPage(block);
+      }
+      startNewPage(false);
+      elementFootnotes.forEach(num => currentPageFootnotes.add(num));
+      currentPageElements.push(element.outerHTML);
+      return;
+    } else {
+      // D. Default desktop fallback: we tried to fill but geometry is awkward – push whole element.
+      if (currentPageElements.length > 0) {
+        pushPage(block);
+      }
+      startNewPage(false);
+      elementFootnotes.forEach(num => currentPageFootnotes.add(num));
+      currentPageElements.push(element.outerHTML);
+      return;
+    }
   }
   
   // Case 3: First part uses space well - proceed with split
@@ -423,7 +540,7 @@ export const paginateElement = ({
     ? 0  // Desktop: body padding already accounted for in contentAvailableHeight
     : (testFootnotes.size > 0 ? footnotesHeight : BOTTOM_MARGIN_NO_FOOTNOTES);
   
-  const { elementFits, totalContentHeight } = checkElementFits({
+  const { elementFits, totalContentHeight, overflowAmount, totalAvailableHeight } = checkElementFits({
     element,
     currentPageElements,
     contentAvailableHeight,
@@ -450,7 +567,6 @@ export const paginateElement = ({
   // This does not affect behavior; it only writes to console.
   try {
     if (typeof window !== 'undefined' && window.location.search.includes('debug=pagination')) {
-      const totalAvailableHeight = contentAvailableHeight + (finalReservedSpace || 0);
       const tag = element.tagName?.toLowerCase() || 'unknown';
       // Show only first 80 chars of text to keep logs readable
       const textPreview = (element.textContent || '').trim().slice(0, 80);
@@ -478,6 +594,16 @@ export const paginateElement = ({
         elementFits,
         elementHeight,
       });
+      // Also expose per-page debug info when the element did NOT fit.
+      if (!elementFits && chapter && typeof chapterPageIndex === 'number') {
+        const key = `${chapter.id || chapter.title || 'unknown'}:${chapterPageIndex}`;
+        window.__paginationDebug = window.__paginationDebug || {};
+        window.__paginationDebug[key] = {
+          overflowAmount: overflowAmount || 0,
+          totalAvailableHeight,
+          totalContentHeight,
+        };
+      }
     }
   } catch (e) {
     // ignore logging errors

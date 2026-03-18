@@ -423,11 +423,12 @@
 /* Much tighter line-height when paragraph contains inline font-size (e.g. 12px text)
    so line box is driven by the small text, not the paragraph’s default size */
 /* Apply tighter line-height only to non-karaoke paragraphs with inline font-size to avoid breaking karaoke highlighting */
+/* Keep default line-height on containers; tighter spacing handled per-paragraph below. */
 .page-body:has(span[style*="font-size"]),
 .page-body:has([style*="font-size"]),
 .page-content:has(span[style*="font-size"]),
 .page-content:has([style*="font-size"]) {
-  /* Keep default line-height here; tighter spacing handled per-paragraph below. */
+  line-height: inherit;
 }
 .page-content p:has(span[style*="font-size"]):not(:has(.karaoke-slice, .karaoke-player)),
 .page-content p:has([style*="font-size"]):not(:has(.karaoke-slice, .karaoke-player)) {
@@ -1093,6 +1094,29 @@ body.debug-pagination .page-content-main > ol {
 /* Highlight page content area with a red border */
 body.debug-pagination .page-sheet .page-body {
   box-shadow: inset 0 0 0 2px rgba(220, 20, 60, 0.7);
+  position: relative;
+}
+
+/* Green overlay showing remaining space the algorithm left unused */
+body.debug-pagination .page-remaining-debug {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(46, 204, 113, 0.18);
+  border-top: 1px solid rgba(46, 204, 113, 0.85);
+  pointer-events: none;
+}
+
+/* Yellow overlay showing hypothetical overflow if the last rejected block had been added */
+body.debug-pagination .page-overflow-debug {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(241, 196, 15, 0.25);
+  border-top: 1px dashed rgba(243, 156, 18, 0.9);
+  pointer-events: none;
 }
 
 /* Clear floats after images to prevent layout issues */

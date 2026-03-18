@@ -228,14 +228,20 @@ export const createMeasureContainer = (isDesktop, pageWidth, pageHeight) => {
   // Desktop: page-body has padding: 3rem 2.5rem (48px top/bottom) - matches PDFViewer.css
   // Mobile: no explicit padding on body (handled by container)
   if (isDesktop) {
-    body.style.padding = '3rem 2.5rem';
+    // Desktop: keep top padding at 3rem (48px) and a moderate bottom padding to
+    // leave a visual margin while still allowing most of the page to be used.
+    body.style.paddingTop = '3rem';
+    body.style.paddingRight = '2.5rem';
+    body.style.paddingLeft = '2.5rem';
+    body.style.paddingBottom = '20px';
     body.style.boxSizing = 'border-box';
     body.style.display = 'flex';
     body.style.flexDirection = 'column';
-    // Body height = pageHeight (636px) - padding top (48px) - padding bottom (48px) = 540px
-    body.style.height = (pageHeight - 48 - 48) + 'px';
-    body.style.minHeight = (pageHeight - 48 - 48) + 'px';
-    body.style.maxHeight = (pageHeight - 48 - 48) + 'px';
+    // Body height = pageHeight - top padding (48px) - bottom padding (20px)
+    const bodyHeight = pageHeight - 48 - 20;
+    body.style.height = bodyHeight + 'px';
+    body.style.minHeight = bodyHeight + 'px';
+    body.style.maxHeight = bodyHeight + 'px';
   }
   
   // CRITICAL: Add .page-content wrapper to match real DOM structure
@@ -246,15 +252,14 @@ export const createMeasureContainer = (isDesktop, pageWidth, pageHeight) => {
   pageContent.className = 'page-content';
   pageContent.style.width = '100%';
   if (isDesktop) {
-    // Desktop: In actual rendering, height: auto and flex: 1 1 auto allows growth
-    // But for measurement, we need max-height constraint to match available space
-        // Calculate available height: body height (540px) - bottom margin (24px) = 516px
-        // Algorithm splits at 516px, but visual overflow is allowed via CSS
-        const availableHeight = pageHeight - 48 - 48 - 24; // pageHeight - top padding - bottom padding - bottom margin (24px on desktop)
+    // Desktop: In actual rendering, height: auto and flex: 1 1 auto allows growth.
+    // For measurement, we constrain to the full body height (pageHeight - top/bottom padding),
+    // and rely on the body padding itself as the visual/safety margin.
+    const availableHeight = pageHeight - 48 - 10;
     pageContent.style.height = 'auto';
     pageContent.style.flex = '1 1 auto';
     pageContent.style.minHeight = '0';
-    pageContent.style.maxHeight = availableHeight + 'px'; // Constrain to available height for accurate measurement
+    pageContent.style.maxHeight = availableHeight + 'px';
     pageContent.style.overflow = 'hidden'; // Clip overflow during measurement
   } else {
     // Mobile: match PageReader.css - height: 90%, max-height: 95%
@@ -291,24 +296,23 @@ export const createMeasureContainer = (isDesktop, pageWidth, pageHeight) => {
     },
     getAvailableHeight: (footnotesHeight = 0, isFirstPage = false) => {
       // Return actual available height from CSS-applied styles
-      // IMPORTANT: Reserve bottom margin even when there are no footnotes (like a real book)
-      // Allow the first page a slightly smaller bottom margin so text can sit lower
-      // 
-      // For desktop: use 24px bottom margin (reduced from 32px) for calculation
-      // Algorithm splits at (540px - 24px = 516px), but visual overflow is allowed via CSS
-      // For mobile: calculatePagePadding() adds padding-bottom, so reserve 32px (more conservative)
+      // IMPORTANT:
+      // - Desktop: we now rely entirely on the page-body padding (top: 48px, bottom: 15px)
+      //   as the visual/safety margin. No extra reserved space here – this lets the
+      //   paginator use the full body height that the eye sees.
+      // - Mobile: calculatePagePadding() adds padding-bottom, so we still reserve 32px.
       const BOTTOM_MARGIN_NO_FOOTNOTES = isDesktop 
-        ? (isFirstPage ? 20 : 24) // Desktop: 24px (for calculation, visual overflow allowed) or 20px for first page
+        ? 0
         : (isFirstPage ? 20 : 32); // Mobile: 32px (calculatePagePadding adds padding-bottom)
       
       // For desktop PDF viewer, use fixed page height minus page-body padding
       // For mobile, use body.clientHeight (matching original behavior)
       let height;
       if (isDesktop && pageHeight) {
-        // Desktop: pageHeight is 636px, page-body has padding: 3rem 2.5rem (48px top/bottom)
-        // So body content height = 636px - 48px (top) - 48px (bottom) = 540px
-        const bodyPaddingTop = 48; // 3rem ≈ 48px
-        const bodyPaddingBottom = 48; // 3rem ≈ 48px
+        // Desktop: pageHeight is 636px, page-body has padding: 3rem top (48px) and 20px bottom.
+        // So body content height = 636px - 48px (top) - 20px (bottom) = 568px
+        const bodyPaddingTop = 48;
+        const bodyPaddingBottom = 20;
         height = pageHeight - bodyPaddingTop - bodyPaddingBottom;
       } else {
         // Mobile: use body.clientHeight (original behavior)

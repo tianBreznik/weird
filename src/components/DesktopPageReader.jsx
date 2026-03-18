@@ -1302,6 +1302,7 @@ export const DesktopPageReader = ({
       <article 
         className={`page-sheet content-page ${page?.isEpigraph ? 'epigraph-page' : ''} ${page?.isVideo ? 'video-page' : ''} ${page?.isCover ? 'cover-page' : ''} ${page?.isFirstPage ? 'first-page' : ''} ${page?.isTOC ? 'toc-page' : ''} ${page?.hasFieldNotes ? 'field-notes-page' : ''} ${hasBorder ? 'page-border' : ''} ${hasBackgroundImage ? 'has-background-image' : ''}`}
         style={{ ...pageStyle, ...borderStyle }}
+        data-chapter-id={page.chapterId}
         data-chapter-index={page.chapterIndex}
         data-page-index={page.pageIndex}
         data-has-border={hasBorder ? 'true' : undefined}
@@ -1573,6 +1574,62 @@ export const DesktopPageReader = ({
       scrollContainer.scrollTop = pageElement.offsetTop - topBarHeight - 62;
     }
   }, [pages.length]);
+
+  // Debug-only: when ?debug=pagination is enabled, visualize the remaining space
+  // on each page as a green block at the bottom of the page-body. This is based
+  // on the live DOM measurements (page-body height minus content height), which
+  // closely matches what the pagination algorithm uses.
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    const enabled = window.location.search.includes('debug=pagination');
+
+    // Always clean up existing overlays first
+    document.querySelectorAll('.page-remaining-debug').forEach((el) => el.remove());
+    if (!enabled) return;
+
+    const sheets = document.querySelectorAll('.pdf-viewer .page-sheet .page-body');
+    sheets.forEach((bodyEl) => {
+      const contentMain = bodyEl.querySelector('.page-content-main');
+      if (!contentMain) return;
+
+      const bodyRect = bodyEl.getBoundingClientRect();
+      const contentRect = contentMain.getBoundingClientRect();
+      const remaining = Math.max(0, bodyRect.height - contentRect.height);
+      if (remaining <= 0) return;
+
+      const overlay = document.createElement('div');
+      overlay.className = 'page-remaining-debug';
+      overlay.style.height = `${remaining}px`;
+      bodyEl.appendChild(overlay);
+    });
+
+    // Yellow overlay: show the hypothetical extra height if the last rejected
+    // element for this page had been added (using data from checkElementFits).
+    try {
+      const debug = (window && window.__paginationDebug) || {};
+      sheets.forEach((bodyEl) => {
+        const sheet = bodyEl.closest('.page-sheet');
+        if (!sheet) return;
+        const chapterId = sheet.getAttribute('data-chapter-id');
+        const pageIndexAttr = sheet.getAttribute('data-page-index');
+        if (!chapterId || pageIndexAttr == null) return;
+        const pageIndex = Number(pageIndexAttr) || 0;
+        const key = `${chapterId}:${pageIndex}`;
+        const info = debug[key];
+        if (!info || !info.overflowAmount || info.overflowAmount <= 0) return;
+
+        const bodyHeight = bodyEl.clientHeight;
+        const overflowPx = Math.min(info.overflowAmount, bodyHeight);
+
+        const yellow = document.createElement('div');
+        yellow.className = 'page-overflow-debug';
+        yellow.style.height = `${overflowPx}px`;
+        bodyEl.appendChild(yellow);
+      });
+    } catch (e) {
+      // ignore debug overlay errors
+    }
+  }, [pagesWithTOC, zoom]);
   
   
   // Early return: one "page" with the loader in the same slot as the first page; real pages replace it when loaded
