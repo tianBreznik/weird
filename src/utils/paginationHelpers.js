@@ -312,7 +312,7 @@ export const createMeasureContainer = (isDesktop, pageWidth, pageHeight) => {
       // - Mobile: calculatePagePadding() adds padding-bottom, so we still reserve 32px.
       const BOTTOM_MARGIN_NO_FOOTNOTES = isDesktop 
         ? 0
-        : (isFirstPage ? 20 : 32); // Mobile: 32px (calculatePagePadding adds padding-bottom)
+        : 15; // Mobile: 15px bottom safety margin, on top of % heights
       
       // For desktop PDF viewer, use fixed page height minus page-body padding
       // For mobile, use body.clientHeight (matching original behavior)

@@ -312,7 +312,7 @@
   box-sizing: border-box;
   /* Don't create positioning context - footnotes position relative to page-body */
   padding-bottom: 0; /* No padding, footnotes will be absolutely positioned */
-  height: 95%; /* Slightly inset from full page-body height */
+  height: 100%; /* Slightly inset from full page-body height */
   max-height: 100%; /* Allow content to use full assigned height */
   position: relative; /* Create clipping context */
 }
@@ -1279,6 +1279,16 @@ body.debug-pagination .page-overflow-debug {
 .page-container.transitioning .page-sheet {
   opacity: 0;
   transition: opacity 1s ease-in-out;
+}
+
+/* On mobile, hide images immediately when a page starts transitioning.
+   This avoids the brief "disappear then re-appear then fade" flash as
+   images are re-mounted during the swipe animation. Text still fades. */
+@media (max-width: 768px) {
+  .page-container.transitioning .page-sheet img {
+    opacity: 0;
+    transition: none;
+  }
 }
 
 /* Preserve ink effect shadows during transition - ensure they fade with text */

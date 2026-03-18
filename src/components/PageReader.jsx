@@ -2033,6 +2033,8 @@ export const PageReader = ({
     };
   }, [isTransitioning, getKaraokeController, initializeKaraokeSlices]);
 
+  const PAGE_FADE_DURATION_MS = 1000; // Match .page-sheet opacity transition
+
   // Navigate to next page
   const goToNextPage = useCallback(() => {
     // Mark that user has interacted
@@ -2127,20 +2129,18 @@ export const PageReader = ({
     if (nextPageInChapter) {
       // Next page in same chapter
       setIsTransitioning(true);
-      // Wait for fade-out to complete (1s), then update content and fade in
+      // Wait for fade-out to complete (matches CSS transition), then swap page and fade in
       setTimeout(() => {
         // Update both displayPage and indices together
         setDisplayPage(nextPageInChapter);
         setCurrentPageIndex(currentPageIndex + 1);
-        // Wait for DOM to update and ink effect to be applied before starting fade-in
-        // Use requestAnimationFrame to ensure DOM is ready, then give time for ink effect
+        // Allow React to commit the new DOM, then clear transitioning so it fades back in
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            // Now start fade-in - ink effect should be applied by now
             setIsTransitioning(false);
           });
         });
-      }, 1000); // Wait for full fade-out duration
+      }, PAGE_FADE_DURATION_MS);
 
       if (onPageChange) {
         onPageChange({
@@ -2390,29 +2390,28 @@ export const PageReader = ({
       
       if (prevPage) {
 
-        // Safety check: ensure prevPage has content
-        if (!prevPage.content) {
-
-          return; // Don't proceed if no content
+        // Safety check: ensure prevPage has content, except for structured
+        // pages like epigraphs which intentionally render from epigraphText.
+        if (!prevPage.content && !prevPage.isEpigraph) {
+          return; // Don't proceed if no content for regular pages
         }
         
         // Q1: Pause karaoke when swiping backward (user can resume when swiping forward again)
         pauseAllKaraoke();
         
         setIsTransitioning(true);
-        // Wait for fade-out to complete (1s), then update content and fade in
+        // Wait for fade-out to complete (matches CSS), then update content and fade in
         setTimeout(() => {
-
           // Update both displayPage and indices together
           setDisplayPage(prevPage);
           setCurrentPageIndex(currentPageIndex - 1);
-          // Wait for DOM to update and ink effect to be applied before starting fade-in
+          // Let the new DOM commit, then clear transitioning so it fades back in
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
               setIsTransitioning(false);
             });
           });
-        }, 1000); // Wait for full fade-out duration
+        }, PAGE_FADE_DURATION_MS);
 
         if (onPageChange) {
           onPageChange({

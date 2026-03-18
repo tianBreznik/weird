@@ -113,11 +113,11 @@ export const checkElementFits = ({
     overflowAmount = totalContentHeight - totalAvailableHeight;
     elementFits = overflowAmount <= 15;
   } else {
-    // Mobile: allow a small positive overflow (up to ~10px) so that
+    // Mobile: allow a small positive overflow (up to ~24px) so that
     // paragraphs that visually fit near the bottom of the page do not
     // get pushed to the next page too aggressively.
     overflowAmount = totalContentHeight - totalAvailableHeight;
-    const MOBILE_OVERFLOW_TOLERANCE = 10;
+    const MOBILE_OVERFLOW_TOLERANCE = 24;
     elementFits = overflowAmount <= MOBILE_OVERFLOW_TOLERANCE;
   }
   
@@ -336,8 +336,55 @@ export const processSplitResult = ({
   
   const firstPartRemainingSpace = baseAvailableHeight - firstPartHeight;
 
-  // Desktop vs mobile behavior: we only tweak the heuristics on desktop.
+  // Desktop vs mobile behavior: we only tweak the heuristics on desktop,
+  // but mobile now also gets a "full paragraph still fits" escape hatch
+  // similar to the desktop secondary fix.
   if (!isDesktop) {
+    // Mobile: before applying the legacy split heuristics, check whether
+    // keeping the ENTIRE element on this page is acceptable under the
+    // relaxed mobile overflow model. This prevents cases where we split,
+    // but the second part would also have fit so the whole paragraph
+    // should have stayed together.
+    try {
+      if (second) {
+        const fullElementTestContainer = document.createElement('div');
+        fullElementTestContainer.style.width = contentWidth + 'px';
+        const fullMeasureParent = measure.pageContent || measure.body;
+        fullMeasureParent.appendChild(fullElementTestContainer);
+
+        const fullContentWrapper = document.createElement('div');
+        fullContentWrapper.className = 'page-content-main';
+        fullContentWrapper.style.paddingBottom = finalReservedSpace + 'px';
+
+        const fullTestElements = [...currentPageElements, element.outerHTML];
+        fullTestElements.forEach(el => {
+          const temp = document.createElement('div');
+          temp.innerHTML = el;
+          fullContentWrapper.appendChild(temp.firstElementChild || temp);
+        });
+
+        applyParagraphStylesToContainer(fullContentWrapper, false);
+        fullElementTestContainer.appendChild(fullContentWrapper);
+
+        const fullTotalHeight = fullElementTestContainer.offsetHeight;
+        fullMeasureParent.removeChild(fullElementTestContainer);
+
+        const fullTotalAvailableHeight = baseAvailableHeight + finalReservedSpace;
+        const fullOverflow = fullTotalHeight - fullTotalAvailableHeight;
+
+        const MOBILE_OVERFLOW_TOLERANCE = 24;
+        const fullElementFitsRelaxed = fullOverflow <= MOBILE_OVERFLOW_TOLERANCE;
+
+        if (fullElementFitsRelaxed) {
+          elementFootnotes.forEach(num => currentPageFootnotes.add(num));
+          currentPageElements.push(element.outerHTML);
+          return;
+        }
+      }
+    } catch (e) {
+      // If measurement fails, fall back to existing mobile logic below.
+    }
+
     // Existing mobile behavior: conservative split rules
     // Case 1: First part leaves significant unused space (> 30px) and overflow was small (< 30px)
     if (firstPartRemainingSpace > 30 && overflowAmount < 30) {
@@ -546,7 +593,7 @@ export const paginateElement = ({
   // For mobile, add padding-bottom to match actual rendering
   const BOTTOM_MARGIN_NO_FOOTNOTES = isStandaloneFirstPage 
     ? 20 
-    : (isDesktop ? 24 : 32); // Desktop: 24px (reduced to allow visual overflow), Mobile: 32px
+    : (isDesktop ? 24 : 15); // Desktop: 24px, Mobile: 15px bottom safety margin
   const finalReservedSpace = isDesktop 
     ? 0  // Desktop: body padding already accounted for in contentAvailableHeight
     : (testFootnotes.size > 0 ? footnotesHeight : BOTTOM_MARGIN_NO_FOOTNOTES);
@@ -669,7 +716,7 @@ export const paginateElement = ({
       // Mobile uses 32px for non-first pages, 20px for first page
       const BOTTOM_MARGIN_NO_FOOTNOTES = isStandaloneFirstPageCheck 
         ? 20 
-        : (isDesktop ? 24 : 32); // Desktop: 24px (reduced to allow visual overflow), Mobile: 32px
+        : (isDesktop ? 24 : 15); // Desktop: 24px, Mobile: 15px bottom safety margin
       const finalReservedSpace = testFootnotes.size > 0 ? footnotesHeight : BOTTOM_MARGIN_NO_FOOTNOTES;
       const finalContentWrapper = document.createElement('div');
       finalContentWrapper.className = 'page-content-main';
