@@ -198,7 +198,8 @@
   max-width: 100% !important;
   overflow: visible !important; /* Allow content to be visible, don't clip */
   flex: 1 1 auto !important; /* Grow to fit content */
-  background: transparent !important; /* Allow parent background image to show through */
+  /* Use background-color only so text ink (background-image + background-clip) can still apply */
+  background-color: transparent !important; /* Allow parent background image to show through */
 }
 
 /* Prevent browser from unloading images when scrolling - keep them in memory */

@@ -16,9 +16,14 @@
 }
 
 .reader-top-bar-content {
-  max-width: 80vw;
+  /* Use nearly full viewport width on mobile so long chapter titles stay on one line longer */
+  width: 100%;
+  max-width: calc(
+    100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 0.75rem
+  );
+  box-sizing: border-box;
   text-align: center;
-  padding: 0.3rem 1rem; /* Reduced top padding to move content higher */
+  padding: 0.3rem 0.35rem;
   line-height: 1.3; /* Tighter line height for more compact wrapping */
   min-height: 1.8rem; /* Slightly reduced minimum height */
 }

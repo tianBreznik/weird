@@ -1853,6 +1853,335 @@ body.debug-pagination .page-overflow-debug {
 }
 
 
+/* -----------------------------------------------------------------------------
+   Ink-in-glyph text (noise + multiply + background-clip) for chapter body + titles
+   - Skips karaoke paragraphs, video/field-notes/TOC/background-video pages
+   - Full-page epigraph: `.page-content` and `.epigraph-content` are the same node — use `.page-content.epigraph-content .epigraph-text` (not a nested `.epigraph-content` descendant).
+   - TipTap blocks: poetry, paragraph-epigraph, tables (th/td), etc.
+   - Disabled during PDF export (html2canvas) via [data-pdf-export]
+   ----------------------------------------------------------------------------- */
+
+@supports (-webkit-background-clip: text) or (background-clip: text) {
+  :root {
+    --page-ink-noise-svg: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='2.5' numOctaves='5' stitchTiles='stitch'/><feColorMatrix type='matrix' values='1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1.2 -0.1'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) p:not(:has(.karaoke-slice, .karaoke-player)),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) li,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) blockquote,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) .chapter-header-title,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h1,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h2,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h3,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h4,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h5,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h6,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content.epigraph-content:not(.video-content):not(.background-video-text) .epigraph-text,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content.epigraph-content:not(.video-content):not(.background-video-text) .epigraph-text > div,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content.epigraph-content:not(.video-content):not(.background-video-text) .epigraph-author,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) div.paragraph-epigraph,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) p.paragraph-epigraph-quote,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) p.paragraph-epigraph-author,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) div.poetry,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) pre.poetry,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) dt,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) dd,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) th,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) td,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) figcaption,
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) caption {
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    background-image:
+      linear-gradient(#171717, #171717),
+      var(--page-ink-noise-svg);
+    background-size: auto, 48px 48px;
+    background-blend-mode: multiply;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-stroke: 0.25px rgba(0, 0, 0, 0.45);
+    text-shadow: 0 0 0.45px rgba(0, 0, 0, 0.32);
+    -webkit-font-smoothing: none;
+  }
+
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) p:not(:has(.karaoke-slice, .karaoke-player))
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) li
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) blockquote
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) .chapter-header-title
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h1
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h2
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h3
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h4
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h5
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h6
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content.epigraph-content:not(.video-content):not(.background-video-text) .epigraph-text
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content.epigraph-content:not(.video-content):not(.background-video-text) .epigraph-text > div
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content.epigraph-content:not(.video-content):not(.background-video-text) .epigraph-author
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) div.paragraph-epigraph
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) div.poetry
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) pre.poetry
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) dt
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) dd
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) th
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) td
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) figcaption
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) caption
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word) {
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    background-image:
+      linear-gradient(#171717, #171717),
+      var(--page-ink-noise-svg);
+    background-size: auto, 48px 48px;
+    background-blend-mode: multiply;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-stroke: 0.25px rgba(0, 0, 0, 0.45);
+    text-shadow: 0 0 0.45px rgba(0, 0, 0, 0.32);
+    -webkit-font-smoothing: none;
+  }
+
+  /* PDF capture: restore normal painting so html2canvas output stays readable */
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) p:not(:has(.karaoke-slice, .karaoke-player)),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) li,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) blockquote,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) .chapter-header-title,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h1,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h2,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h3,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h4,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h5,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h6,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content.epigraph-content:not(.video-content):not(.background-video-text) .epigraph-text,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content.epigraph-content:not(.video-content):not(.background-video-text) .epigraph-text > div,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content.epigraph-content:not(.video-content):not(.background-video-text) .epigraph-author,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) div.paragraph-epigraph,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) p.paragraph-epigraph-quote,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) p.paragraph-epigraph-author,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) div.poetry,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) pre.poetry,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) dt,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) dd,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) th,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) td,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) figcaption,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) caption,
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) p:not(:has(.karaoke-slice, .karaoke-player))
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) li
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) blockquote
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) .chapter-header-title
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h1
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h2
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h3
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h4
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h5
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) h6
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content.epigraph-content:not(.video-content):not(.background-video-text) .epigraph-text
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content.epigraph-content:not(.video-content):not(.background-video-text) .epigraph-text > div
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content.epigraph-content:not(.video-content):not(.background-video-text) .epigraph-author
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) div.paragraph-epigraph
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) div.poetry
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) pre.poetry
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) dt
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) dd
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) th
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) td
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) figcaption
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word),
+  [data-pdf-export='true'] .pdf-viewer
+    .page-sheet.content-page:not(.toc-page):not(.video-page):not(.field-notes-page):not(.background-video-page)
+    .page-content:not(.video-content):not(.background-video-text) caption
+    :where(a, span:not(.ink-char-mobile), font, strong, em, b, i, u, mark, small, code, cite, q, pre, kbd, samp, s, del, ins, abbr, label, sup:not(.footnote-ref), sub, .footnote-ref):not(.karaoke-slice):not(.karaoke-player):not(.karaoke-char):not(.karaoke-word) {
+    color: #1f140a !important;
+    -webkit-text-fill-color: #1f140a !important;
+    background-image: none !important;
+    background-size: auto !important;
+    background-blend-mode: normal !important;
+    -webkit-background-clip: border-box !important;
+    background-clip: border-box !important;
+    -webkit-text-stroke: 0 !important;
+    text-shadow: none !important;
+    -webkit-font-smoothing: antialiased !important;
+  }
+}
+
 /* Previously: TEMP hard-coded classic book border for all pages (mobile/reader).
    Border frame is now controlled per-chapter via pageBorder* settings, so this
    global frame is disabled. */

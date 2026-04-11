@@ -541,6 +541,26 @@ export const DesktopPageReader = ({
 
     setDownloadingPdf(true);
     (async () => {
+      const notifyPdfDownload = async ({ source, pdfVersion = null, contentVersion = null } = {}) => {
+        try {
+          await fetch('/api/pdf-download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              bookId: bookId ?? null,
+              filename: 'weird-attachments.pdf',
+              source: source ?? null,
+              pdfVersion,
+              contentVersion,
+            }),
+          });
+        } catch (err) {
+          if (import.meta.env.DEV) {
+            console.warn('[PDF] download notification failed:', err);
+          }
+        }
+      };
+
       if (import.meta.env.DEV && forceRegenerate && bookId) {
         await clearBookPdfCache(bookId);
         console.log('[PDF] Cleared PDF cache for book %s; generating from scratch', bookId);
@@ -572,6 +592,11 @@ export const DesktopPageReader = ({
             const res = await fetch(meta.pdfUrl);
             const blob = await res.blob();
             triggerDownload(blob);
+            await notifyPdfDownload({
+              source: 'cached',
+              pdfVersion: meta.pdfVersion ?? null,
+              contentVersion: meta.contentVersion ?? null,
+            });
             setDownloadingPdf(false);
             return;
           }
@@ -884,6 +909,11 @@ export const DesktopPageReader = ({
               );
             }
             triggerDownload(blob);
+            await notifyPdfDownload({
+              source: 'generated',
+              pdfVersion: freshMeta.contentVersion ?? null,
+              contentVersion: freshMeta.contentVersion ?? null,
+            });
             setDownloadingPdf(false);
             return;
           } catch (incErr) {
@@ -939,9 +969,11 @@ export const DesktopPageReader = ({
         }
         const blob = pdf.output('blob');
         if (bookId) {
+          let latestContentVersion = null;
           try {
             const pdfUrl = await uploadPdfToStorage(bookId, blob);
             const freshMeta = await getBookMeta(bookId);
+            latestContentVersion = freshMeta.contentVersion ?? null;
             await updateBookMeta(bookId, {
               pdfUrl,
               pdfVersion: freshMeta.contentVersion,
@@ -956,8 +988,18 @@ export const DesktopPageReader = ({
             console.warn('PDF upload/update failed, downloading locally:', err);
           }
           triggerDownload(blob);
+          await notifyPdfDownload({
+            source: 'generated',
+            pdfVersion: latestContentVersion,
+            contentVersion: latestContentVersion,
+          });
         } else {
           pdf.save('weird-attachments.pdf');
+          await notifyPdfDownload({
+            source: 'generated',
+            pdfVersion: null,
+            contentVersion: null,
+          });
         }
       } finally {
         document.body.removeAttribute('data-pdf-export');
