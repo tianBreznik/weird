@@ -8,6 +8,15 @@ import {
 import { getStickyNoteStyle } from '../utils/stickyNotePosition';
 import { uploadImageToStorage } from '../services/storage';
 import { hyphenateSync } from 'hyphen/en';
+import {
+  ensurePageBackgroundReady,
+  preloadAllPagesMedia,
+  preloadImage,
+  preloadPagesMedia,
+} from '../utils/mediaCache';
+
+/** Must match --page-fade-ms in PageReader.css (soft Kindle-like dissolve). */
+const PAGE_FADE_DURATION_MS = 550;
 
 // Apply hyphenation to HTML content - the hyphen library automatically skips HTML tags
 // IMPORTANT: We EXCLUDE karaoke blocks themselves from this page-level hyphenation.
@@ -332,11 +341,18 @@ const ensureWordSliceInitialized = async (karaokeSourcesRef, karaokeId, sliceEle
     return true;
   };
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import { createPortal } from 'react-dom';
 import { ReaderTopBar } from './ReaderTopBar';
 import { DesktopPageReader } from './DesktopPageReader';
 import { MobileTOC } from './MobileTOC';
 import { usePagePagination } from '../hooks/usePagePagination';
+import {
+  applyPaginationDebugOverlay,
+  countPackedBlocksInPageHtml,
+} from '../utils/paginationDebugOverlay';
+import { MobileGeometryProbe } from './MobileGeometryProbe';
+import { waitForMobilePackGeometry } from '../utils/mobilePackGeometry';
 import './PageReader.css';
 
 const PROJECT_CREDIT = 'Overstimulata Collective';
@@ -480,11 +496,14 @@ export const PageReader = ({
   const karaokeSourcesRef = useRef({});
 
   // Optional pagination debug overlay controlled via ?debug=pagination
+  const paginationDebugEnabled =
+    typeof window !== 'undefined' &&
+    window.location.search.includes('debug=pagination');
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const enabled = window.location.search.includes('debug=pagination');
-    document.body.classList.toggle('debug-pagination', enabled);
-  }, []);
+    document.body.classList.toggle('debug-pagination', paginationDebugEnabled);
+  }, [paginationDebugEnabled]);
   useEffect(() => {
     karaokeSourcesRef.current = karaokeSources;
   }, [karaokeSources]);
@@ -508,7 +527,6 @@ export const PageReader = ({
   const prevChapterOrderRef = useRef(null);
   // Track content to detect edits (chapter/subchapter content changed)
   const prevContentSigRef = useRef(null);
-
   const [subchapterPageMap, setSubchapterPageMap] = useState({});
 
   // Calculate pages for all chapters based on actual content height
@@ -523,6 +541,35 @@ export const PageReader = ({
     setIsInitializing,
     setSubchapterPageMap,
   });
+
+  // Debounced recalc on viewport resize / iOS chrome show-hide (mobile geometry).
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    let timer = null;
+    let lastWidth = window.innerWidth;
+    let lastHeight = window.innerHeight;
+
+    const schedule = () => {
+      const w = window.innerWidth;
+      const h = window.visualViewport?.height ?? window.innerHeight;
+      // Ignore tiny chrome jitter; react to orientation / meaningful height changes.
+      if (Math.abs(w - lastWidth) < 2 && Math.abs(h - lastHeight) < 40) return;
+      lastWidth = w;
+      lastHeight = h;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        calculatePages().catch(() => {});
+      }, 250);
+    };
+
+    window.addEventListener('resize', schedule);
+    window.visualViewport?.addEventListener('resize', schedule);
+    return () => {
+      if (timer) clearTimeout(timer);
+      window.removeEventListener('resize', schedule);
+      window.visualViewport?.removeEventListener('resize', schedule);
+    };
+  }, [calculatePages]);
 
   // Debug: expose pages and subchapter map for inspection in devtools
   useEffect(() => {
@@ -673,14 +720,24 @@ export const PageReader = ({
     // Don't recalculate if pages already exist
     if (pages.length > 0) return;
 
-    // Start calculation immediately but use requestAnimationFrame to ensure DOM is ready
-    // This allows the loading GIF to appear right away while calculation happens
-    // Use double RAF to ensure React has rendered the loading state first
+    let cancelled = false;
+
+    // Mobile: one pack after geometry probe (or live reader) is in the DOM — no cold repack.
+    if (isMobile) {
+      (async () => {
+        await waitForMobilePackGeometry();
+        if (cancelled) return;
+        await calculatePages();
+      })().catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // Desktop: start calculation after loading paint
     const rafId1 = requestAnimationFrame(() => {
       const rafId2 = requestAnimationFrame(() => {
-        // Start calculation - loading state should already be visible
-        calculatePages().catch((error) => {
-        });
+        calculatePages().catch(() => {});
       });
       return () => cancelAnimationFrame(rafId2);
     });
@@ -688,7 +745,7 @@ export const PageReader = ({
     return () => {
       cancelAnimationFrame(rafId1);
     };
-  }, [chapters, initialPosition, pages.length, calculatePages]);
+  }, [chapters, initialPosition, pages.length, calculatePages, isMobile]);
 
   // Notify parent when pages are ready
   useEffect(() => {
@@ -2033,7 +2090,59 @@ export const PageReader = ({
     };
   }, [isTransitioning, getKaraokeController, initializeKaraokeSlices]);
 
-  const PAGE_FADE_DURATION_MS = 1000; // Match .page-sheet opacity transition
+  /**
+   * Soft page refresh: fade out → wait for next background to be decoded →
+   * swap content (flushSync so the new <img> mounts while opacity is 0) →
+   * wait for that visible img to be complete → fade in.
+   * Prevents swiping onto a blank/unpainted background.
+   */
+  const commitPageTurn = useCallback((targetPage, applyState) => {
+    if (!targetPage) return Promise.resolve();
+    setIsTransitioning(true);
+    // Start fetch/decode immediately, in parallel with the fade-out
+    const mediaPromise = ensurePageBackgroundReady(targetPage, { timeoutMs: 2500 });
+    return (async () => {
+      await new Promise((r) => setTimeout(r, PAGE_FADE_DURATION_MS));
+      await mediaPromise;
+      flushSync(() => {
+        applyState();
+      });
+      // Detached Image preload ≠ painted <img>. Poll the live node while still faded out.
+      const url = targetPage.backgroundImageUrl;
+      if (url) {
+        await new Promise((resolve) => {
+          const deadline = Date.now() + 800;
+          const tick = () => {
+            const img = document.querySelector('.page-turn-surface .page-background-image');
+            const srcMatches =
+              !!img &&
+              (img.getAttribute('src') === url ||
+                img.currentSrc === url ||
+                (img.currentSrc && img.currentSrc.includes(url.split('?')[0])));
+            if (srcMatches && img.complete && img.naturalWidth > 0) {
+              const done = () => resolve(true);
+              if (typeof img.decode === 'function') {
+                img.decode().then(done).catch(done);
+              } else {
+                done();
+              }
+              return;
+            }
+            if (Date.now() >= deadline) {
+              resolve(false);
+              return;
+            }
+            requestAnimationFrame(tick);
+          };
+          tick();
+        });
+      }
+      await new Promise((r) => {
+        requestAnimationFrame(() => requestAnimationFrame(r));
+      });
+      setIsTransitioning(false);
+    })();
+  }, []);
 
   // Navigate to next page
   const goToNextPage = useCallback(() => {
@@ -2062,16 +2171,13 @@ export const PageReader = ({
       if (pages.length > 0) {
         const firstPage = pages.find(p => p.isFirstPage);
         if (firstPage) {
-        setIsTransitioning(true);
-          setCurrentChapterIndex(firstPage.chapterIndex);
-          setCurrentPageIndex(firstPage.pageIndex);
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            setIsTransitioning(false);
+          void commitPageTurn(firstPage, () => {
+            setDisplayPage(firstPage);
+            setCurrentChapterIndex(firstPage.chapterIndex);
+            setCurrentPageIndex(firstPage.pageIndex);
           });
-        });
           if (onPageChange) {
-          onPageChange({
+            onPageChange({
               chapterId: firstPage.chapterId,
               pageIndex: firstPage.pageIndex,
             });
@@ -2079,13 +2185,10 @@ export const PageReader = ({
         } else {
           const coverPage = pages.find(p => p.isCover && !p.isFirstPage);
           if (coverPage) {
-            setIsTransitioning(true);
-            setCurrentChapterIndex(coverPage.chapterIndex);
-            setCurrentPageIndex(coverPage.pageIndex);
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                setIsTransitioning(false);
-              });
+            void commitPageTurn(coverPage, () => {
+              setDisplayPage(coverPage);
+              setCurrentChapterIndex(coverPage.chapterIndex);
+              setCurrentPageIndex(coverPage.pageIndex);
             });
             if (onPageChange) {
               onPageChange({
@@ -2097,13 +2200,10 @@ export const PageReader = ({
             // No special pages, fallback to first regular page
             const firstRegularPage = pages.find(p => !p.isCover && !p.isFirstPage);
             if (firstRegularPage) {
-              setIsTransitioning(true);
-              setCurrentChapterIndex(firstRegularPage.chapterIndex);
-              setCurrentPageIndex(firstRegularPage.pageIndex);
-              requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                  setIsTransitioning(false);
-                });
+              void commitPageTurn(firstRegularPage, () => {
+                setDisplayPage(firstRegularPage);
+                setCurrentChapterIndex(firstRegularPage.chapterIndex);
+                setCurrentPageIndex(firstRegularPage.pageIndex);
               });
               if (onPageChange) {
                 onPageChange({
@@ -2127,20 +2227,11 @@ export const PageReader = ({
     );
 
     if (nextPageInChapter) {
-      // Next page in same chapter
-      setIsTransitioning(true);
-      // Wait for fade-out to complete (matches CSS transition), then swap page and fade in
-      setTimeout(() => {
-        // Update both displayPage and indices together
+      // Next page in same chapter — soft dissolve + wait for background
+      void commitPageTurn(nextPageInChapter, () => {
         setDisplayPage(nextPageInChapter);
         setCurrentPageIndex(currentPageIndex + 1);
-        // Allow React to commit the new DOM, then clear transitioning so it fades back in
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            setIsTransitioning(false);
-          });
-        });
-      }, PAGE_FADE_DURATION_MS);
+      });
 
       if (onPageChange) {
         onPageChange({
@@ -2155,17 +2246,11 @@ export const PageReader = ({
       if (currentChapterIndex === -2) {
         const coverPage = pages.find(p => p.isCover && !p.isFirstPage && p.chapterIndex === -1);
         if (coverPage) {
-          setIsTransitioning(true);
-          setTimeout(() => {
+          void commitPageTurn(coverPage, () => {
             setDisplayPage(coverPage);
             setCurrentChapterIndex(coverPage.chapterIndex);
             setCurrentPageIndex(coverPage.pageIndex);
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                setIsTransitioning(false);
-              });
-            });
-          }, 1000);
+          });
           if (onPageChange) {
             onPageChange({
               chapterId: coverPage.chapterId,
@@ -2192,17 +2277,11 @@ export const PageReader = ({
             const firstPageOfFirstChapter = pagesOfFirstChapter[0];
             // Q2: Pause karaoke when navigating from cover to first chapter (skipping pages)
             pauseAllKaraoke();
-            setIsTransitioning(true);
-            setTimeout(() => {
+            void commitPageTurn(firstPageOfFirstChapter, () => {
               setDisplayPage(firstPageOfFirstChapter);
               setCurrentChapterIndex(firstRegularChapterIndex);
               setCurrentPageIndex(firstPageOfFirstChapter.pageIndex);
-              requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                  setIsTransitioning(false);
-                });
-              });
-            }, 1000);
+            });
             if (onPageChange) {
               onPageChange({
                 chapterId: firstPageOfFirstChapter.chapterId,
@@ -2228,20 +2307,11 @@ export const PageReader = ({
         if (firstPageOfNextChapter) {
           // Q2: Pause karaoke when skipping to a different chapter (user skipped pages)
           pauseAllKaraoke();
-          setIsTransitioning(true);
-          // Wait for fade-out to complete (1s), then update content and fade in
-          setTimeout(() => {
-            // Update both displayPage and indices together
+          void commitPageTurn(firstPageOfNextChapter, () => {
             setDisplayPage(firstPageOfNextChapter);
-          setCurrentChapterIndex(nextChapterIndex);
+            setCurrentChapterIndex(nextChapterIndex);
             setCurrentPageIndex(0);
-            // Wait for DOM to update and ink effect to be applied before starting fade-in
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                setIsTransitioning(false);
-              });
-            });
-          }, 1000); // Wait for full fade-out duration
+          });
 
           if (onPageChange) {
             onPageChange({
@@ -2259,6 +2329,7 @@ export const PageReader = ({
     chapters,
     isTransitioning,
     onPageChange,
+    commitPageTurn,
   ]);
 
   // Check if touch target is interactive (karaoke, button, etc.)
@@ -2289,7 +2360,17 @@ export const PageReader = ({
     };
     swipeInProgressRef.current = false;
     tocDragStartYRef.current = null;
-  }, []);
+
+    // Warm neighbor page media as soon as the finger goes down (before swipe commits)
+    if (displayPage && pages.length) {
+      const currentIndex = pages.findIndex(
+        (p) => p.chapterIndex === displayPage.chapterIndex && p.pageIndex === displayPage.pageIndex
+      );
+      if (currentIndex >= 0) {
+        preloadPagesMedia(pages, currentIndex, 2).catch(() => {});
+      }
+    }
+  }, [displayPage, pages]);
 
   // Handle touch move
   const handleTouchMove = useCallback((e) => {
@@ -2399,19 +2480,10 @@ export const PageReader = ({
         // Q1: Pause karaoke when swiping backward (user can resume when swiping forward again)
         pauseAllKaraoke();
         
-        setIsTransitioning(true);
-        // Wait for fade-out to complete (matches CSS), then update content and fade in
-        setTimeout(() => {
-          // Update both displayPage and indices together
+        void commitPageTurn(prevPage, () => {
           setDisplayPage(prevPage);
           setCurrentPageIndex(currentPageIndex - 1);
-          // Let the new DOM commit, then clear transitioning so it fades back in
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              setIsTransitioning(false);
-            });
-          });
-        }, PAGE_FADE_DURATION_MS);
+        });
 
         if (onPageChange) {
           onPageChange({
@@ -2429,17 +2501,11 @@ export const PageReader = ({
         if (firstPage) {
           // Q1: Pause karaoke when navigating from cover to first page (backward navigation)
           pauseAllKaraoke();
-          setIsTransitioning(true);
-          setTimeout(() => {
+          void commitPageTurn(firstPage, () => {
             setDisplayPage(firstPage);
             setCurrentChapterIndex(firstPage.chapterIndex);
             setCurrentPageIndex(firstPage.pageIndex);
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                setIsTransitioning(false);
-              });
-            });
-          }, 1000);
+          });
           if (onPageChange) {
             onPageChange({
               chapterId: firstPage.chapterId,
@@ -2458,17 +2524,11 @@ export const PageReader = ({
         if (currentIdxInSorted === 0) {
           const coverPage = pages.find(p => p.isCover && !p.isFirstPage && p.chapterIndex === -1);
           if (coverPage) {
-            setIsTransitioning(true);
-            setTimeout(() => {
+            void commitPageTurn(coverPage, () => {
               setDisplayPage(coverPage);
               setCurrentChapterIndex(coverPage.chapterIndex);
               setCurrentPageIndex(coverPage.pageIndex);
-              requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                  setIsTransitioning(false);
-                });
-              });
-            }, 1000);
+            });
             if (onPageChange) {
               onPageChange({
                 chapterId: coverPage.chapterId,
@@ -2487,20 +2547,11 @@ export const PageReader = ({
           if (lastPageOfPrevChapter) {
         // Q1: Pause karaoke when navigating to previous chapter (backward navigation)
         pauseAllKaraoke();
-            setIsTransitioning(true);
-            // Wait for fade-out to complete (1s), then update content and fade in
-            setTimeout(() => {
-              // Update both displayPage and indices together
+            void commitPageTurn(lastPageOfPrevChapter, () => {
               setDisplayPage(lastPageOfPrevChapter);
-          setCurrentChapterIndex(prevChapterIndex);
+              setCurrentChapterIndex(prevChapterIndex);
               setCurrentPageIndex(lastPageOfPrevChapter.pageIndex);
-              // Wait for DOM to update and ink effect to be applied before starting fade-in
-              requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                  setIsTransitioning(false);
-                });
-              });
-            }, 1000); // Wait for full fade-out duration
+            });
 
             if (onPageChange) {
               onPageChange({
@@ -2518,6 +2569,7 @@ export const PageReader = ({
     chapters,
     isTransitioning,
     onPageChange,
+    commitPageTurn,
   ]);
 
   // Handle touch end - determine swipe direction
@@ -2734,17 +2786,11 @@ export const PageReader = ({
     
     if (!targetPage) return;
     
-    setIsTransitioning(true);
-    setTimeout(() => {
+    void commitPageTurn(targetPage, () => {
       setDisplayPage(targetPage);
       setCurrentChapterIndex(targetChapterIndex);
       setCurrentPageIndex(targetPageIndex);
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setIsTransitioning(false);
-        });
-      });
-    }, 1000);
+    });
     
     if (onPageChange) {
       onPageChange({
@@ -2753,16 +2799,20 @@ export const PageReader = ({
         subchapterId: targetPage.subchapterId,
       });
     }
-  }, [isTransitioning, pages, onPageChange]);
+  }, [isTransitioning, pages, onPageChange, commitPageTurn]);
 
-  // Initialize displayPage only on first load - never update it during normal operation
-  // This prevents interference with transitions
+  // Keep displayPage aligned with current slot when not transitioning (e.g. mobile repack).
   useEffect(() => {
-    if (pages.length > 0 && !displayPage && currentPage) {
+    if (isTransitioning || !currentPage) return;
+    if (
+      !displayPage ||
+      displayPage.chapterIndex !== currentPage.chapterIndex ||
+      displayPage.pageIndex !== currentPage.pageIndex ||
+      displayPage.content !== currentPage.content
+    ) {
       setDisplayPage(currentPage);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pages.length]); // Only depend on pages.length to run once when pages are first loaded
+  }, [isTransitioning, currentPage, displayPage]);
 
   // Ensure valid page state - MUST be before any conditional returns
   useEffect(() => {
@@ -2776,8 +2826,64 @@ export const PageReader = ({
     }
   }, [pages, currentPage]);
 
-  // Use displayPage for rendering, fallback to currentPage
-  const pageToDisplay = displayPage || currentPage;
+  // While idle, always render from `pages` (currentPage). `displayPage` is only for the
+  // fade transition; keeping it after first paint hid repacks (stale HTML → 107px slack).
+  const pageToDisplay =
+    isTransitioning && displayPage ? displayPage : (currentPage ?? displayPage);
+
+  // Paint block boxes + slack/reserve bands on the live page (mobile reader).
+  useEffect(() => {
+    if (!paginationDebugEnabled || typeof document === 'undefined') return undefined;
+    let teardown = () => {};
+    const paint = () => {
+      const bodyEl = document.querySelector(
+        '.page-turn-surface .page-body.content-body'
+      );
+      if (!bodyEl || !pageToDisplay) return;
+      teardown();
+      const regularPages = pages.filter((p) => !p.isFirstPage && !p.isCover);
+      const bookIdx = regularPages.findIndex(
+        (p) =>
+          p.chapterIndex === pageToDisplay.chapterIndex &&
+          p.pageIndex === pageToDisplay.pageIndex
+      );
+      const bookPageNumber = bookIdx >= 0 ? bookIdx + 1 : 0;
+      teardown = applyPaginationDebugOverlay(bodyEl, {
+        chapterId: pageToDisplay.chapterId || '',
+        pageIndex: pageToDisplay.pageIndex ?? 0,
+        isFirstPage: !!pageToDisplay.isFirstPage,
+        preserveTypography: !!pageToDisplay.preserveTypography,
+        isTightFirst:
+          !!pageToDisplay.preserveTypography &&
+          !pageToDisplay.isCover &&
+          !pageToDisplay.isFirstPage &&
+          (pageToDisplay.pageIndex ?? 0) === 0,
+        packedBlockCount: countPackedBlocksInPageHtml(pageToDisplay.content || ''),
+        bookPageNumber,
+      });
+    };
+    const raf = requestAnimationFrame(() => {
+      paint();
+      window.setTimeout(paint, 120);
+    });
+    const vv = window.visualViewport;
+    vv?.addEventListener('resize', paint);
+    return () => {
+      cancelAnimationFrame(raf);
+      vv?.removeEventListener('resize', paint);
+      teardown();
+    };
+  }, [
+    paginationDebugEnabled,
+    pages,
+    pageToDisplay?.chapterId,
+    pageToDisplay?.pageIndex,
+    pageToDisplay?.content,
+    pageToDisplay?.isFirstPage,
+    pageToDisplay?.preserveTypography,
+    pageToDisplay?.chapterIndex,
+    isTransitioning,
+  ]);
   
   // Log pageToDisplay state for debugging swipe back issue
   if (isTransitioning && (!pageToDisplay || !pageToDisplay.content)) {
@@ -3416,7 +3522,13 @@ export const PageReader = ({
 
   // Ink effect removed - no longer applying to desktop or mobile
 
-  // Preload adjacent page backgrounds for smoother swiping
+  // Warm all page media once pages exist (backgrounds, borders, in-text images)
+  useEffect(() => {
+    if (!pages.length) return;
+    preloadAllPagesMedia(pages).catch(() => {});
+  }, [pages]);
+
+  // Keep a sliding window around the current page hot for swipe (bg + border + content imgs)
   useEffect(() => {
     if (!displayPage || !pages.length) return;
 
@@ -3425,21 +3537,22 @@ export const PageReader = ({
     );
 
     if (currentIndex < 0) return;
-
-    // Preload next page background (if different)
-    const nextPage = pages[currentIndex + 1];
-    if (nextPage?.backgroundImageUrl && nextPage.backgroundImageUrl !== displayPage.backgroundImageUrl) {
-      const img = new Image();
-      img.src = nextPage.backgroundImageUrl;
-    }
-
-    // Preload previous page background (if different)
-    const prevPage = pages[currentIndex - 1];
-    if (prevPage?.backgroundImageUrl && prevPage.backgroundImageUrl !== displayPage.backgroundImageUrl) {
-      const img = new Image();
-      img.src = prevPage.backgroundImageUrl;
-    }
+    preloadPagesMedia(pages, currentIndex, 2).catch(() => {});
   }, [displayPage, pages]);
+
+  // Stabilize in-page <img> nodes after content mounts (mobile single-page remounts)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth > 768) return;
+    const root = pageContentRef.current;
+    if (!root) return;
+    const imgs = root.querySelectorAll('img');
+    imgs.forEach((img) => {
+      img.setAttribute('loading', 'eager');
+      img.setAttribute('decoding', 'sync');
+      img.setAttribute('fetchpriority', 'high');
+      if (img.src) preloadImage(img.src).catch(() => {});
+    });
+  }, [displayPage?.chapterIndex, displayPage?.pageIndex, displayPage?.content]);
 
   // Reset background ready state when page changes - but only wait on first page load
   useEffect(() => {
@@ -3517,16 +3630,24 @@ export const PageReader = ({
   // Ensure pageToDisplay exists before rendering
   // Wait for background image to load ONLY on first page load, not on swipes
   const hasBackground = !!pageToDisplay?.backgroundImageUrl;
-  const shouldShowLoading = !pageToDisplay || (!hasShownFirstPageWithBackgroundRef.current && hasBackground && !backgroundImageReady);
+  const waitingForMobilePack = isMobile && chapters?.length > 0 && pages.length === 0;
+  const shouldShowLoading =
+    waitingForMobilePack ||
+    !pageToDisplay ||
+    (!hasShownFirstPageWithBackgroundRef.current && hasBackground && !backgroundImageReady);
+  const mobileProbe =
+    isMobile && chapters?.length > 0 ? <MobileGeometryProbe /> : null;
   
   // Render background image first (even if loading) so it can load while loading screen is visible
   const backgroundImage = pageToDisplay?.backgroundImageUrl ? (
     <img
+      key={pageToDisplay.backgroundImageUrl}
       src={pageToDisplay.backgroundImageUrl}
       alt=""
       className="page-background-image"
       loading="eager"
-      decoding="async"
+      decoding="sync"
+      fetchPriority="high"
       style={{
         position: 'fixed',
         inset: 0,
@@ -3612,7 +3733,10 @@ export const PageReader = ({
   if (shouldShowLoading) {
     return (
       <>
-        {backgroundImage}
+        {mobileProbe}
+        <div className="page-turn-surface">
+          {backgroundImage}
+        </div>
         <div className="page-reader-loading" />
       </>
     );
@@ -3626,19 +3750,20 @@ export const PageReader = ({
   let totalPages = 0;
   
   if (!pageToDisplay.isFirstPage && !pageToDisplay.isCover) {
-    // Find index excluding first page and cover page
-    // Page numbers start at 1 after the cover page
-    const regularPages = pages.filter(p => !p.isFirstPage && !p.isCover);
-    const pageIndex = regularPages.findIndex(
-      (p) => p.chapterIndex === pageToDisplay.chapterIndex && p.pageIndex === pageToDisplay.pageIndex
-    );
-    currentPageNumber = pageIndex >= 0 ? pageIndex + 1 : 0;
+    const regularPages = pages.filter((p) => !p.isFirstPage && !p.isCover);
     totalPages = regularPages.length;
+    const idx = regularPages.findIndex(
+      (p) =>
+        p.chapterIndex === pageToDisplay.chapterIndex &&
+        p.pageIndex === pageToDisplay.pageIndex
+    );
+    currentPageNumber = idx >= 0 ? idx + 1 : 0;
   }
   const shouldShowTopBar = !pageToDisplay.hasHeading && !pageToDisplay.isEpigraph && !pageToDisplay.isCover && !pageToDisplay.isFirstPage && !pageToDisplay.hasFieldNotes && pageToDisplay.pageIndex > 0;
 
   const pageContent = (
     <>
+    <div className={`page-turn-surface ${isTransitioning ? 'transitioning' : ''}`}>
       {backgroundImage}
       {pageToDisplay.backgroundVideo && (
                 <video
@@ -3650,13 +3775,13 @@ export const PageReader = ({
                   preload="auto"
                   className="background-video"
           style={{
-            position: 'fixed',
+            position: 'absolute',
             top: 0,
             left: 0,
             right: 0,
             bottom: 0,
-            width: '100vw',
-            height: '100vh',
+            width: '100%',
+            height: '100%',
             objectFit: 'cover',
             zIndex: 0,
             pointerEvents: 'none',
@@ -3674,7 +3799,7 @@ export const PageReader = ({
     >
       <div
         ref={pageContainerRef}
-        className={`page-container ${isTransitioning ? 'transitioning' : ''}`}
+        className="page-container"
       >
         <article className={`page-sheet content-page ${pageToDisplay?.isEpigraph ? 'epigraph-page' : ''} ${pageToDisplay?.isVideo ? 'video-page' : ''} ${pageToDisplay?.backgroundVideo ? 'background-video-page' : ''} ${pageToDisplay?.isCover ? 'cover-page' : ''} ${pageToDisplay?.isFirstPage ? 'first-page' : ''} ${pageToDisplay?.hasFieldNotes ? 'field-notes-page' : ''}`}>
           <section className="page-body content-body">
@@ -3682,7 +3807,7 @@ export const PageReader = ({
               <div 
                 key={pageKey}
                 ref={pageContentRefCallback}
-                className={`page-content ${pageToDisplay?.fontFamily ? 'page-content-custom-font' : ''}`}
+                className={`page-content page-content--preserve ${pageToDisplay?.fontFamily ? 'page-content-custom-font' : ''}`}
                 dangerouslySetInnerHTML={{ __html: pageToDisplay.content || '' }}
                 style={pageToDisplay?.fontFamily ? { fontFamily: pageToDisplay.fontFamily, '--page-font': pageToDisplay.fontFamily } : undefined}
               />
@@ -3690,7 +3815,7 @@ export const PageReader = ({
               <div 
                 key={pageKey}
                 ref={pageContentRefCallback}
-                className={`page-content ${pageToDisplay?.fontFamily ? 'page-content-custom-font' : ''}`}
+                className={`page-content page-content--preserve ${pageToDisplay?.fontFamily ? 'page-content-custom-font' : ''}`}
                 dangerouslySetInnerHTML={{ __html: pageToDisplay.content || '' }}
                 style={pageToDisplay?.fontFamily ? { fontFamily: pageToDisplay.fontFamily, '--page-font': pageToDisplay.fontFamily } : undefined}
               />
@@ -3749,7 +3874,7 @@ export const PageReader = ({
               <div 
                 key={pageKey}
                 ref={pageContentRefCallback} 
-                className={`page-content ${pageToDisplay.backgroundVideo ? 'background-video-text' : ''} ${pageToDisplay.fontFamily ? 'page-content-custom-font' : ''}`}
+                className={`page-content ${pageToDisplay.preserveTypography ? 'page-content--preserve' : 'page-content--canonical'} ${pageToDisplay.backgroundVideo ? 'background-video-text' : ''} ${pageToDisplay.fontFamily ? 'page-content-custom-font' : ''}`}
                 dangerouslySetInnerHTML={{ __html: pageToDisplay.content || '' }} 
                 style={{
                   ...(pageToDisplay.fontFamily ? { fontFamily: pageToDisplay.fontFamily, '--page-font': pageToDisplay.fontFamily } : {}),
@@ -3858,10 +3983,16 @@ export const PageReader = ({
         onToggleEditorReader={onToggleEditorReader}
       />
     </div>
+    </div>
     </>
   );
 
   // Mobile: return page content directly
-  return pageContent;
+  return (
+    <>
+      {mobileProbe}
+      {pageContent}
+    </>
+  );
 };
 

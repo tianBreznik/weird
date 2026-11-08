@@ -7,6 +7,29 @@ import {
   splitTextAtWordBoundary
 } from './paginationHelpers';
 import { DEFAULT_CHAPTER_FONT } from '../constants/chapterFonts';
+import {
+  ATOMIC_IMAGE_BUFFER_PX,
+  countWordsFromHtml,
+  getReservedBottomSpace,
+} from './pageGeometry';
+import { getPaginationPolicy } from './paginationPolicies';
+
+// #region agent log
+const __dbgPack = (hypothesisId, location, message, data) => {
+  fetch('http://127.0.0.1:7653/ingest/96f45e2d-ed9d-4760-b26e-aea9516709c8', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '14aad6' },
+    body: JSON.stringify({
+      sessionId: '14aad6',
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+};
+// #endregion
 
 /**
  * Calculate available height for an element considering footnotes
@@ -21,7 +44,8 @@ export const calculateAvailableHeightForElement = ({
   isDesktop,
   pageWidth,
   chapter,
-  chapterPageIndex
+  chapterPageIndex,
+  preserveTypography = false,
 }) => {
   // Calculate footnotes that would be on this page (current + this element's footnotes)
   const testFootnotes = new Set(currentPageFootnotes);
@@ -32,13 +56,22 @@ export const calculateAvailableHeightForElement = ({
   const tempFootnotesContainer = document.createElement('div');
   tempFootnotesContainer.style.width = isDesktop ? contentWidth + 'px' : measure.body.clientWidth + 'px';
   measure.body.appendChild(tempFootnotesContainer);
-  const footnotesHeight = measureFootnotesHeight(testFootnotes, tempFootnotesContainer, allFootnotes, isDesktop, pageWidth);
+  const footnotesHeight = measureFootnotesHeight(
+    testFootnotes,
+    tempFootnotesContainer,
+    allFootnotes,
+    isDesktop,
+    pageWidth,
+    measure.measureCache
+  );
   measure.body.removeChild(tempFootnotesContainer);
   
-  // Get available height - it will use footnotes height if provided, or bottom margin if not
+  // Special first page + book intro page 1: tight bottom reserve (not the 40px band).
   const isStandaloneFirstPage = chapter.isFirstPage && chapterPageIndex === 0;
-  const isFirstPage = isStandaloneFirstPage;
-  const baseAvailableHeight = measure.getAvailableHeight(footnotesHeight, isFirstPage);
+  const useTightBottomReserve =
+    isStandaloneFirstPage ||
+    (!!preserveTypography && !chapter.isCover && !chapter.isFirstPage && chapterPageIndex === 0);
+  const baseAvailableHeight = measure.getAvailableHeight(footnotesHeight, useTightBottomReserve);
   
   return {
     baseAvailableHeight,
@@ -46,7 +79,8 @@ export const calculateAvailableHeightForElement = ({
     testFootnotes,
     elementFootnotes,
     footnotesHeight,
-    isStandaloneFirstPage
+    isStandaloneFirstPage,
+    useTightBottomReserve,
   };
 };
 
@@ -63,16 +97,22 @@ export const checkElementFits = ({
   isDesktop,
   measure,
   applyParagraphStylesToContainer,
-  finalReservedSpace = 0
+  finalReservedSpace = 0,
+  policy = null,
 }) => {
+  const activePolicy = policy || getPaginationPolicy(isDesktop);
   const testElements = [...currentPageElements, element.outerHTML];
   const tempTotalContainer = document.createElement('div');
   // Use the same content width for both desktop and mobile so that the
   // measurement container matches the real page-content width.
-  tempTotalContainer.style.width = contentWidth + 'px';
+  const measureWidth =
+    (Number.isFinite(contentWidth) && contentWidth > 0)
+      ? contentWidth
+      : (measure.pageContent?.clientWidth || measure.body?.clientWidth || 0);
+  tempTotalContainer.style.width = measureWidth + 'px';
   // Always prefer measure.pageContent when available so that mobile
   // measurements pass through the same .page-content structure as the
-  // live reader (height: 90%, max-height: 95%, overflow: hidden, etc.).
+  // live reader (height/max-height: 100%, overflow: hidden, etc.).
   const measureParent = measure.pageContent || measure.body;
   measureParent.appendChild(tempTotalContainer);
   
@@ -107,18 +147,9 @@ export const checkElementFits = ({
   if (isStandaloneFirstPage) {
     elementFits = true;
     overflowAmount = 0;
-  } else if (isDesktop) {
-    // Desktop: allow a small positive overflow (up to ~15px) so paragraphs that
-    // visually fit near the bottom of the page do NOT trigger a split.
-    overflowAmount = totalContentHeight - totalAvailableHeight;
-    elementFits = overflowAmount <= 15;
   } else {
-    // Mobile: allow a small positive overflow (up to ~24px) so that
-    // paragraphs that visually fit near the bottom of the page do not
-    // get pushed to the next page too aggressively.
     overflowAmount = totalContentHeight - totalAvailableHeight;
-    const MOBILE_OVERFLOW_TOLERANCE = 24;
-    elementFits = overflowAmount <= MOBILE_OVERFLOW_TOLERANCE;
+    elementFits = overflowAmount <= activePolicy.overflowTolerance;
   }
   
   return { elementFits, totalContentHeight, overflowAmount, totalAvailableHeight };
@@ -140,7 +171,11 @@ export const calculateRemainingHeight = ({
   const tempCurrentPageContainer = document.createElement('div');
   // Match checkElementFits: use contentWidth for both desktop and mobile
   // so width aligns with the real page-content.
-  tempCurrentPageContainer.style.width = contentWidth + 'px';
+  const measureWidth =
+    (Number.isFinite(contentWidth) && contentWidth > 0)
+      ? contentWidth
+      : (measure.pageContent?.clientWidth || measure.body?.clientWidth || 0);
+  tempCurrentPageContainer.style.width = measureWidth + 'px';
   // Always prefer measure.pageContent when available so mobile measurements
   // go through the same .page-content structure as the real reader.
   const measureParent = measure.pageContent || measure.body;
@@ -185,6 +220,13 @@ export const handleAtomicElement = ({
     currentPageElements.push(element.outerHTML);
   } else {
     // Element doesn't fit - start new page
+    // #region agent log
+    __dbgPack('E', 'elementPagination.js:handleAtomicElement', 'atomic-push-whole', {
+      tag: element.tagName,
+      preview: (element.textContent || '').trim().slice(0, 60),
+      pageElsBefore: currentPageElements.length,
+    });
+    // #endregion
     if (currentPageElements.length > 0) {
       pushPage(block);
     }
@@ -195,58 +237,36 @@ export const handleAtomicElement = ({
 };
 
 /**
- * Check if element should be split (complex logic with multiple conditions)
+ * Check if element should be split — delegates to desktop vs mobile policy.
  */
 export const shouldSplitElement = ({
   element,
   elementFits,
   remainingContentHeight,
-  finalTotalHeight,
-  baseAvailableHeight,
   overflowAmount,
   isStandaloneFirstPage,
   elementIndex,
-  elementsLength
+  elementsLength,
+  policy = null,
+  isDesktop = typeof window !== 'undefined' ? window.innerWidth > 768 : true,
 }) => {
-  // If element fits, check if it actually fits with padding
+  const activePolicy = policy || getPaginationPolicy(isDesktop);
+  const ctx = {
+    element,
+    remainingContentHeight,
+    overflowAmount,
+    isStandaloneFirstPage,
+    elementIndex,
+    elementsLength,
+  };
+
   if (elementFits) {
-    // Desktop: once we've decided the full element "fits" under the relaxed
-    // desktop model (including small overflow tolerance), do NOT split it.
-    // This prevents unnecessary splits when the whole paragraph could stay on
-    // the current page.
-    if (typeof window !== 'undefined' && window.innerWidth > 768) {
+    if (activePolicy.preferKeepTogetherWhenFits) {
       return false;
     }
-    const shouldTrySplitDueToSmallSpace = remainingContentHeight < 50 && 
-                                          remainingContentHeight > 0 &&
-                                          element.textContent && 
-                                          element.textContent.length > 50;
-    
-    const elementTextLength = element.textContent?.length || 0;
-    const isLastElement = elementIndex === elementsLength - 1;
-    const isLikelyLastElement = remainingContentHeight < 80 && overflowAmount < 30;
-    const isShortElement = elementTextLength < 100 && overflowAmount < 30;
-    const overflowTolerance = isStandaloneFirstPage ? 50 : 30;
-    const allowSmallOverflow = (isLastElement || isLikelyLastElement || isShortElement || isStandaloneFirstPage) && 
-                               overflowAmount < overflowTolerance && 
-                               overflowAmount > 0;
-    
-    const shouldSkipSplitDueToSmallSpace = remainingContentHeight < 20 && 
-                                            remainingContentHeight > 0 &&
-                                            elementTextLength > 200;
-    
-    // overflowAmount is already calculated correctly (finalTotalHeight - totalAvailableHeight)
-    // So we only need to check overflowAmount, not compare finalTotalHeight to baseAvailableHeight
-    return (overflowAmount >= 10 || shouldTrySplitDueToSmallSpace) && 
-           !allowSmallOverflow && 
-           !shouldSkipSplitDueToSmallSpace;
-  } else {
-    // Element doesn't fit - check if we should skip splitting
-    const elementTextLength = element.textContent?.length || 0;
-    return !(remainingContentHeight < 20 && 
-             remainingContentHeight > 0 &&
-             elementTextLength > 200);
+    return activePolicy.shouldSplitWhenFits(ctx);
   }
+  return activePolicy.shouldAttemptSplitWhenOverflow(ctx);
 };
 
 /**
@@ -270,249 +290,218 @@ export const processSplitResult = ({
   footnoteContentToNumber,
   pushPage,
   startNewPage,
-  block
+  block,
+  policy = null,
 }) => {
-  // NOTE (desktop pagination):
-  // 1) The primary issue we're tackling now is *when* to trigger a split at all
-  //    (checkElementFits / shouldSplitElement). This function only runs once a
-  //    split has already been approved.
-  // 2) Follow‑up we should revisit later: after splitting, if the "second" part
-  //    would also fit on the current page under the relaxed desktop model, we
-  //    could abandon the split and keep the whole paragraph on a single page
-  //    instead of forcing a tiny tail onto the next page.
+  const activePolicy = policy || getPaginationPolicy(isDesktop);
   const { first, second } = splitResult;
-  
+
+  const pushWholeToNext = () => {
+    if (currentPageElements.length > 0) {
+      pushPage(block);
+    }
+    startNewPage(false);
+    elementFootnotes.forEach((num) => currentPageFootnotes.add(num));
+    currentPageElements.push(element.outerHTML);
+  };
+
+  const keepWholeHere = () => {
+    elementFootnotes.forEach((num) => currentPageFootnotes.add(num));
+    currentPageElements.push(element.outerHTML);
+  };
+
+  const measureWidth =
+    (Number.isFinite(contentWidth) && contentWidth > 0)
+      ? contentWidth
+      : (measure.pageContent?.clientWidth || measure.body?.clientWidth || 0);
+  const measureParent = measure.pageContent || measure.body;
+
+  /** Append HTML to current page contents and measure overflow (margin-collapse correct). */
+  const measureAppendedOverflow = (html) => {
+    const testContainer = document.createElement('div');
+    testContainer.style.width = measureWidth + 'px';
+    measureParent.appendChild(testContainer);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'page-content-main';
+    wrapper.style.paddingBottom = (finalReservedSpace || 0) + 'px';
+    [...currentPageElements, html].forEach((el) => {
+      const temp = document.createElement('div');
+      temp.innerHTML = el;
+      wrapper.appendChild(temp.firstElementChild || temp);
+    });
+    applyParagraphStylesToContainer(wrapper, isDesktop);
+    testContainer.appendChild(wrapper);
+    const height = testContainer.offsetHeight;
+    measureParent.removeChild(testContainer);
+    const available = baseAvailableHeight + (finalReservedSpace || 0);
+    return height - available;
+  };
+
+  const fullElementFitsRelaxed =
+    measureAppendedOverflow(element.outerHTML) <= activePolicy.overflowTolerance;
+
+  // Solo fragment measure ignores margin-collapse with the previous block, so word/sentence
+  // split can return first=null even when the whole short paragraph still fits on this page.
+  // That false-negative pushes the paragraph to the next page and leaves a visible gap.
   if (!first || remainingContentHeight <= 0) {
-    // Can't split or no space left - push entire element to next page
-    if (currentPageElements.length > 0) {
-      pushPage(block);
+    // #region agent log
+    if (!isDesktop) {
+      __dbgPack('D', 'elementPagination.js:processSplitResult', 'no-first-fragment', {
+        hasFirst: !!first,
+        remainingContentHeight: Math.round(remainingContentHeight),
+        fullElementFitsRelaxed,
+        action: fullElementFitsRelaxed ? 'keep-whole' : 'push-whole',
+        preview: (element.textContent || '').trim().slice(0, 60),
+        pageEls: currentPageElements.length,
+      });
     }
-    startNewPage(false);
-    elementFootnotes.forEach(num => currentPageFootnotes.add(num));
-    currentPageElements.push(element.outerHTML);
+    // #endregion
+    if (fullElementFitsRelaxed) {
+      keepWholeHere();
+    } else {
+      pushWholeToNext();
+    }
     return;
   }
   
-  // Check if first part is too short (just a few words) - if so, push whole element to next page
-  const firstPartText = first.replace(/<[^>]*>/g, '').trim();
-  const firstPartWordCount = firstPartText.split(/\s+/).filter(w => w.length > 0).length;
-  const isFirstPartTooShort = firstPartWordCount < 2;
-  
-  if (isFirstPartTooShort) {
-    // Push whole element to next page - avoid split that would leave very short first part
-    if (currentPageElements.length > 0) {
-      pushPage(block);
-    }
-    startNewPage(false);
-    elementFootnotes.forEach(num => currentPageFootnotes.add(num));
-    currentPageElements.push(element.outerHTML);
-    return;
-  }
+  const firstPartWordCount = countWordsFromHtml(first);
+  const secondPartWordCount = countWordsFromHtml(second);
   
   // Measure how much space the first part would actually use
-  const firstPartTestContainer = document.createElement('div');
-  // Use contentWidth for desktop (accounts for padding), body.clientWidth for mobile
-  const measureWidth = (isDesktop && contentWidth) ? contentWidth : measure.body.clientWidth;
-  firstPartTestContainer.style.width = measureWidth + 'px';
-  // For desktop, append to pageContent to match structure; for mobile, body is fine
-  const measureParent = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
-  measureParent.appendChild(firstPartTestContainer);
+  const firstPartHeight = (() => {
+    const firstPartTestContainer = document.createElement('div');
+    firstPartTestContainer.style.width = measureWidth + 'px';
+    measureParent.appendChild(firstPartTestContainer);
+    const firstPartContentWrapper = document.createElement('div');
+    firstPartContentWrapper.className = 'page-content-main';
+    firstPartContentWrapper.style.paddingBottom = finalReservedSpace + 'px';
+    [...currentPageElements, first].forEach((el) => {
+      const temp = document.createElement('div');
+      temp.innerHTML = el;
+      firstPartContentWrapper.appendChild(temp.firstElementChild || temp);
+    });
+    applyParagraphStylesToContainer(firstPartContentWrapper, isDesktop);
+    firstPartTestContainer.appendChild(firstPartContentWrapper);
+    const height = firstPartTestContainer.offsetHeight;
+    measureParent.removeChild(firstPartTestContainer);
+    return height;
+  })();
   
-  const firstPartTestElements = [...currentPageElements, first];
-  const firstPartContentWrapper = document.createElement('div');
-  firstPartContentWrapper.className = 'page-content-main';
-  firstPartContentWrapper.style.paddingBottom = finalReservedSpace + 'px';
-  
-  firstPartTestElements.forEach(el => {
-    const temp = document.createElement('div');
-    temp.innerHTML = el;
-    firstPartContentWrapper.appendChild(temp.firstElementChild || temp);
+  // firstPartHeight includes paddingBottom; baseAvailableHeight already subtracted
+  // the same reserve — add it back so R is not double-counted short.
+  const firstPartRemainingSpace =
+    baseAvailableHeight + (finalReservedSpace || 0) - firstPartHeight;
+
+  const decision = activePolicy.decideAfterProposedSplit({
+    firstPartRemainingSpace,
+    overflowAmount,
+    firstPartWordCount,
+    secondPartWordCount,
+    second,
+    fullElementFitsRelaxed,
   });
-  
-  applyParagraphStylesToContainer(firstPartContentWrapper, isDesktop);
-  firstPartTestContainer.appendChild(firstPartContentWrapper);
-  const firstPartHeight = firstPartTestContainer.offsetHeight;
-  measureParent.removeChild(firstPartTestContainer);
-  
-  const firstPartRemainingSpace = baseAvailableHeight - firstPartHeight;
 
-  // Desktop vs mobile behavior: we only tweak the heuristics on desktop,
-  // but mobile now also gets a "full paragraph still fits" escape hatch
-  // similar to the desktop secondary fix.
+  // #region agent log
   if (!isDesktop) {
-    // Mobile: before applying the legacy split heuristics, check whether
-    // keeping the ENTIRE element on this page is acceptable under the
-    // relaxed mobile overflow model. This prevents cases where we split,
-    // but the second part would also have fit so the whole paragraph
-    // should have stayed together.
-    try {
-      if (second) {
-        const fullElementTestContainer = document.createElement('div');
-        fullElementTestContainer.style.width = contentWidth + 'px';
-        const fullMeasureParent = measure.pageContent || measure.body;
-        fullMeasureParent.appendChild(fullElementTestContainer);
+    __dbgPack('C', 'elementPagination.js:processSplitResult', 'split-decision', {
+      decision,
+      firstPartRemainingSpace: Math.round(firstPartRemainingSpace),
+      firstPartHeight: Math.round(firstPartHeight),
+      baseAvailableHeight: Math.round(baseAvailableHeight),
+      finalReservedSpace,
+      firstPartWordCount,
+      secondPartWordCount,
+      fullElementFitsRelaxed,
+      remainingContentHeight: Math.round(remainingContentHeight),
+      overflowAmount: Math.round(overflowAmount || 0),
+      firstPreview: (String(first).replace(/<[^>]*>/g, ' ').trim()).slice(0, 50),
+      secondPreview: (String(second || '').replace(/<[^>]*>/g, ' ').trim()).slice(0, 50),
+      pageEls: currentPageElements.length,
+      chapterPage: block?.subchapterTitle || null,
+    });
+  }
+  // #endregion
 
-        const fullContentWrapper = document.createElement('div');
-        fullContentWrapper.className = 'page-content-main';
-        fullContentWrapper.style.paddingBottom = finalReservedSpace + 'px';
-
-        const fullTestElements = [...currentPageElements, element.outerHTML];
-        fullTestElements.forEach(el => {
-          const temp = document.createElement('div');
-          temp.innerHTML = el;
-          fullContentWrapper.appendChild(temp.firstElementChild || temp);
-        });
-
-        applyParagraphStylesToContainer(fullContentWrapper, false);
-        fullElementTestContainer.appendChild(fullContentWrapper);
-
-        const fullTotalHeight = fullElementTestContainer.offsetHeight;
-        fullMeasureParent.removeChild(fullElementTestContainer);
-
-        const fullTotalAvailableHeight = baseAvailableHeight + finalReservedSpace;
-        const fullOverflow = fullTotalHeight - fullTotalAvailableHeight;
-
-        const MOBILE_OVERFLOW_TOLERANCE = 24;
-        const fullElementFitsRelaxed = fullOverflow <= MOBILE_OVERFLOW_TOLERANCE;
-
-        if (fullElementFitsRelaxed) {
-          elementFootnotes.forEach(num => currentPageFootnotes.add(num));
-          currentPageElements.push(element.outerHTML);
-          return;
-        }
-      }
-    } catch (e) {
-      // If measurement fails, fall back to existing mobile logic below.
-    }
-
-    // Existing mobile behavior: conservative split rules
-    // Case 1: First part leaves significant unused space (> 30px) and overflow was small (< 30px)
-    if (firstPartRemainingSpace > 30 && overflowAmount < 30) {
-      // Don't split - include whole element with small overflow
-      elementFootnotes.forEach(num => currentPageFootnotes.add(num));
-      currentPageElements.push(element.outerHTML);
-      return;
-    }
-    
-    // Case 2: First part leaves very little to no space (< 15px) and overflow was small (< 30px)
-    if (firstPartRemainingSpace < 15 && overflowAmount < 30) {
-      // Push whole element to next page - avoid split that would leave tiny first part
-      if (currentPageElements.length > 0) {
-        pushPage(block);
-      }
-      startNewPage(false);
-      elementFootnotes.forEach(num => currentPageFootnotes.add(num));
-      currentPageElements.push(element.outerHTML);
-      return;
-    }
-    // Case 3 (mobile): fall through to split below.
-  } else {
-    // Desktop: geometry‑driven rules focused on visual fill.
-    const R = firstPartRemainingSpace;
-    const O = overflowAmount || 0;
-
-    // Secondary desktop fix:
-    // After computing a split, re-check whether keeping the ENTIRE element
-    // on this page is acceptable under the relaxed desktop overflow model.
-    // If yes, abandon the split and keep the whole paragraph together to
-    // avoid tiny tails like "alive." ending up alone on the next page.
-    try {
-      if (second) {
-        const fullElementTestContainer = document.createElement('div');
-        const fullMeasureWidth =
-          (isDesktop && contentWidth) ? contentWidth : measure.body.clientWidth;
-        fullElementTestContainer.style.width = fullMeasureWidth + 'px';
-        const fullMeasureParent =
-          (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
-        fullMeasureParent.appendChild(fullElementTestContainer);
-
-        const fullContentWrapper = document.createElement('div');
-        fullContentWrapper.className = 'page-content-main';
-        fullContentWrapper.style.paddingBottom = finalReservedSpace + 'px';
-
-        const fullTestElements = [...currentPageElements, element.outerHTML];
-        fullTestElements.forEach(el => {
-          const temp = document.createElement('div');
-          temp.innerHTML = el;
-          fullContentWrapper.appendChild(temp.firstElementChild || temp);
-        });
-
-        applyParagraphStylesToContainer(fullContentWrapper, isDesktop);
-        fullElementTestContainer.appendChild(fullContentWrapper);
-
-        const fullTotalHeight = fullElementTestContainer.offsetHeight;
-        fullMeasureParent.removeChild(fullElementTestContainer);
-
-        const fullTotalAvailableHeight = baseAvailableHeight + finalReservedSpace;
-        const fullOverflow = fullTotalHeight - fullTotalAvailableHeight;
-
-        // Allow a slightly generous overflow here (matching the relaxed
-        // desktop tolerance in checkElementFits). If the whole element fits
-        // under this model, keep it on the current page and skip splitting.
-        const FULL_DESKTOP_OVERFLOW_TOLERANCE = 15;
-        const fullElementFitsRelaxed = fullOverflow <= FULL_DESKTOP_OVERFLOW_TOLERANCE;
-
-        if (fullElementFitsRelaxed) {
-          elementFootnotes.forEach(num => currentPageFootnotes.add(num));
-          currentPageElements.push(element.outerHTML);
-          return;
-        }
-      }
-    } catch (e) {
-      // If any measurement fails, fall back to existing desktop logic below.
-    }
-
-    // A. Good fill band: use the split to pack the page tighter.
-    if (R >= 0 && R <= 40) {
-      // proceed to split below
-    } else if (R > 40 && O < 20) {
-      // B. Plenty of space left and overflow would be small: keep whole element on this page.
-      elementFootnotes.forEach(num => currentPageFootnotes.add(num));
-      currentPageElements.push(element.outerHTML);
-      return;
-    } else if (R < 10 && isFirstPartTooShort) {
-      // C. Tiny remaining space and first part is essentially a fragment: push whole element.
-      if (currentPageElements.length > 0) {
-        pushPage(block);
-      }
-      startNewPage(false);
-      elementFootnotes.forEach(num => currentPageFootnotes.add(num));
-      currentPageElements.push(element.outerHTML);
-      return;
-    } else {
-      // D. Default desktop fallback: we tried to fill but geometry is awkward – push whole element.
-      if (currentPageElements.length > 0) {
-        pushPage(block);
-      }
-      startNewPage(false);
-      elementFootnotes.forEach(num => currentPageFootnotes.add(num));
-      currentPageElements.push(element.outerHTML);
-      return;
-    }
+  if (decision === 'keep-whole') {
+    keepWholeHere();
+    return;
+  }
+  if (decision === 'push-whole') {
+    pushWholeToNext();
+    return;
   }
   
-  // Case 3: First part uses space well - proceed with split
+  // accept-split — but never turn the page if the tail still fits below the first part.
+  const measureBothPartsOverflow = () => {
+    if (!second) return Infinity;
+    const testContainer = document.createElement('div');
+    testContainer.style.width = measureWidth + 'px';
+    measureParent.appendChild(testContainer);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'page-content-main';
+    wrapper.style.paddingBottom = (finalReservedSpace || 0) + 'px';
+    [...currentPageElements, first, second].forEach((el) => {
+      const temp = document.createElement('div');
+      temp.innerHTML = el;
+      wrapper.appendChild(temp.firstElementChild || temp);
+    });
+    applyParagraphStylesToContainer(wrapper, isDesktop);
+    testContainer.appendChild(wrapper);
+    const height = testContainer.offsetHeight;
+    measureParent.removeChild(testContainer);
+    const available = baseAvailableHeight + (finalReservedSpace || 0);
+    return height - available;
+  };
+
+  const bothOverflow = measureBothPartsOverflow();
+  const withBothHeight = (() => {
+    if (!second) return firstPartHeight;
+    const testContainer = document.createElement('div');
+    testContainer.style.width = measureWidth + 'px';
+    measureParent.appendChild(testContainer);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'page-content-main';
+    wrapper.style.paddingBottom = (finalReservedSpace || 0) + 'px';
+    [...currentPageElements, first, second].forEach((el) => {
+      const temp = document.createElement('div');
+      temp.innerHTML = el;
+      wrapper.appendChild(temp.firstElementChild || temp);
+    });
+    applyParagraphStylesToContainer(wrapper, isDesktop);
+    testContainer.appendChild(wrapper);
+    const height = testContainer.offsetHeight;
+    measureParent.removeChild(testContainer);
+    return height;
+  })();
+  const tailDelta = withBothHeight - firstPartHeight;
+  const tailFitsOnSamePage =
+    second &&
+    (bothOverflow <= activePolicy.overflowTolerance ||
+      tailDelta <= firstPartRemainingSpace + activePolicy.overflowTolerance);
+
   const firstFootnotes = extractFootnotesFromContent(first, footnoteContentToNumber);
-  firstFootnotes.forEach(num => currentPageFootnotes.add(num));
+  firstFootnotes.forEach((num) => currentPageFootnotes.add(num));
   currentPageElements.push(first);
-  
-  // Push current page and start new page with second part
+
+  if (tailFitsOnSamePage) {
+    const secondFootnotes = extractFootnotesFromContent(
+      second,
+      footnoteContentToNumber
+    );
+    secondFootnotes.forEach((num) => currentPageFootnotes.add(num));
+    currentPageElements.push(second);
+    return;
+  }
+
   pushPage(block);
   startNewPage(false);
   if (second) {
-    if (isDesktop) {
-      const tempDiv = document.createElement('div');
-    }
-    const secondFootnotes = extractFootnotesFromContent(second, footnoteContentToNumber);
-    secondFootnotes.forEach(num => currentPageFootnotes.add(num));
+    const secondFootnotes = extractFootnotesFromContent(
+      second,
+      footnoteContentToNumber
+    );
+    secondFootnotes.forEach((num) => currentPageFootnotes.add(num));
     currentPageElements.push(second);
-  } else {
-    if (isDesktop) {
-      const elementText = element.textContent || '';
-
-
-
-    }
   }
 };
 
@@ -543,12 +532,18 @@ export const paginateElement = ({
   splitTextAtSentenceBoundary,
   splitTextAtWordBoundary,
   pushPage,
-  startNewPage
+  startNewPage,
+  policy = null,
+  /** false for first page / cover / intro chapter — don't force canonical type in measure */
+  preserveTypography = false,
 }) => {
+  const activePolicy = policy || getPaginationPolicy(isDesktop);
   const isHeadingElement = /^H[1-6]$/i.test(element.tagName || '');
   const isSubchapterTitle = /^H[4-6]$/i.test(element.tagName || '');
   const blockFont = block?.fontFamily ?? DEFAULT_CHAPTER_FONT;
-  const applyWithFont = (container, isDesktop) => applyParagraphStylesToContainer(container, isDesktop, blockFont);
+  const canonicalTypography = !preserveTypography;
+  const applyWithFont = (container, isDesktopFlag) =>
+    applyParagraphStylesToContainer(container, isDesktopFlag, blockFont, { canonicalTypography });
 
   // Update heading state for page metadata. Do NOT call measure.setHeading(true) — it can reduce
   // available height when a subchapter is on the page and cause early breaks / empty space.
@@ -571,7 +566,8 @@ export const paginateElement = ({
     testFootnotes,
     elementFootnotes,
     footnotesHeight,
-    isStandaloneFirstPage
+    isStandaloneFirstPage,
+    useTightBottomReserve,
   } = calculateAvailableHeightForElement({
     element,
     currentPageFootnotes,
@@ -582,21 +578,22 @@ export const paginateElement = ({
     isDesktop,
     pageWidth,
     chapter,
-    chapterPageIndex
+    chapterPageIndex,
+    preserveTypography,
   });
   
   // STEP 2: Check if element fits
-  // Calculate finalReservedSpace (padding-bottom) to pass to checkElementFits
-  // Desktop: padding-bottom is NOT added to content (body already has padding)
-  // Mobile: padding-bottom IS added to content wrapper
-  // For desktop, don't add padding-bottom in measurement (body padding already accounted for)
-  // For mobile, add padding-bottom to match actual rendering
-  const BOTTOM_MARGIN_NO_FOOTNOTES = isStandaloneFirstPage 
-    ? 20 
-    : (isDesktop ? 24 : 15); // Desktop: 24px, Mobile: 15px bottom safety margin
-  const finalReservedSpace = isDesktop 
-    ? 0  // Desktop: body padding already accounted for in contentAvailableHeight
-    : (testFootnotes.size > 0 ? footnotesHeight : BOTTOM_MARGIN_NO_FOOTNOTES);
+  // Desktop: body padding already accounted for in contentAvailableHeight (no content padding-bottom).
+  // Mobile: padding-bottom matches rendered page-content-main; never reserve a footnote band
+  // (footnotes are display:none on screen — tooltip UX only).
+  // Intro / special first page use the tight first-page band, not the 40px number band.
+  const finalReservedSpace = isDesktop
+    ? 0
+    : getReservedBottomSpace({
+        isDesktop: false,
+        isFirstPage: useTightBottomReserve,
+        footnotesHeight: 0,
+      });
   
   const { elementFits, totalContentHeight, overflowAmount, totalAvailableHeight } = checkElementFits({
     element,
@@ -608,7 +605,8 @@ export const paginateElement = ({
     isDesktop,
     measure,
     applyParagraphStylesToContainer: applyWithFont,
-    finalReservedSpace
+    finalReservedSpace,
+    policy: activePolicy,
   });
   
   // STEP 3: Calculate remaining height
@@ -682,8 +680,7 @@ export const paginateElement = ({
         ? parseFloat(element.dataset.measuredHeight)
         : 0;
       if (measured && measured > 0) {
-        const IMAGE_BUFFER = 8; // px breathing room
-        effectiveElementFits = remainingContentHeight >= (measured + IMAGE_BUFFER);
+        effectiveElementFits = remainingContentHeight >= (measured + ATOMIC_IMAGE_BUFFER_PX);
       }
     }
 
@@ -702,84 +699,60 @@ export const paginateElement = ({
   } else {
     // Splittable text elements: can be split at sentence/word boundaries
     if (elementFits) {
-      // Element fits - double-check that the total page content (with padding) still fits
-      const finalTestElements = [...currentPageElements, element.outerHTML];
-      const finalTestContainer = document.createElement('div');
-      finalTestContainer.style.width = isDesktop ? contentWidth + 'px' : measure.body.clientWidth + 'px';
-      // For desktop, append to pageContent to match actual DOM structure; for mobile, body is fine
-      const finalMeasureParent = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
-      finalMeasureParent.appendChild(finalTestContainer);
-      
-      // Simulate the actual rendering with padding-bottom
-      const isStandaloneFirstPageCheck = chapter.isFirstPage && chapterPageIndex === 0;
-      // Match getAvailableHeight() calculation: desktop uses 24px for non-first pages (reduced to allow visual overflow), 20px for first page
-      // Mobile uses 32px for non-first pages, 20px for first page
-      const BOTTOM_MARGIN_NO_FOOTNOTES = isStandaloneFirstPageCheck 
-        ? 20 
-        : (isDesktop ? 24 : 15); // Desktop: 24px, Mobile: 15px bottom safety margin
-      const finalReservedSpace = testFootnotes.size > 0 ? footnotesHeight : BOTTOM_MARGIN_NO_FOOTNOTES;
-      const finalContentWrapper = document.createElement('div');
-      finalContentWrapper.className = 'page-content-main';
-      finalContentWrapper.style.paddingBottom = finalReservedSpace + 'px';
-      
-      finalTestElements.forEach(el => {
-        const temp = document.createElement('div');
-        temp.innerHTML = el;
-        finalContentWrapper.appendChild(temp.firstElementChild || temp);
-      });
-      
-      applyWithFont(finalContentWrapper, isDesktop);
-      finalTestContainer.appendChild(finalContentWrapper);
-      const finalTotalHeight = finalTestContainer.offsetHeight;
-      finalMeasureParent.removeChild(finalTestContainer);
-      
-      // Calculate overflow amount
-      // finalTotalHeight includes content + padding (finalReservedSpace)
-      // baseAvailableHeight is the available height for content (excluding reserved space)
-      // On desktop: baseAvailableHeight = 508px, finalReservedSpace = 32px, so total = 540px (body height)
-      // On mobile: baseAvailableHeight already accounts for reserved space
-      // So we compare finalTotalHeight to baseAvailableHeight + finalReservedSpace
-      let overflowAmount;
-      let totalAvailableHeight;
-      if (isStandaloneFirstPage) {
-        overflowAmount = 0;
-        totalAvailableHeight = baseAvailableHeight + finalReservedSpace;
-      } else {
-        // Compare against the total available height (content area + reserved space)
-        // This matches the actual body height on desktop (540px)
-        totalAvailableHeight = baseAvailableHeight + finalReservedSpace;
-        overflowAmount = finalTotalHeight - totalAvailableHeight;
-      }
-      
-      // Check if we should split
-      const shouldSplit = shouldSplitElement({
-        element,
-        elementFits: true,
+      // Fits under tolerance → keep whole. Mobile never split-when-fits.
+      elementFootnotes.forEach(num => currentPageFootnotes.add(num));
+      currentPageElements.push(element.outerHTML);
+    } else {
+      // Element doesn't fit — word-split (mobile) or sentence-split (desktop) to fill.
+      const attemptSplit = activePolicy.shouldAttemptSplitWhenOverflow({
         remainingContentHeight,
-        finalTotalHeight,
-        baseAvailableHeight,
-        overflowAmount,
-        isStandaloneFirstPage,
-        elementIndex,
-        elementsLength
+        element,
       });
-      
-      if (shouldSplit) {
-        // Use remainingContentHeight to split - this accounts for existing page content
-        // The split functions measure just the element, so we need to pass the remaining space
-        let splitResult = splitTextAtSentenceBoundary(element, remainingContentHeight, measure, splitTextAtWordBoundary, {
+
+      // #region agent log
+      if (!isDesktop) {
+        __dbgPack('A', 'elementPagination.js:paginateElement', 'overflow-path', {
+          tag: element.tagName,
+          preview: (element.textContent || '').trim().slice(0, 70),
+          attemptSplit,
+          remainingContentHeight: Math.round(remainingContentHeight),
+          currentPageContentHeight: Math.round(currentPageContentHeight),
+          contentAvailableHeight: Math.round(contentAvailableHeight),
+          baseAvailableHeight: Math.round(baseAvailableHeight),
+          finalReservedSpace,
+          totalAvailableHeight: Math.round(totalAvailableHeight),
+          totalContentHeight: Math.round(totalContentHeight),
+          overflowAmount: Math.round(overflowAmount || 0),
+          useTightBottomReserve,
+          pageEls: currentPageElements.length,
+          chapterPageIndex,
+          policyId: activePolicy.id,
+        });
+      }
+      // #endregion
+
+      if (attemptSplit) {
+        const splitOpts = {
           contentWidth,
           isDesktop,
-          fontFamily: blockFont
-        });
+          fontFamily: blockFont,
+          canonicalTypography: !preserveTypography,
+          ...(!isDesktop
+            ? {
+                currentPageElements: [...currentPageElements],
+                baseAvailableHeight,
+                finalReservedSpace,
+                overflowTolerance: activePolicy.overflowTolerance,
+              }
+            : {}),
+        };
+        let splitResult = activePolicy.preferWordSplit
+          ? splitTextAtWordBoundary(element, remainingContentHeight, measure, splitOpts)
+          : splitTextAtSentenceBoundary(element, remainingContentHeight, measure, splitTextAtWordBoundary, splitOpts);
         if (!splitResult.first && !splitResult.second) {
-          splitResult = splitTextAtWordBoundary(element, remainingContentHeight, measure, {
-            contentWidth,
-            isDesktop,
-            fontFamily: blockFont
-          });
+          splitResult = splitTextAtWordBoundary(element, remainingContentHeight, measure, splitOpts);
         }
-        
+
         processSplitResult({
           splitResult,
           element,
@@ -798,147 +771,58 @@ export const paginateElement = ({
           footnoteContentToNumber,
           pushPage,
           startNewPage,
-          block
+          block,
+          policy: activePolicy,
         });
       } else {
-        // Content fits - add to current page
-        elementFootnotes.forEach(num => currentPageFootnotes.add(num));
-        currentPageElements.push(element.outerHTML);
-        
-        // Log space usage after adding element
-        if (isDesktop) {
-          const { currentPageContentHeight: usedHeight } = calculateRemainingHeight({
-            currentPageElements,
-            contentAvailableHeight: baseAvailableHeight,
-            contentWidth,
-            isDesktop,
-            measure,
-            applyParagraphStylesToContainer: applyWithFont
+        // Remaining space too small to mid-split. Before bouncing the whole block,
+        // re-check page-context fit (margin-collapse) — short paragraphs often still fit.
+        const measureWidth =
+          (Number.isFinite(contentWidth) && contentWidth > 0)
+            ? contentWidth
+            : (measure.pageContent?.clientWidth || measure.body?.clientWidth || 0);
+        const measureParent = measure.pageContent || measure.body;
+        let fitsRelaxed = false;
+        try {
+          const testContainer = document.createElement('div');
+          testContainer.style.width = measureWidth + 'px';
+          measureParent.appendChild(testContainer);
+          const wrapper = document.createElement('div');
+          wrapper.className = 'page-content-main';
+          wrapper.style.paddingBottom = (finalReservedSpace || 0) + 'px';
+          [...currentPageElements, element.outerHTML].forEach((el) => {
+            const temp = document.createElement('div');
+            temp.innerHTML = el;
+            wrapper.appendChild(temp.firstElementChild || temp);
           });
-          const remainingSpace = baseAvailableHeight - usedHeight;
-          const elementText = element.textContent || '';
-          const textPreview = elementText.substring(0, 100) + (elementText.length > 100 ? '...' : '');
-
+          applyWithFont(wrapper, isDesktop);
+          testContainer.appendChild(wrapper);
+          const height = testContainer.offsetHeight;
+          measureParent.removeChild(testContainer);
+          const available = baseAvailableHeight + (finalReservedSpace || 0);
+          fitsRelaxed = (height - available) <= activePolicy.overflowTolerance;
+        } catch (e) {
+          fitsRelaxed = false;
         }
-      }
-    } else {
-      // Element doesn't fit - try to split it first
-      if (remainingContentHeight > 0) {
-        // Use remainingContentHeight to split - this accounts for existing page content
-        // Try sentence-level splitting first, then word boundary
-        let splitResult = splitTextAtSentenceBoundary(element, remainingContentHeight, measure, splitTextAtWordBoundary, {
-          contentWidth,
-          isDesktop,
-          fontFamily: blockFont
-        });
-        if (!splitResult.first && !splitResult.second) {
-          splitResult = splitTextAtWordBoundary(element, remainingContentHeight, measure, {
-            contentWidth,
-            isDesktop,
-            fontFamily: blockFont
+
+        // #region agent log
+        if (!isDesktop) {
+          __dbgPack('B', 'elementPagination.js:paginateElement', 'skip-split-min-remaining', {
+            remainingContentHeight: Math.round(remainingContentHeight),
+            fitsRelaxed,
+            action: fitsRelaxed ? 'keep-relaxed' : 'push-whole',
+            preview: (element.textContent || '').trim().slice(0, 70),
+            pageEls: currentPageElements.length,
+            finalReservedSpace,
+            baseAvailableHeight: Math.round(baseAvailableHeight),
           });
         }
-        
-        const { first, second } = splitResult;
-        
-        // If split succeeded, process it
-        if (first) {
-          // Verify first part actually fits with updated footnotes
-          const firstFootnotes = extractFootnotesFromContent(first, footnoteContentToNumber);
-          const testFootnotesWithFirst = new Set([...currentPageFootnotes, ...firstFootnotes]);
-          
-          // Recalculate available height with first part's footnotes
-          const tempFootnotesContainerFirst = document.createElement('div');
-          tempFootnotesContainerFirst.style.width = contentWidth + 'px';
-          measure.body.appendChild(tempFootnotesContainerFirst);
-          const footnotesHeightWithFirst = measureFootnotesHeight(testFootnotesWithFirst, tempFootnotesContainerFirst, allFootnotes, isDesktop, pageWidth);
-          measure.body.removeChild(tempFootnotesContainerFirst);
-          
-          const isFirstPage = chapter.isFirstPage;
-          const baseAvailableHeightWithFirst = measure.getAvailableHeight(footnotesHeightWithFirst, isFirstPage);
-          
-          // Measure first part using same structure as checkElementFits/calculateRemainingHeight
-          const tempFirstPartOnly = document.createElement('div');
-          tempFirstPartOnly.style.width = contentWidth + 'px';
-          const measureParentFirst = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
-          measureParentFirst.appendChild(tempFirstPartOnly);
-          const firstPartWrapper = document.createElement('div');
-          firstPartWrapper.className = 'page-content-main';
-          const tempFirst = document.createElement('div');
-          tempFirst.innerHTML = first;
-          firstPartWrapper.appendChild(tempFirst.firstElementChild || tempFirst);
-          applyWithFont(firstPartWrapper, isDesktop);
-          tempFirstPartOnly.appendChild(firstPartWrapper);
-          const firstPartHeight = tempFirstPartOnly.offsetHeight;
-          measureParentFirst.removeChild(tempFirstPartOnly);
-          
-          const firstPartFits = firstPartHeight <= remainingContentHeight;
-          
-          if (firstPartFits) {
-            // First part fits - add it to current page
-            firstFootnotes.forEach(num => currentPageFootnotes.add(num));
-            currentPageElements.push(first);
-            
-            // Log space usage before finalizing page
-            if (isDesktop) {
-              const { currentPageContentHeight: usedHeight } = calculateRemainingHeight({
-                currentPageElements,
-                contentAvailableHeight: baseAvailableHeight,
-                contentWidth,
-                isDesktop,
-                measure,
-                applyParagraphStylesToContainer
-              });
-              const remainingSpace = baseAvailableHeight - usedHeight;
-              const tempFirst = document.createElement('div');
-              tempFirst.innerHTML = first || '';
-              const firstText = tempFirst.textContent || '';
-              const firstPreview = firstText.substring(0, 100) + (firstText.length > 100 ? '...' : '');
+        // #endregion
 
-            }
-            
-            // Finalize current page
-            if (currentPageElements.length > 0) {
-              pushPage(block);
-            }
-            
-            // Start new page with second part
-            startNewPage(false);
-            
-            if (second) {
-              const secondFootnotes = extractFootnotesFromContent(second, footnoteContentToNumber);
-              secondFootnotes.forEach(num => currentPageFootnotes.add(num));
-              currentPageElements.push(second);
-              
-              // Log space usage after adding second part to new page
-              if (isDesktop) {
-                const { currentPageContentHeight: usedHeight } = calculateRemainingHeight({
-                  currentPageElements,
-                  contentAvailableHeight: baseAvailableHeight,
-                  contentWidth,
-                  isDesktop,
-                  measure,
-                  applyParagraphStylesToContainer
-                });
-                const remainingSpace = baseAvailableHeight - usedHeight;
-                const tempSecond = document.createElement('div');
-                tempSecond.innerHTML = second || '';
-                const secondText = tempSecond.textContent || '';
-                const secondPreview = secondText.substring(0, 100) + (secondText.length > 100 ? '...' : '');
-
-              }
-            }
-          } else {
-            // First part doesn't actually fit - start new page with entire element
-            if (currentPageElements.length > 0) {
-              pushPage(block);
-            }
-            startNewPage(false);
-            elementFootnotes.forEach(num => currentPageFootnotes.add(num));
-            currentPageElements.push(element.outerHTML);
-          }
+        if (fitsRelaxed) {
+          elementFootnotes.forEach(num => currentPageFootnotes.add(num));
+          currentPageElements.push(element.outerHTML);
         } else {
-          // No split possible (first is empty) - start new page with entire element
           if (currentPageElements.length > 0) {
             pushPage(block);
           }
@@ -946,14 +830,6 @@ export const paginateElement = ({
           elementFootnotes.forEach(num => currentPageFootnotes.add(num));
           currentPageElements.push(element.outerHTML);
         }
-      } else {
-        // Can't fit even part of element (no remaining space) - start new page with entire element
-        if (currentPageElements.length > 0) {
-          pushPage(block);
-        }
-        startNewPage(false);
-        elementFootnotes.forEach(num => currentPageFootnotes.add(num));
-        currentPageElements.push(element.outerHTML);
       }
     }
   }

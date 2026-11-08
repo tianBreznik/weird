@@ -63,6 +63,54 @@ export const replaceLongDashes = (htmlContent) => {
   return htmlContent.replace(/—/g, '-').replace(/–/g, '-');
 };
 
+/** Inline style props that change line box height / leading when pasted from Word/Docs/etc. */
+const TYPOGRAPHY_METRIC_PROPS = new Set(['font-size', 'line-height']);
+
+/**
+ * Strip paste-imported font-size / line-height from HTML.
+ * Keeps color, weight, decoration, etc. Unwraps spans left with no attributes.
+ * Used on paste (editor) and on mobile pagination so reader leading stays uniform.
+ */
+export const stripInlineTypographyMetrics = (htmlContent) => {
+  if (!htmlContent) return htmlContent;
+  if (typeof document === 'undefined') return htmlContent;
+
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = htmlContent;
+
+  wrapper.querySelectorAll('[style]').forEach((el) => {
+    const style = el.getAttribute('style') || '';
+    const kept = [];
+    style.split(';').forEach((rule) => {
+      const trimmed = rule.trim();
+      if (!trimmed) return;
+      const [prop, ...rest] = trimmed.split(':');
+      if (!prop || rest.length === 0) return;
+      const name = prop.trim().toLowerCase();
+      if (TYPOGRAPHY_METRIC_PROPS.has(name)) return;
+      kept.push(`${name}: ${rest.join(':').trim()}`);
+    });
+    if (kept.length > 0) {
+      el.setAttribute('style', kept.join('; '));
+    } else {
+      el.removeAttribute('style');
+    }
+  });
+
+  // Unwrap spans that only existed to carry the stripped metrics
+  wrapper.querySelectorAll('span').forEach((span) => {
+    if (span.attributes.length > 0) return;
+    const parent = span.parentNode;
+    if (!parent) return;
+    while (span.firstChild) {
+      parent.insertBefore(span.firstChild, span);
+    }
+    parent.removeChild(span);
+  });
+
+  return wrapper.innerHTML;
+};
+
 /**
  * Wait for images to load before proceeding with pagination
  */
@@ -101,16 +149,32 @@ import { applyHyphenationToHTML } from './paginationHelpers';
  * Process HTML content: extract videos, replace dashes, hyphenate, prepare for pagination.
  * Hyphenation is applied here so pagination measures the same text we render (avoids
  * measurement/render mismatch that causes early breaks and empty space).
+ *
+ * @param {string} htmlContent
+ * @param {boolean} isDesktop
+ * @param {{ standardizeTypography?: boolean }} [options]
+ *   standardizeTypography — strip paste font-size/line-height (default: mobile only).
+ *   Pass false for cover / first page so their designed sizes stay intact.
  */
-export const processHTMLContent = async (htmlContent, isDesktop) => {
+export const processHTMLContent = async (htmlContent, isDesktop, options = {}) => {
+  const standardizeTypography =
+    options.standardizeTypography !== undefined
+      ? options.standardizeTypography
+      : !isDesktop;
+
   // Extract videos first
   const { videoElements, htmlContent: contentWithoutVideos } = extractVideosFromContent(htmlContent);
   
   // Replace long dashes with short hyphens
-  const contentWithHyphens = replaceLongDashes(contentWithoutVideos);
+  let contentPrepared = replaceLongDashes(contentWithoutVideos);
+
+  // Mobile body pages: one font-size + line-height. Cover/first page opt out.
+  if (standardizeTypography) {
+    contentPrepared = stripInlineTypographyMetrics(contentPrepared);
+  }
   
   // Hyphenate before parsing — ensures measurement matches final render
-  const contentHyphenated = applyHyphenationToHTML(contentWithHyphens);
+  const contentHyphenated = applyHyphenationToHTML(contentPrepared);
   
   // Create temporary container for image loading
   const tempContainer = document.createElement('div');
@@ -127,8 +191,9 @@ export const processHTMLContent = async (htmlContent, isDesktop) => {
   // see the exact same image/paragraph CSS as the real reader.
   contentDiv.className = 'chapter-content page-content';
   contentDiv.style.fontFamily = "'Times New Roman', 'Times', 'Garamond', 'Baskerville', 'Caslon', 'Hoefler Text', 'Minion Pro', 'Palatino', 'Georgia', serif";
-  contentDiv.style.fontSize = isDesktop ? '1.3rem' : '1.3rem';
-  contentDiv.style.lineHeight = isDesktop ? '1.35' : '1.35';
+  // Match pageGeometry getFontSize / getLineHeight (and live CSS for body pages).
+  contentDiv.style.fontSize = isDesktop ? '1.35rem' : '1.3rem';
+  contentDiv.style.lineHeight = isDesktop ? '1.50' : '1.35';
   contentDiv.style.color = '#0a0a0a';
   contentDiv.innerHTML = contentHyphenated;
   tempContainer.appendChild(contentDiv);
@@ -184,6 +249,11 @@ export const buildChapterContentBlocks = (chapter) => {
       pageBorderImageUrl: chapter.pageBorderImageUrl || null,
       pageBorderWidth: chapter.pageBorderWidth || null,
       pageBorderSlicePercent: chapter.pageBorderSlicePercent || null,
+      pageBorderImageNaturalWidth: chapter.pageBorderImageNaturalWidth || null,
+      pageBorderImageNaturalHeight: chapter.pageBorderImageNaturalHeight || null,
+      pageBorderAssetKind: chapter.pageBorderAssetKind || null,
+      pageBorderSliceVerticalPercent: chapter.pageBorderSliceVerticalPercent || null,
+      pageBorderSliceHorizontalPercent: chapter.pageBorderSliceHorizontalPercent || null,
       hideTitle: !!chapter.hideTitle,
       fontFamily: chapterFont,
     });
@@ -210,6 +280,11 @@ export const buildChapterContentBlocks = (chapter) => {
           pageBorderImageUrl: subchapter.pageBorderImageUrl || null,
           pageBorderWidth: subchapter.pageBorderWidth || null,
           pageBorderSlicePercent: subchapter.pageBorderSlicePercent || null,
+          pageBorderImageNaturalWidth: subchapter.pageBorderImageNaturalWidth || null,
+          pageBorderImageNaturalHeight: subchapter.pageBorderImageNaturalHeight || null,
+          pageBorderAssetKind: subchapter.pageBorderAssetKind || null,
+          pageBorderSliceVerticalPercent: subchapter.pageBorderSliceVerticalPercent || null,
+          pageBorderSliceHorizontalPercent: subchapter.pageBorderSliceHorizontalPercent || null,
           includeChapterTitle: !hasChapterContent && isFirstSubchapter, // Include chapter title if chapter has no content
           hideTitle: !!subchapter.hideTitle,
           fontFamily: chapterFont, // Subchapters inherit parent chapter font
@@ -220,5 +295,71 @@ export const buildChapterContentBlocks = (chapter) => {
   }
 
   return contentBlocks;
+};
+
+/** True if HTML contains karaoke markers (mobile reflow falls back to packer). */
+export const htmlHasKaraoke = (html) => {
+  if (!html) return false;
+  return (
+    html.includes('data-karaoke-block') ||
+    html.includes('data-karaoke') ||
+    html.includes('karaoke-object')
+  );
+};
+
+/**
+ * Prepare continuous chapter HTML for mobile CSS-column reflow.
+ * Strips blank/background videos (returned separately), dashes, optional
+ * typography metrics, and hyphenates — no element packing.
+ *
+ * @returns {{
+ *   html: string,
+ *   videoElements: Array,
+ *   hasKaraoke: boolean,
+ *   hasFieldNotes: boolean,
+ * }}
+ */
+export const buildMobileReflowDocument = (chapter, options = {}) => {
+  const { standardizeTypography = true } = options;
+  const blocks = buildChapterContentBlocks(chapter);
+  const combinedRaw = blocks.map((b) => b.content || '').join('');
+  const hasKaraoke = htmlHasKaraoke(combinedRaw);
+  const hasFieldNotes = combinedRaw.includes('data-field-notes-block');
+
+  if (hasKaraoke || hasFieldNotes || blocks.length === 0) {
+    return {
+      html: '',
+      videoElements: [],
+      hasKaraoke,
+      hasFieldNotes,
+      blocks,
+    };
+  }
+
+  const videoElements = [];
+  const htmlParts = [];
+
+  blocks.forEach((block) => {
+    let html = block.content || '';
+    const extracted = extractVideosFromContent(html);
+    extracted.videoElements.forEach((v) => videoElements.push({ ...v, block }));
+    html = extracted.htmlContent;
+    html = replaceLongDashes(html);
+    if (standardizeTypography) {
+      html = stripInlineTypographyMetrics(html);
+    }
+    html = applyHyphenationToHTML(html);
+    if (html.trim()) {
+      htmlParts.push(html);
+    }
+  });
+
+  return {
+    html: htmlParts.join(''),
+    videoElements,
+    hasKaraoke: false,
+    hasFieldNotes: false,
+    blocks,
+  };
 };
 

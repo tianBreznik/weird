@@ -315,15 +315,19 @@
   color: #111;
 }
 
-/* When content has inline font-size (e.g. 12px), line-height scales like Google Docs */
-.content-editor-wrapper .ProseMirror:has(span[style*="font-size"]) {
-  line-height: 0.55 !important;
-}
-.content-editor-wrapper .ProseMirror p:has(span[style*="font-size"]) {
-  line-height: 0.55 !important;
+/*
+  Same as PageReader: never crush paragraph leading when inline font-size is
+  present. Paste often brings font-size/line-height; a :has() crush made
+  editor + reader diverge across paragraph splits. Glyph size may still change
+  via the FontSize mark; paragraph line-height stays uniform.
+*/
+.content-editor-wrapper .ProseMirror p,
+.content-editor-wrapper .ProseMirror p:has(span[style*="font-size"]),
+.content-editor-wrapper .ProseMirror p:has([style*="font-size"]) {
+  line-height: inherit;
 }
 .content-editor-wrapper .ProseMirror span[style*="font-size"] {
-  line-height: 1.1 !important;
+  line-height: 1.35 !important;
 }
 
 /* When chapter has custom font, ProseMirror inherits from wrapper */
@@ -1299,6 +1303,14 @@
   margin: 0 2px;
 }
 
+.toolbar-border-kind-label {
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  color: #444;
+  user-select: none;
+}
+
 .toolbar-border-dropdown {
   width: 50px;
   height: 28px;
@@ -1329,6 +1341,10 @@
   outline: none;
   border-color: #c7d4f7;
   box-shadow: inset 0 0 0 1px rgba(122,160,255,0.22);
+}
+
+.toolbar-border-controls--rectangular .toolbar-border-dropdown {
+  width: 72px;
 }
 
 .toolbar-actions {
@@ -1872,17 +1888,20 @@
     display: none !important;
   }
 
+  /* Match mobile reader canonical leading (MOBILE_LINE_HEIGHT = 1.35) */
   .content-editor-wrapper .ProseMirror {
     padding: 1rem !important;
-    font-size: 16px !important;
-    line-height: 1.6 !important;
+    font-size: 1.3rem !important;
+    line-height: 1.35 !important;
     min-height: calc(100vh - 200px) !important;
   }
-  .content-editor-wrapper .ProseMirror:has(span[style*="font-size"]) {
-    line-height: 0.55 !important;
+  .content-editor-wrapper .ProseMirror p,
+  .content-editor-wrapper .ProseMirror p:has(span[style*="font-size"]),
+  .content-editor-wrapper .ProseMirror p:has([style*="font-size"]) {
+    line-height: 1.35 !important;
   }
-  .content-editor-wrapper .ProseMirror p:has(span[style*="font-size"]) {
-    line-height: 0.55 !important;
+  .content-editor-wrapper .ProseMirror span[style*="font-size"] {
+    line-height: 1.35 !important;
   }
   
   .title-row {

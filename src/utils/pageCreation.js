@@ -1,4 +1,12 @@
 import { renderFootnotesSection } from './footnotes';
+import {
+  BOTTOM_MARGIN_FIRST_PAGE,
+  BOTTOM_MARGIN_KARAOKE,
+  BOTTOM_MARGIN_MOBILE,
+  FOOTNOTE_BAND_MAX,
+  fitFootnotesToBand,
+} from './pageGeometry';
+import { measureFootnotesHeight } from './paginationHelpers';
 
 /**
  * Remove empty paragraphs from the start of elements array
@@ -99,28 +107,15 @@ export const processFootnotesInContent = (content, footnoteContentToNumber, allF
 };
 
 /**
- * Calculate page padding based on footnotes, karaoke, and page type
- * 
- * NOTE: This function uses 48px for non-first pages, but getAvailableHeight() in
- * paginationHelpers.js uses 32px. See the CRITICAL comment in paginationHelpers.js
- * for details about this intentional mismatch.
+ * Calculate page padding based on karaoke and page type.
+ * Must match getReservedBottomSpace() so packer fill and rendered padding stay in sync.
+ * Mobile bottom pad is the page-number band only (footnotes are display:none).
  */
 export const calculatePagePadding = (pageFootnotes, currentPageFootnotes, hasKaraoke, isStandaloneFirstPage, measure, allFootnotes, isDesktop, pageWidth) => {
-  // Footnotes section is hidden (display:none) on both mobile and desktop reader.
-  // Footnotes are revealed via title-attribute tooltip (desktop hover / mobile tap).
-  // The HTML is kept in the page only for PDF export. No padding reservation needed.
-  
-  // Standard bottom margin (for consistent page spacing)
-  // CRITICAL: ONLY standalone first page uses smaller bottom margin (20px) to allow text to sit lower
-  // Regular text now uses 32px (same as karaoke) to fill pages more fully
-  const BOTTOM_MARGIN_NO_FOOTNOTES = isStandaloneFirstPage ? 20 : 32;
-  
-  // Bottom margin for karaoke pages (same as regular text now)
-  const BOTTOM_MARGIN_KARAOKE = 32;
-  
-  const bottomMargin = hasKaraoke ? BOTTOM_MARGIN_KARAOKE : BOTTOM_MARGIN_NO_FOOTNOTES;
-  
-  return bottomMargin;
+  if (hasKaraoke) return BOTTOM_MARGIN_KARAOKE;
+  if (isStandaloneFirstPage) return BOTTOM_MARGIN_FIRST_PAGE;
+  // Mobile content wrapper padding; desktop uses body padding (paddingBottom forced to 0 below).
+  return isDesktop ? 0 : BOTTOM_MARGIN_MOBILE;
 };
 
 /**
@@ -140,12 +135,20 @@ export const createPageFromElements = ({
   measure,
   backgroundVideosByPage,
   isDesktop,
-  pageWidth
+  pageWidth,
+  /** Mutable Set of spilled footnote numbers carried from previous pages */
+  footnoteSpill = null,
+  /** Skip mobile canonical font/line-height (first page, cover, intro chapter) */
+  preserveTypography = false,
 }) => {
   if (!elements.length) return null;
   
   // CRITICAL: For standalone first page, remove empty paragraphs from the start BEFORE processing
   const isStandaloneFirstPage = chapter.isFirstPage && chapterPageIndex === 0;
+  // Book page 1 (first regular / intro chapter) uses the same tight bottom reserve.
+  const useTightBottomReserve =
+    isStandaloneFirstPage ||
+    (!!preserveTypography && !chapter.isCover && !chapter.isFirstPage && chapterPageIndex === 0);
   const filteredElements = removeEmptyParagraphs(elements, isStandaloneFirstPage, isDesktop);
   
   // Log elements being used to create page on desktop
@@ -169,11 +172,42 @@ export const createPageFromElements = ({
     allFootnotes
   );
   processedContent = contentWithFootnotes;
+
+  // Merge content footnotes with any spilled defs from earlier pages, then fit to band.
+  const candidateNumbers = new Set([
+    ...(footnoteSpill ? Array.from(footnoteSpill) : []),
+    ...pageFootnotes.map((fn) => fn.globalNumber),
+  ]);
+  let footnotesForSection = pageFootnotes;
+  if (candidateNumbers.size > 0 && measure?.body) {
+    const { fitted, spill } = fitFootnotesToBand(
+      candidateNumbers,
+      (set) => measureFootnotesHeight(
+        set,
+        measure.body,
+        allFootnotes,
+        isDesktop,
+        pageWidth,
+        measure.measureCache
+      ),
+      FOOTNOTE_BAND_MAX
+    );
+    footnotesForSection = Array.from(fitted)
+      .sort((a, b) => a - b)
+      .map((num) => allFootnotes.find((fn) => fn.globalNumber === num))
+      .filter(Boolean);
+    if (footnoteSpill) {
+      footnoteSpill.clear();
+      spill.forEach((num) => footnoteSpill.add(num));
+    }
+  } else if (footnoteSpill) {
+    footnoteSpill.clear();
+  }
   
-  // Add footnotes section at the bottom if there are any
+  // Add footnotes section at the bottom if there are any (PDF export; hidden on-screen)
   let footnotesHtml = '';
-  if (pageFootnotes.length > 0) {
-    footnotesHtml = renderFootnotesSection(pageFootnotes);
+  if (footnotesForSection.length > 0) {
+    footnotesHtml = renderFootnotesSection(footnotesForSection);
   }
   
   // Check if page has karaoke elements
@@ -186,16 +220,15 @@ export const createPageFromElements = ({
     pageFootnotes,
     currentPageFootnotes,
     hasKaraoke,
-    isStandaloneFirstPage,
+    useTightBottomReserve,
     measure,
     allFootnotes,
     isDesktop,
     pageWidth
   );
   
-  // For desktop, .page-body already has padding: 3rem 2.5rem (48px bottom),
-  // so we don't need to add extra padding-bottom to content.
-  // For mobile, we add padding-bottom to reserve space for footnotes/margin.
+  // For desktop, .page-body already has padding; mobile page-content-main gets the
+  // same BOTTOM_MARGIN_MOBILE the packer subtracted (not a footnote band).
   const paddingBottom = isDesktop ? 0 : reservedSpace;
   const contentWrapper = `<div class="page-content-main" style="${paddingBottom > 0 ? `padding-bottom: ${paddingBottom}px;` : ''}">${processedContent}</div>${footnotesHtml}`;
   
@@ -214,16 +247,23 @@ export const createPageFromElements = ({
     borderImageUrl: blockMeta.pageBorderImageUrl || null,
     borderWidth: blockMeta.pageBorderWidth || null,
     borderSlicePercent: blockMeta.pageBorderSlicePercent || null,
+    borderImageNaturalWidth: blockMeta.pageBorderImageNaturalWidth || null,
+    borderImageNaturalHeight: blockMeta.pageBorderImageNaturalHeight || null,
+    borderAssetKind: blockMeta.pageBorderAssetKind || null,
+    borderSliceVerticalPercent: blockMeta.pageBorderSliceVerticalPercent || null,
+    borderSliceHorizontalPercent: blockMeta.pageBorderSliceHorizontalPercent || null,
     fontFamily: blockMeta.fontFamily || null,
     pageIndex: chapterPageIndex,
     hasHeading: pageHasHeading,
     hasFieldNotes: hasFieldNotes || false,
     content: contentWrapper,
-    footnotes: pageFootnotes, // Store footnotes for this page
+    footnotes: footnotesForSection, // Fitted-to-band footnotes for this page (spill carried forward)
     backgroundVideo: backgroundVideoSrc,
     backgroundImageUrl: chapter.backgroundImageUrl || null,
     isFirstPage: chapter.isFirstPage || false,
     isCover: chapter.isCover || false,
+    preserveTypography:
+      !!(preserveTypography || chapter.isFirstPage || chapter.isCover),
   };
   
   return newPage;

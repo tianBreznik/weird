@@ -4,7 +4,6 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { PDFDocument } from 'pdf-lib';
 import { PDFViewer } from './PDFViewer';
-import { PDFTopBar } from './PDFTopBar';
 import { DitheredLoader } from './DitheredLoader';
 import { ReaderTopBar } from './ReaderTopBar';
 import { DesktopTOC } from './DesktopTOC';
@@ -13,15 +12,26 @@ import { getStickyNoteStyle } from '../utils/stickyNotePosition';
 import { getBookMeta, updateBookMeta, clearBookPdfCache } from '../services/firestore';
 import { uploadPdfToStorage } from '../services/storage';
 import paperTexture from '../assets/paper-7-origami-TEX.png';
-import borderFrame from '../assets/smallerborder.png';
+import {
+  DEFAULT_DESKTOP_PAGE_FRAME,
+  resolveDesktopApertureFrame,
+} from '../constants/desktopPageFrame';
+import {
+  preloadAllPagesMedia,
+  preloadImage,
+  preloadImages,
+  preloadPagesMedia,
+} from '../utils/mediaCache';
+import { applyPaginationDebugOverlay } from '../utils/paginationDebugOverlay';
+import { PageBackgroundImage } from './PageBackgroundImage';
+import { useDesktopScrollAmbient } from '../hooks/useDesktopScrollAmbient';
 
 // Per-book bitmap cache so we only re-render (html2canvas) pages whose content changed.
 // Survives component unmount (e.g. after editing and returning to reader).
 const pageBitmapCacheByBook = new Map();
 
 /**
- * DesktopPageReader - Desktop-specific page reader component
- * Renders all pages in a scrollable two-page spread PDF-style viewer
+ * DesktopPageReader — glued page strip in a fixed page-sized aperture; reactive frame border.
  */
 export const DesktopPageReader = ({ 
   bookId,
@@ -52,9 +62,9 @@ export const DesktopPageReader = ({
   });
   
   const initializedPagesRef = useRef(new Set());
+  const apertureScrollRef = useRef(null);
   const [mostVisiblePage, setMostVisiblePage] = useState(null);
   const [mostVisiblePageIndex, setMostVisiblePageIndex] = useState(null);
-  // Track ALL pages (including first/cover/TOC) for PDFTopBar navigation
   const [topBarPageIndex, setTopBarPageIndex] = useState(0);
   // Use refs to track previous values to prevent unnecessary state updates
   const prevTopBarPageIndexRef = useRef(0);
@@ -64,10 +74,9 @@ export const DesktopPageReader = ({
   // Zoom level for desktop PDF pages (1 = 100%)
   const [zoom, setZoom] = useState(1);
   const [isDownloadingPdf, setDownloadingPdf] = useState(false);
-  const MIN_ZOOM = 0.7;
-  const MAX_ZOOM = 1.6;
-  const ZOOM_STEP = 0.1;
-  
+  const [desktopMediaReady, setDesktopMediaReady] = useState(false);
+  useDesktopScrollAmbient(apertureScrollRef, desktopMediaReady);
+
   // Create pagesWithTOC array early (before hooks that depend on it)
   const pagesWithTOC = useMemo(() => {
     const firstPageIndex = pages.findIndex(p => p.isFirstPage);
@@ -104,6 +113,41 @@ export const DesktopPageReader = ({
     
     return result;
   }, [pages]);
+
+  useEffect(() => {
+    if (!pages?.length) {
+      setDesktopMediaReady(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setDesktopMediaReady(false);
+    (async () => {
+      await preloadImage(paperTexture);
+      await preloadImage(DEFAULT_DESKTOP_PAGE_FRAME.url);
+      await preloadAllPagesMedia(pagesWithTOC);
+      if (!cancelled) setDesktopMediaReady(true);
+    })().catch(() => {
+      if (!cancelled) setDesktopMediaReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pages, pagesWithTOC]);
+
+  useEffect(() => {
+    if (!pagesWithTOC?.length) return;
+    const idx = topBarPageIndex >= 0 ? topBarPageIndex : 0;
+    preloadPagesMedia(pagesWithTOC, idx, 8).catch(() => {});
+  }, [pagesWithTOC, topBarPageIndex]);
+
+  useEffect(() => {
+    if (!pages?.length) return;
+    const idx = pages.findIndex(
+      (p) => p.chapterIndex === currentChapterIndex && p.pageIndex === currentPageIndex
+    );
+    if (idx < 0) return;
+    preloadPagesMedia(pages, idx, 8).catch(() => {});
+  }, [pages, currentChapterIndex, currentPageIndex]);
   
   // Cache page element references to reduce DOM queries
   const pageElementCacheRef = useRef(new Map());
@@ -126,8 +170,11 @@ export const DesktopPageReader = ({
         rafId = null;
         if (pagesWithTOC.length === 0) return;
         
-        // Calculate which page is most centered in viewport
-        const viewportCenter = window.innerHeight / 2;
+        const scrollContainer = apertureScrollRef.current;
+        const scrollRect = scrollContainer?.getBoundingClientRect();
+        const viewportCenter = scrollRect
+          ? scrollRect.top + scrollRect.height / 2
+          : window.innerHeight / 2;
         let minDistance = Infinity;
         let mostCenteredPage = null;
         
@@ -164,8 +211,9 @@ export const DesktopPageReader = ({
             // Calculate how much of the page is visible
             const visibleTop = Math.max(0, rect.top);
             const visibleBottom = Math.min(window.innerHeight, rect.bottom);
+            const apertureHeight = scrollRect?.height ?? window.innerHeight;
             const visibleHeight = Math.max(0, visibleBottom - visibleTop);
-            const visibilityRatio = visibleHeight / Math.min(rect.height, window.innerHeight);
+            const visibilityRatio = visibleHeight / Math.min(rect.height, apertureHeight);
             
             // Track ALL pages for top bar (including first/cover/TOC)
             if (visibilityRatio >= 0.3 && distanceFromCenter < minDistanceForTopBar) {
@@ -216,7 +264,7 @@ export const DesktopPageReader = ({
       });
     };
     
-    const scrollContainer = document.querySelector('.pdf-viewer');
+    const scrollContainer = apertureScrollRef.current;
     if (scrollContainer) {
       handleScroll();
 
@@ -246,13 +294,20 @@ export const DesktopPageReader = ({
         pageElementCacheRef.current.clear();
       };
     }
-  }, [pagesWithTOC]);
+  }, [pagesWithTOC, zoom]);
   
-  // Calculate current page number (1-based) from topBarPageIndex (tracks ALL pages)
-  const currentPageNumber = useMemo(() => {
-    return topBarPageIndex + 1; // Convert 0-based index to 1-based page number
-  }, [topBarPageIndex]);
-  
+  const scrollToPageIndex = useCallback((pageIndex, behavior = 'smooth') => {
+    const scrollContainer = apertureScrollRef.current;
+    const pageElement = document.getElementById(`pdf-page-${pageIndex}`);
+    if (!scrollContainer || !pageElement) return;
+    scrollContainer.scrollTo({ top: pageElement.offsetTop, behavior });
+  }, []);
+
+  const apertureFrameBorder = useMemo(
+    () => resolveDesktopApertureFrame(pagesWithTOC[topBarPageIndex]),
+    [pagesWithTOC, topBarPageIndex]
+  );
+
   // Calculate chapter progress based on most visible page
   const chapterProgress = useMemo(() => {
     if (!mostVisiblePage || mostVisiblePage.isFirstPage || mostVisiblePage.isCover || mostVisiblePage.isTOC) {
@@ -278,58 +333,6 @@ export const DesktopPageReader = ({
   }, [mostVisiblePage, pagesWithTOC]);
   
   // Handler to scroll to a specific page number
-  const handlePageChange = (pageNum) => {
-    const pageIndex = pageNum - 1;
-    if (pageIndex >= 0 && pageIndex < pagesWithTOC.length) {
-      const pageElement = document.getElementById(`pdf-page-${pageIndex}`);
-      if (pageElement) {
-        pageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }
-  };
-  
-  // Handler for previous page
-  const handlePreviousPage = () => {
-    if (topBarPageIndex > 0) {
-      const prevPageIndex = topBarPageIndex - 1;
-      const pageElement = document.getElementById(`pdf-page-${prevPageIndex}`);
-      if (pageElement) {
-        pageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }
-  };
-  
-  // Handler for next page
-  const handleNextPage = () => {
-    if (topBarPageIndex < pagesWithTOC.length - 1) {
-      const nextPageIndex = topBarPageIndex + 1;
-      const pageElement = document.getElementById(`pdf-page-${nextPageIndex}`);
-      if (pageElement) {
-        pageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }
-  };
-  
-  const handleZoomIn = () => {
-    setZoom((current) => {
-      const next = Math.min(MAX_ZOOM, current + ZOOM_STEP);
-      return Number(next.toFixed(2));
-    });
-  };
-  
-  const handleZoomOut = () => {
-    setZoom((current) => {
-      const next = Math.max(MIN_ZOOM, current - ZOOM_STEP);
-      return Number(next.toFixed(2));
-    });
-  };
-
-  const handleZoomChange = (nextZoom) => {
-    if (typeof nextZoom !== 'number' || Number.isNaN(nextZoom)) return;
-    const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
-    setZoom(Number(clamped.toFixed(2)));
-  };
-
   // Cache per-page bitmaps so unchanged pages don't re-run html2canvas every time
   // Map: pageKey -> { hash, dataUrl }
   const pageBitmapCacheRef = useRef(new Map());
@@ -349,11 +352,13 @@ export const DesktopPageReader = ({
   useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
     window.__generatePdfFromViewer = async () => {
-      const viewer = document.querySelector('.pdf-viewer-container');
+      const viewer =
+        document.querySelector('.desktop-pages-track') ||
+        document.querySelector('.pdf-viewer');
       if (!viewer) return null;
 
       const pageSheets = Array.from(
-        viewer.querySelectorAll('.pdf-page-wrapper .page-sheet')
+        viewer.querySelectorAll('.pdf-page-wrapper .page-sheet, .desktop-page-slot .page-sheet')
       );
       if (pageSheets.length === 0) return null;
 
@@ -531,11 +536,13 @@ export const DesktopPageReader = ({
   const handleDownload = (forceRegenerate = false) => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
-    const viewer = document.querySelector('.pdf-viewer-container');
+    const viewer =
+      document.querySelector('.desktop-pages-track') ||
+      document.querySelector('.pdf-viewer');
     if (!viewer) return;
 
     const pageSheets = Array.from(
-      viewer.querySelectorAll('.pdf-page-wrapper .page-sheet')
+      viewer.querySelectorAll('.pdf-page-wrapper .page-sheet, .desktop-page-slot .page-sheet')
     );
     if (pageSheets.length === 0) return;
 
@@ -1198,32 +1205,28 @@ export const DesktopPageReader = ({
             if (imgData.width) img.setAttribute('width', imgData.width);
             if (imgData.height) img.setAttribute('height', imgData.height);
             img.setAttribute('loading', 'eager');
-            img.setAttribute('decoding', 'async');
+            img.setAttribute('decoding', 'sync');
             img.setAttribute('fetchpriority', 'high');
             // Force image to stay rendered - use CSS classes instead of inline styles to prevent repaints
             img.classList.add('pdf-image-stable');
-            
             imageReplacements.push({ placeholder, img, imgId });
           }
         });
         
-        // Perform all DOM replacements in one batch using DocumentFragment for better performance
-        if (imageReplacements.length > 0) {
-          // Use requestAnimationFrame to batch DOM updates for smoother rendering
-          requestAnimationFrame(() => {
-            imageReplacements.forEach(({ placeholder, img, imgId }) => {
-              placeholder.parentNode?.replaceChild(img, placeholder);
-              // Store reference (no redundant preload needed - eager loading already handles it)
-              imageRefsRef.current.set(imgId, { domImg: img });
-            });
+        const insertImages = () => {
+          if (imageReplacements.length === 0) return;
+          imageReplacements.forEach(({ placeholder, img, imgId }) => {
+            placeholder.parentNode?.replaceChild(img, placeholder);
+            imageRefsRef.current.set(imgId, { domImg: img });
           });
-        }
-        
-        // Mark content as set IMMEDIATELY to prevent re-execution
-        pageContentSetRef.current.set(pageKey, true);
-        
-        // Initialize karaoke slices after content is set
-        // Use requestAnimationFrame to ensure DOM is fully updated
+        };
+        const urls = imageReplacements
+          .map(({ img }) => img.getAttribute('src'))
+          .filter(Boolean);
+        const markContentReady = () => {
+          pageContentSetRef.current.set(pageKey, true);
+        };
+        const initKaraokeOnNode = () => {
         requestAnimationFrame(() => {
           const slices = node.querySelectorAll('.karaoke-slice');
           if (slices.length > 0) {
@@ -1262,6 +1265,21 @@ export const DesktopPageReader = ({
             }
           }
         });
+        };
+
+        const finishPageContent = () => {
+          markContentReady();
+          initKaraokeOnNode();
+        };
+        if (urls.length > 0) {
+          void preloadImages(urls).then(() => {
+            insertImages();
+            finishPageContent();
+          });
+        } else {
+          insertImages();
+          finishPageContent();
+        }
       };
       
       createPageContentRefCallbacks.current.set(pageKey, callback);
@@ -1290,21 +1308,6 @@ export const DesktopPageReader = ({
     
     const shouldShowTopBar = page && !page.hasHeading && !page.isEpigraph && !page.isCover && !page.isFirstPage && !page.isTOC && !page.hasFieldNotes && page.pageIndex > 0;
 
-    // Apply background image style if available
-    // For TOC page, use paper texture; otherwise use page's backgroundImageUrl
-    const pageStyle = page?.isTOC ? {
-      backgroundImage: `url(${paperTexture})`,
-      backgroundSize: 'cover',
-      backgroundPosition: 'center center',
-      backgroundRepeat: 'no-repeat'
-    } : page?.backgroundImageUrl ? {
-      backgroundImage: `url(${page.backgroundImageUrl})`,
-      backgroundSize: 'cover',
-      backgroundPosition: 'left center',
-      backgroundRepeat: 'no-repeat'
-    } : {};
-
-    // Add class when background image is present for CSS targeting
     const hasBackgroundImage = !!page?.backgroundImageUrl || page?.isTOC;
     
     // Extract field notes image URL from content if it's a field notes page
@@ -1333,17 +1336,9 @@ export const DesktopPageReader = ({
     const frameWidth = Math.max(5, page?.borderWidth || 10);
     const slicePercent = page?.borderSlicePercent ?? 5;
 
-    const borderStyle = hasBorder && borderImageUrl ? {
-      border: '0 solid transparent',
-      borderImage: `url(${borderImageUrl}) ${slicePercent}% / ${frameWidth}px round`,
-      borderImageOutset: `${frameWidth}px`,
-      borderRadius: 0,
-    } : {};
-
     return (
       <article 
         className={`page-sheet content-page ${page?.isEpigraph ? 'epigraph-page' : ''} ${page?.isVideo ? 'video-page' : ''} ${page?.isCover ? 'cover-page' : ''} ${page?.isFirstPage ? 'first-page' : ''} ${page?.isTOC ? 'toc-page' : ''} ${page?.hasFieldNotes ? 'field-notes-page' : ''} ${hasBorder ? 'page-border' : ''} ${hasBackgroundImage ? 'has-background-image' : ''}`}
-        style={{ ...pageStyle, ...borderStyle }}
         data-chapter-id={page.chapterId}
         data-chapter-index={page.chapterIndex}
         data-page-index={page.pageIndex}
@@ -1354,22 +1349,11 @@ export const DesktopPageReader = ({
       >
         {/* Background image as absolutely positioned element behind content */}
         {(hasBackgroundImage || fieldNotesImageUrl) && (
-          <img
+          <PageBackgroundImage
             src={fieldNotesImageUrl || (page.isTOC ? paperTexture : page.backgroundImageUrl)}
-            alt=""
-            className="pdf-page-background-image"
-            loading="eager"
-            decoding="async"
-            style={{
-              position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              objectPosition: fieldNotesImageUrl ? 'center center' : (page.isTOC ? 'center center' : 'left center'),
-              zIndex: 0,
-              pointerEvents: 'none',
-            }}
+            objectPosition={
+              fieldNotesImageUrl ? 'center center' : page.isTOC ? 'center center' : 'left center'
+            }
           />
         )}
         <section className="page-body content-body" style={{ position: 'relative', zIndex: 1 }}>
@@ -1385,13 +1369,8 @@ export const DesktopPageReader = ({
                   const targetIndex = pagesWithTOC.findIndex(
                     (p) => p.chapterIndex === chapterIndex && p.pageIndex === pageIndex
                   );
-                  const pageElement = targetIndex >= 0 ? document.getElementById(`pdf-page-${targetIndex}`) : null;
-                  const scrollContainer = document.querySelector('.pdf-viewer');
-                  const topBar = document.querySelector('.pdf-top-bar');
-                  const topBarHeight = topBar ? topBar.offsetHeight : 0;
-                  if (scrollContainer && pageElement) {
-                    const targetScrollTop = pageElement.offsetTop - topBarHeight - 24;
-                    scrollContainer.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
+                  if (targetIndex >= 0) {
+                    scrollToPageIndex(targetIndex, 'smooth');
                   }
                 });
                 
@@ -1516,7 +1495,7 @@ export const DesktopPageReader = ({
         )}
       </article>
     );
-  }, [chapters, pages, currentChapterIndex, currentPageIndex, currentSubchapterId, onJumpToPage, onEditChapter, onAddSubchapter, onDeleteChapter, onEditSubchapter, onDeleteSubchapter, onReorderChapters, createPageContentRef, paperTexture, isEditor, onAddStickyClick, uploadingSticky]);
+  }, [chapters, pages, currentChapterIndex, currentPageIndex, currentSubchapterId, onJumpToPage, onEditChapter, onAddSubchapter, onDeleteChapter, onEditSubchapter, onDeleteSubchapter, onReorderChapters, createPageContentRef, paperTexture, isEditor, onAddStickyClick, uploadingSticky, scrollToPageIndex]);
 
   // Clean up refs when pages change to prevent memory leaks and handle content updates
   useEffect(() => {
@@ -1569,7 +1548,7 @@ export const DesktopPageReader = ({
         <div
           key={pageKey}
           id={`pdf-page-${index}`}
-          className="pdf-page-wrapper"
+          className="desktop-page-slot pdf-page-wrapper"
         >
           {renderPage(page, index, pagesWithTOC)}
         </div>
@@ -1594,163 +1573,67 @@ export const DesktopPageReader = ({
     );
     const targetIndex = restoredIndex >= 0 ? restoredIndex : 0;
 
-    const scrollContainer = document.querySelector('.pdf-viewer');
-    const pageElement = document.getElementById(`pdf-page-${targetIndex}`);
-    const topBar = document.querySelector('.pdf-top-bar');
-    const topBarHeight = topBar ? topBar.offsetHeight : 0;
-    if (scrollContainer && pageElement) {
-      scrollContainer.scrollTop = pageElement.offsetTop - topBarHeight - 62;
-    }
-  }, [pagesWithTOC, currentChapterIndex, currentPageIndex, isInitializing]);
+    scrollToPageIndex(targetIndex, 'auto');
+  }, [pagesWithTOC, currentChapterIndex, currentPageIndex, isInitializing, scrollToPageIndex]);
 
   // When showing only the inline loader page (before any real pages are ready),
   // place it at the same scroll position the first real page will use so the
   // transition feels seamless.
   useLayoutEffect(() => {
     if (pages.length !== 0) return;
-    const scrollContainer = document.querySelector('.pdf-viewer');
-    const pageElement = document.getElementById('pdf-page-0');
-    const topBar = document.querySelector('.pdf-top-bar');
-    const topBarHeight = topBar ? topBar.offsetHeight : 0;
-    if (scrollContainer && pageElement) {
-      scrollContainer.scrollTop = pageElement.offsetTop - topBarHeight - 62;
-    }
-  }, [pages.length]);
+    scrollToPageIndex(0, 'auto');
+  }, [pages.length, scrollToPageIndex]);
 
-  // Debug-only: when ?debug=pagination is enabled, visualize the remaining space
-  // on each page as a green block at the bottom of the page-body. This is based
-  // on the live DOM measurements (page-body height minus content height), which
-  // closely matches what the pagination algorithm uses.
+  // Debug-only: block boxes + slack/reserve bands (see paginationDebugOverlay.js)
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
     const enabled = window.location.search.includes('debug=pagination');
-
-    // Always clean up existing overlays first
-    document.querySelectorAll('.page-remaining-debug').forEach((el) => el.remove());
-    if (!enabled) return;
+    document.body.classList.toggle('debug-pagination', enabled);
+    const cleanups = [];
+    if (!enabled) return undefined;
 
     const sheets = document.querySelectorAll('.pdf-viewer .page-sheet .page-body');
     sheets.forEach((bodyEl) => {
-      const contentMain = bodyEl.querySelector('.page-content-main');
-      if (!contentMain) return;
-
-      const bodyRect = bodyEl.getBoundingClientRect();
-      const contentRect = contentMain.getBoundingClientRect();
-      const remaining = Math.max(0, bodyRect.height - contentRect.height);
-      if (remaining <= 0) return;
-
-      const overlay = document.createElement('div');
-      overlay.className = 'page-remaining-debug';
-      overlay.style.height = `${remaining}px`;
-      bodyEl.appendChild(overlay);
+      const sheet = bodyEl.closest('.page-sheet');
+      const chapterId = sheet?.getAttribute('data-chapter-id') || '';
+      const pageIndex = Number(sheet?.getAttribute('data-page-index') || 0);
+      const cleanup = applyPaginationDebugOverlay(bodyEl, { chapterId, pageIndex });
+      cleanups.push(cleanup);
     });
 
-    // Yellow overlay: show the hypothetical extra height if the last rejected
-    // element for this page had been added (using data from checkElementFits).
-    try {
-      const debug = (window && window.__paginationDebug) || {};
-      sheets.forEach((bodyEl) => {
-        const sheet = bodyEl.closest('.page-sheet');
-        if (!sheet) return;
-        const chapterId = sheet.getAttribute('data-chapter-id');
-        const pageIndexAttr = sheet.getAttribute('data-page-index');
-        if (!chapterId || pageIndexAttr == null) return;
-        const pageIndex = Number(pageIndexAttr) || 0;
-        const key = `${chapterId}:${pageIndex}`;
-        const info = debug[key];
-        if (!info || !info.overflowAmount || info.overflowAmount <= 0) return;
-
-        const bodyHeight = bodyEl.clientHeight;
-        const overflowPx = Math.min(info.overflowAmount, bodyHeight);
-
-        const yellow = document.createElement('div');
-        yellow.className = 'page-overflow-debug';
-        yellow.style.height = `${overflowPx}px`;
-        bodyEl.appendChild(yellow);
-      });
-    } catch (e) {
-      // ignore debug overlay errors
-    }
+    return () => {
+      cleanups.forEach((fn) => fn?.());
+    };
   }, [pagesWithTOC, zoom]);
   
   
   // Early return: one "page" with the loader in the same slot as the first page; real pages replace it when loaded
-  if (pages.length === 0) {
+  if (pages.length === 0 || !desktopMediaReady) {
     return (
-      <>
-        <PDFTopBar
-          currentPage={1}
-          totalPages={1}
-          onPageChange={() => {}}
-          onPreviousPage={() => {}}
-          onNextPage={() => {}}
-          onZoomIn={() => {}}
-          onZoomOut={() => {}}
-          zoom={1}
-          onZoomChange={() => {}}
-          onDownload={() => {}}
-          isDownloading={false}
-          filename="weird-attachments.pdf"
-        />
-        <PDFViewer
-          currentPage={1}
-          totalPages={1}
-          onPageChange={() => {}}
-          filename="weird-attachments.pdf"
-          zoom={1}
-        >
-          <div className="pdf-pages-container">
-            <div className="pdf-page-wrapper" id="pdf-page-0">
-              <article className="page-sheet">
-                <DitheredLoader inline />
-              </article>
-            </div>
-          </div>
-        </PDFViewer>
-      </>
+      <PDFViewer
+        ref={apertureScrollRef}
+        zoom={1}
+        frameBorder={apertureFrameBorder}
+        paperTextureUrl={paperTexture}
+      >
+        <div className="desktop-page-slot pdf-page-wrapper" id="pdf-page-0">
+          <article className="page-sheet">
+            <DitheredLoader inline />
+          </article>
+        </div>
+      </PDFViewer>
     );
   }
 
-  // Render pages vertically (stacked one after another)
-  
   return (
     <>
-      <PDFTopBar
-        currentPage={currentPageNumber}
-        totalPages={pagesWithTOC.length}
-        onPageChange={handlePageChange}
-        onPreviousPage={handlePreviousPage}
-        onNextPage={handleNextPage}
-        onZoomIn={handleZoomIn}
-        onZoomOut={handleZoomOut}
-        zoom={zoom}
-        onZoomChange={handleZoomChange}
-        onDownload={handleDownload}
-        isDownloading={isDownloadingPdf}
-        filename="weird-attachments.pdf"
-      />
       <PDFViewer
-        currentPage={1}
-        totalPages={pagesWithTOC.length}
-        onPageChange={(pageNum) => {
-          const pageIndex = pageNum - 1;
-          const page = pagesWithTOC[pageIndex];
-          if (page) {
-            const pageElement = document.getElementById(`pdf-page-${pageIndex}`);
-            const scrollContainer = document.querySelector('.pdf-viewer');
-            const topBar = document.querySelector('.pdf-top-bar');
-            const topBarHeight = topBar ? topBar.offsetHeight : 0;
-            if (scrollContainer && pageElement) {
-              scrollContainer.scrollTo({ top: pageElement.offsetTop - topBarHeight - 24, behavior: 'smooth' });
-            }
-          }
-        }}
-        filename="weird-attachments.pdf"
+        ref={apertureScrollRef}
         zoom={zoom}
+        frameBorder={apertureFrameBorder}
+        paperTextureUrl={paperTexture}
       >
-        <div className="pdf-pages-container">
-          {renderedPages}
-        </div>
+        {renderedPages}
       </PDFViewer>
       {/* Desktop Progress Bar - only show for regular pages */}
       {mostVisiblePage && !mostVisiblePage.isFirstPage && !mostVisiblePage.isCover && !mostVisiblePage.isTOC && chapterProgress > 0 && typeof document !== 'undefined' && createPortal(

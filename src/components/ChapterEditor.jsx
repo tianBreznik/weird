@@ -8,12 +8,18 @@ import SimpleBar from 'simplebar-react';
 import 'simplebar-react/dist/simplebar.min.css';
 import { TextSelection, NodeSelection } from 'prosemirror-state';
 import { uploadImageToStorage, uploadVideoToStorage } from '../services/storage';
+import {
+  BORDER_ASSET_KIND,
+  resolveBorderAssetKind,
+  suggestBorderCalibration,
+} from '../utils/desktopApertureBorderStyle';
 import { generateWordTimingsWithDeepgram } from '../services/autoTiming';
 import { KaraokeBlock, Dinkus, Highlight, TextColor, FontSize, Underline, FootnoteRef, Indent, Video, CustomImage, InlineImage, Poetry, FieldNotesBlock, CustomParagraph, ParagraphEpigraph } from '../extensions/tiptapExtensions.js';
 import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import { FootnotePlugin } from '../extensions/footnotePlugin.js';
 import { CHAPTER_FONT_OPTIONS, DEFAULT_CHAPTER_FONT } from '../constants/chapterFonts';
+import { stripInlineTypographyMetrics } from '../utils/contentProcessing.js';
 import './ChapterEditor.css';
 
 export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapter = false, onSave, onCancel, onDelete }) => {
@@ -27,6 +33,24 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
   );
   // Border slice percentage for border-image (controls corner size, default 4% for 1024×1024px images)
   const [pageBorderSlicePercent, setPageBorderSlicePercent] = useState(chapter?.pageBorderSlicePercent ?? 5);
+  const [pageBorderImageNaturalWidth, setPageBorderImageNaturalWidth] = useState(
+    chapter?.pageBorderImageNaturalWidth ?? null
+  );
+  const [pageBorderImageNaturalHeight, setPageBorderImageNaturalHeight] = useState(
+    chapter?.pageBorderImageNaturalHeight ?? null
+  );
+  const [pageBorderAssetKind, setPageBorderAssetKind] = useState(
+    chapter?.pageBorderAssetKind ?? null
+  );
+  const [pageBorderSliceVerticalPercent, setPageBorderSliceVerticalPercent] = useState(
+    chapter?.pageBorderSliceVerticalPercent ?? chapter?.pageBorderSlicePercent ?? 10
+  );
+  const [pageBorderSliceHorizontalPercent, setPageBorderSliceHorizontalPercent] = useState(
+    chapter?.pageBorderSliceHorizontalPercent ?? chapter?.pageBorderSlicePercent ?? 10
+  );
+  const borderFrameIsRectangular =
+    resolveBorderAssetKind(pageBorderAssetKind, pageBorderImageNaturalWidth, pageBorderImageNaturalHeight)
+    === BORDER_ASSET_KIND.RECTANGULAR;
   const [hideTitle, setHideTitle] = useState(!!chapter?.hideTitle);
   const [fontFamily, setFontFamily] = useState(chapter?.fontFamily ?? DEFAULT_CHAPTER_FONT);
   const [saving, setSaving] = useState(false);
@@ -189,6 +213,10 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
       },
       // Let TipTap/ProseMirror handle key events and scrolling natively
       handleScrollToSelection: () => true,
+      // Word/Docs paste often carries font-size + line-height; those made
+      // editor/reader leading diverge after page splits. Strip metrics only —
+      // color/weight/links stay. Toolbar FontSize still works after paste.
+      transformPastedHTML: (html) => stripInlineTypographyMetrics(html),
     },
   });
 
@@ -635,6 +663,15 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
       // Clamp to a sensible minimum so old values like 1px don't produce invisible frames
       setPageBorderWidth(Math.max(5, chapter?.pageBorderWidth || 10));
       setPageBorderSlicePercent(chapter?.pageBorderSlicePercent ?? 5);
+      setPageBorderImageNaturalWidth(chapter?.pageBorderImageNaturalWidth ?? null);
+      setPageBorderImageNaturalHeight(chapter?.pageBorderImageNaturalHeight ?? null);
+      setPageBorderAssetKind(chapter?.pageBorderAssetKind ?? null);
+      setPageBorderSliceVerticalPercent(
+        chapter?.pageBorderSliceVerticalPercent ?? chapter?.pageBorderSlicePercent ?? 10
+      );
+      setPageBorderSliceHorizontalPercent(
+        chapter?.pageBorderSliceHorizontalPercent ?? chapter?.pageBorderSlicePercent ?? 10
+      );
       setFontFamily(chapter?.fontFamily ?? DEFAULT_CHAPTER_FONT);
       if (rawEpigraph && typeof rawEpigraph === 'object') {
         setEpigraph({
@@ -1236,6 +1273,21 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
         pageBorderImageUrl: pageBorderImageUrl || null,
         pageBorderWidth: pageBorderImageUrl ? pageBorderWidth : null,
         pageBorderSlicePercent: pageBorderImageUrl ? pageBorderSlicePercent : null,
+        pageBorderImageNaturalWidth: pageBorderImageUrl ? pageBorderImageNaturalWidth : null,
+        pageBorderImageNaturalHeight: pageBorderImageUrl ? pageBorderImageNaturalHeight : null,
+        pageBorderAssetKind: pageBorderImageUrl
+          ? resolveBorderAssetKind(
+              pageBorderAssetKind,
+              pageBorderImageNaturalWidth,
+              pageBorderImageNaturalHeight
+            )
+          : null,
+        pageBorderSliceVerticalPercent: pageBorderImageUrl && borderFrameIsRectangular
+          ? pageBorderSliceVerticalPercent
+          : null,
+        pageBorderSliceHorizontalPercent: pageBorderImageUrl && borderFrameIsRectangular
+          ? pageBorderSliceHorizontalPercent
+          : null,
         hideTitle: !!hideTitle,
         fontFamily: parentChapter ? undefined : (fontFamily || null),
       });
@@ -2443,7 +2495,11 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                   </div>
                 )}
                 {/* Border controls container - always shown for chapters (incl. acknowledgements) */}
-                <div className="toolbar-border-controls">
+                <div
+                  className={`toolbar-border-controls${
+                    borderFrameIsRectangular ? ' toolbar-border-controls--rectangular' : ''
+                  }`}
+                >
                   {/* Upload border image for this chapter/subchapter */}
                   <button
                     type="button"
@@ -2467,32 +2523,77 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                     title="Širina okvirja (px)"
                   >
                     <option value="5">5</option>
+                    <option value="8">8</option>
                     <option value="10">10</option>
+                    <option value="12">12</option>
                     <option value="15">15</option>
+                    <option value="18">18</option>
                     <option value="20">20</option>
-                    <option value="25">25</option>
+                    <option value="22">22</option>
+                    <option value="24">24</option>
+                    <option value="26">26</option>
+                    <option value="28">28</option>
                     <option value="30">30</option>
+                    <option value="32">32</option>
+                    <option value="36">36</option>
+                    <option value="40">40</option>
+                    <option value="44">44</option>
+                    <option value="48">48</option>
                   </select>
-                  {/* Border slice percentage dropdown */}
-                  <select
-                    className="toolbar-border-dropdown"
-                    value={pageBorderSlicePercent}
-                    onChange={(e) => setPageBorderSlicePercent(parseInt(e.target.value, 10))}
-                    disabled={!pageBorderImageUrl}
-                    title="Velikost vogala (%) – večja vrednost uporabi večji del slike okvirja"
-                  >
-                    <option value="5">5%</option>
-                    <option value="10">10%</option>
-                    <option value="15">15%</option>
-                    <option value="20">20%</option>
-                    <option value="25">25%</option>
-                    <option value="30">30%</option>
-                    <option value="35">35%</option>
-                    <option value="40">40%</option>
-                    <option value="45">45%</option>
-                    <option value="50">50%</option>
-                    <option value="55">55%</option>
-                  </select>
+                  {borderFrameIsRectangular ? (
+                    <>
+                      <span
+                        className="toolbar-border-kind-label"
+                        title="Pravokotna platnica (celotna slika okvirja)"
+                      >
+                        ▭
+                      </span>
+                      <select
+                        className="toolbar-border-dropdown"
+                        value={pageBorderSliceVerticalPercent}
+                        onChange={(e) => {
+                          const n = parseInt(e.target.value, 10);
+                          setPageBorderSliceVerticalPercent(n);
+                          setPageBorderSlicePercent(n);
+                        }}
+                        disabled={!pageBorderImageUrl}
+                        title="Rez ↕ (% višine slike) – zgornji/spodnji rob"
+                      >
+                        {Array.from({ length: 52 }, (_, i) => i + 4).map((n) => (
+                          <option key={`v${n}`} value={n}>
+                            ↕ {n}%
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="toolbar-border-dropdown"
+                        value={pageBorderSliceHorizontalPercent}
+                        onChange={(e) => setPageBorderSliceHorizontalPercent(parseInt(e.target.value, 10))}
+                        disabled={!pageBorderImageUrl}
+                        title="Rez ↔ (% širine slike) – levi/desni rob"
+                      >
+                        {Array.from({ length: 52 }, (_, i) => i + 4).map((n) => (
+                          <option key={`h${n}`} value={n}>
+                            ↔ {n}%
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  ) : (
+                    <select
+                      className="toolbar-border-dropdown"
+                      value={pageBorderSlicePercent}
+                      onChange={(e) => setPageBorderSlicePercent(parseInt(e.target.value, 10))}
+                      disabled={!pageBorderImageUrl}
+                      title="Velikost vogala (%) – kvadratna 9-slice platnica"
+                    >
+                      {Array.from({ length: 52 }, (_, i) => i + 4).map((n) => (
+                        <option key={n} value={n}>
+                          {n}%
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
                 <input
                   ref={pageBorderImageInputRef}
@@ -2517,16 +2618,24 @@ export const ChapterEditor = ({ chapter, parentChapter, isAcknowledgementsChapte
                       const img = new Image();
                       img.onload = () => {
                         try {
-                          const w = img.naturalWidth || 0;
-                          const h = img.naturalHeight || 0;
-                          const s = Math.min(w, h) || 1024;
-                          // Corner thickness in pixels on the source image (4% of min dimension)
-                          const cornerThickness = s * 0.04;
-                          const slicePercent = Math.round((cornerThickness / s) * 100);
-                          // Map corner thickness to on-page frame thickness (divide by 5 → ~8px for 1024px)
-                          const borderWidthPx = Math.round(cornerThickness / 5);
-                          setPageBorderSlicePercent(slicePercent);
-                          setPageBorderWidth(borderWidthPx);
+                          const cal = suggestBorderCalibration(
+                            img.naturalWidth || 0,
+                            img.naturalHeight || 0
+                          );
+                          setPageBorderAssetKind(cal.assetKind);
+                          setPageBorderSlicePercent(cal.slicePercent);
+                          setPageBorderWidth(cal.borderWidth);
+                          setPageBorderImageNaturalWidth(cal.naturalWidth || null);
+                          setPageBorderImageNaturalHeight(cal.naturalHeight || null);
+                          if (cal.assetKind === BORDER_ASSET_KIND.RECTANGULAR) {
+                            setPageBorderSliceVerticalPercent(cal.sliceVerticalPercent ?? cal.slicePercent);
+                            setPageBorderSliceHorizontalPercent(
+                              cal.sliceHorizontalPercent ?? cal.slicePercent
+                            );
+                          } else {
+                            setPageBorderSliceVerticalPercent(cal.slicePercent);
+                            setPageBorderSliceHorizontalPercent(cal.slicePercent);
+                          }
                         } catch {
                           // Keep existing manual values on error
                         }

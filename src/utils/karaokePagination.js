@@ -3,6 +3,10 @@ import { splitTextAtWordBoundary } from './paginationHelpers';
 import { measureFootnotesHeight } from './paginationHelpers';
 import { extractFootnotesFromContent } from './paginationHelpers';
 import { hyphenateSync } from 'hyphen/en';
+import {
+  getDesktopBodyContentHeight,
+  getReservedBottomSpace,
+} from './pageGeometry';
 
 /**
  * Handle karaoke element pagination (splits across pages)
@@ -139,23 +143,20 @@ export const handleKaraokeElement = ({
       measure.body,
       allFootnotes,
       isDesktop,
-      pageWidth
+      pageWidth,
+      measure.measureCache
     );
-    const BOTTOM_MARGIN_KARAOKE = 32; // Reduced from 48px to fit one more line
-    // For karaoke, use the reduced bottom margin when no footnotes
-    const reservedSpace = currentPageFootnotes.size > 0 ? footnotesHeight : BOTTOM_MARGIN_KARAOKE;
+    const reservedSpace = getReservedBottomSpace({
+      isDesktop,
+      hasKaraoke: true,
+      footnotesHeight: currentPageFootnotes.size > 0 ? footnotesHeight : 0,
+    });
     
-    // Calculate available height manually for karaoke (similar to getAvailableHeight but with karaoke margin)
-    // This ensures karaoke uses its specific bottom margin
+    // Match createMeasureContainer / pageGeometry (no more 48+48 karaoke drift)
     let height;
     if (isDesktop && pageHeight) {
-      // Desktop: pageHeight is 636px, page-body has padding: 3rem 2.5rem (48px top/bottom)
-      // So body content height = 636px - 48px (top) - 48px (bottom) = 540px
-      const bodyPaddingTop = 48; // 3rem ≈ 48px
-      const bodyPaddingBottom = 48; // 3rem ≈ 48px
-      height = pageHeight - bodyPaddingTop - bodyPaddingBottom;
+      height = getDesktopBodyContentHeight(pageHeight);
     } else {
-      // Mobile: use actual rendered height (matching original behavior)
       height = measure.body.clientHeight;
     }
     const availableHeight = Math.max(0, height - reservedSpace);

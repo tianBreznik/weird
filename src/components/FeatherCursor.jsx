@@ -158,14 +158,17 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
       }
 
       // When over the editor area: hide feather and show native cursor (toolbar, content, dialogs).
+      // Over footnote refs: same — native cursor is required for browser `title` tooltips.
       // Otherwise: hide native cursor and show feather.
       const target = document.elementFromPoint(e.clientX, e.clientY);
       const inEditor = target && (
         target.closest('.editor-overlay') ||
         target.closest('.karaoke-dialog-overlay')
       );
+      const onFootnote = !!(target && target.closest('.footnote-ref'));
+      const useNativeCursor = inEditor || onFootnote;
       if (cursorRef.current) {
-        cursorRef.current.style.opacity = inEditor ? '0' : '1';
+        cursorRef.current.style.opacity = useNativeCursor ? '0' : '1';
       }
       if (lastCursorTargetRef.current && lastCursorTargetRef.current !== target) {
         try {
@@ -173,7 +176,11 @@ export const FeatherCursor = ({ children, hideCursor = false }) => {
         } catch (_) {}
         lastCursorTargetRef.current = null;
       }
-      if (!inEditor && target && target !== document.body && target !== document.documentElement) {
+      if (onFootnote && target) {
+        const refEl = target.closest('.footnote-ref') || target;
+        refEl.style.setProperty('cursor', 'help', 'important');
+        lastCursorTargetRef.current = refEl;
+      } else if (!inEditor && target && target !== document.body && target !== document.documentElement) {
         target.style.setProperty('cursor', 'none', 'important');
         lastCursorTargetRef.current = target;
       }

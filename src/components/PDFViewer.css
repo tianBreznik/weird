@@ -1,13 +1,25 @@
-/* PDF Viewer - Desktop scrollable page container */
+/* Desktop book reader — page-sized aperture + glued scroll */
 .pdf-viewer {
-  /* Base zoom factor for desktop pages; overridden via inline style from PDFViewer.jsx */
   --pdf-zoom: 1;
+  --page-w-scaled: calc(450px * var(--pdf-zoom));
+  --page-h-scaled: calc(636px * var(--pdf-zoom));
 
   width: 100vw;
   height: 100vh;
-  overflow-y: auto;
-  overflow-x: hidden;
-  background: #f5f5f5;
+  overflow: hidden;
+  --scroll-ambient: 0;
+  --ambient-angle: 118deg;
+  /* Near-black → charcoal → dark gray; brightest stop stays mid-gray, drifts with scroll */
+  background-color: #2a2a2a;
+  background-image: linear-gradient(
+    var(--ambient-angle),
+    hsl(0 0% calc(8% + var(--scroll-ambient) * 4%)) 0%,
+    hsl(0 0% calc(16% + var(--scroll-ambient) * 5%)) 38%,
+    hsl(0 0% calc(26% + var(--scroll-ambient) * 4%)) 72%,
+    hsl(0 0% calc(36% + var(--scroll-ambient) * 3%)) 100%
+  );
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
   position: fixed;
   top: 0;
   left: 0;
@@ -15,6 +27,93 @@
   bottom: 0;
   z-index: 1;
   transition: right 0.3s ease, width 0.3s ease;
+}
+
+.desktop-aperture-stage {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 1.5rem;
+  padding-bottom: 2rem;
+  box-sizing: border-box;
+}
+
+/* content-box = page; padding = dark gutter around the mat (not border-image-outset) */
+.desktop-aperture-shell {
+  --aperture-outset: 12px;
+  position: relative;
+  box-sizing: content-box;
+  width: var(--page-w-scaled);
+  height: var(--page-h-scaled);
+  padding: var(--aperture-outset);
+  overflow: visible;
+  flex-shrink: 0;
+}
+
+/* One box for scroll + frame — avoids padding/absolute offset drift */
+.desktop-aperture-viewport {
+  position: relative;
+  width: var(--page-w-scaled);
+  height: var(--page-h-scaled);
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.desktop-aperture-frame-stack {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.desktop-aperture-frame-layer {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  background: transparent;
+  opacity: 0;
+  transition: opacity 0.55s ease;
+  pointer-events: none;
+}
+
+.desktop-aperture-frame-layer.is-visible {
+  opacity: 1;
+}
+
+.desktop-aperture-scroll {
+  position: relative;
+  z-index: 1;
+  width: var(--page-w-scaled);
+  height: var(--page-h-scaled);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  background: var(--desktop-paper-color, #e8e4dc);
+  box-sizing: border-box;
+}
+
+.desktop-pages-track {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.desktop-page-slot,
+.pdf-page-wrapper {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  height: var(--page-h-scaled);
+  margin: 0 !important;
+  padding: 0;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  display: block !important;
 }
 
 /* Desktop only: Push PDF viewer left when editor is open */
@@ -25,59 +124,41 @@
   }
 }
 
-.pdf-viewer-container {
-  width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 6.5rem 1rem 3rem; /* Increased top padding so first pages sit lower */
-  padding-top: calc(6.5rem + 48px); /* Account for top bar height (48px) */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-
-  /* PDF-style zoom: scale the entire page stack, leaving the top bar fixed */
-  transform: scale(var(--pdf-zoom));
-  transform-origin: top center;
-}
-
 .pdf-pages-container {
   width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 2rem;
+  align-items: stretch;
+  gap: 0;
 }
 
-/* PDF Page Wrapper - Creates distinct page-like appearance */
-.pdf-page-wrapper {
-  position: relative;
-  display: flex !important;
-  justify-content: center;
-  flex: 0 0 auto;
-  padding: 0;
-  width: 100%;
-  margin-bottom: 2rem;
-}
-
-/* Override mobile styles for desktop PDF pages */
 .pdf-viewer .page-sheet {
-  width: 210mm !important; /* A4 width */
-  max-width: 450px !important; /* Original width for two-page layout */
-  height: 297mm !important; /* A4 height - fixed page height */
-  max-height: 636px !important; /* Proportional to max-width (450px * 1.414) */
-  min-height: 636px !important; /* Ensure minimum height */
+  width: var(--page-w-scaled) !important;
+  max-width: var(--page-w-scaled) !important;
+  height: var(--page-h-scaled) !important;
+  max-height: var(--page-h-scaled) !important;
+  min-height: var(--page-h-scaled) !important;
   position: relative !important;
   transform: none !important;
   -webkit-transform: none !important;
   contain: none !important;
-  background: #ffffff !important; /* Default white background */
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 0 1px rgba(0, 0, 0, 0.1) !important;
-  margin: 0 auto !important; /* Center the page */
+  background-color: var(--desktop-paper-color, #e8e4dc) !important;
+  background-image: var(--desktop-paper-url, none) !important;
+  background-size: cover !important;
+  background-position: center center !important;
+  background-repeat: no-repeat !important;
+  box-shadow: none !important;
+  margin: 0 !important;
   display: flex !important;
   flex-direction: column !important;
-  page-break-after: always;
-  border-radius: 2px;
-  overflow: hidden !important; /* Keep content within fixed-height page */
+  border-radius: 0;
+  overflow: hidden !important;
+}
+
+/* Borders on the aperture frame while reading — sheets stay plain */
+.desktop-aperture-reader .page-sheet.page-border {
+  border: none !important;
+  border-image: none !important;
 }
 
 /* Let sticky notes extend past the page edge */
@@ -94,18 +175,30 @@
   }
 }
 
-/* When background image is set, make background transparent so image shows through */
-.pdf-viewer .page-sheet.has-background-image,
-.pdf-viewer .page-sheet.has-background-image.content-page,
-.pdf-viewer .page-sheet[style*="background-image"],
-.pdf-viewer .page-sheet[style*="background-image"].content-page {
-  background: transparent !important;
-  background-color: transparent !important;
+/* Custom full-bleed bg is an <img> layer; keep paper fallback under it while decoding */
+.desktop-aperture-reader .page-sheet.has-background-image,
+.desktop-aperture-reader .page-sheet.has-background-image.content-page,
+.desktop-aperture-reader .page-sheet.field-notes-page {
+  background-color: var(--desktop-paper-color, #e8e4dc) !important;
+  background-image: var(--desktop-paper-url, none) !important;
+  background-size: cover !important;
+  background-position: center center !important;
+}
+
+.pdf-viewer .pdf-page-background-image {
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
+  content-visibility: visible !important;
+  will-change: opacity;
+}
+
+.pdf-viewer .pdf-page-background-image.is-decoded {
+  opacity: 1;
 }
 
 .pdf-viewer .page-sheet.content-page {
-  width: 210mm !important;
-  max-width: 450px !important; /* Original width */
+  width: var(--page-w-scaled) !important;
+  max-width: var(--page-w-scaled) !important;
   align-items: flex-start !important;
   text-align: left !important;
 }

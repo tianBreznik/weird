@@ -1,19 +1,24 @@
-import { useCallback } from 'react';
-import { getAllFootnotes, isAcknowledgementsChapter, generateAcknowledgementsContent } from '../utils/footnotes';
-import { createMeasureContainer } from '../utils/paginationHelpers';
-import { applyHyphenationToHTML } from '../utils/paginationHelpers';
+import { useCallback, useRef } from 'react';
+import { getAllFootnotes, isAcknowledgementsChapter, generateAcknowledgementsContent, renderFootnotesSection } from '../utils/footnotes';
 import { sortChapters, determineChapterIndex, createEmptyPage, createEpigraphPage, createVideoPage, extractBackgroundVideos } from '../utils/paginationHelpers';
 import { initializeNewPage, createPageFromElements } from '../utils/pageCreation';
-import { processHTMLContent, buildChapterContentBlocks } from '../utils/contentProcessing';
+import {
+  processHTMLContent,
+  buildChapterContentBlocks,
+} from '../utils/contentProcessing';
 import { handleKaraokeElement } from '../utils/karaokePagination';
 import { handleFieldNotesElement, hasFieldNotesBlocks } from '../utils/fieldNotesPagination';
 import { paginateElement, calculateRemainingHeight } from '../utils/elementPagination';
 import { finalizePages, applyHyphenationToPages, restoreInitialPosition } from '../utils/postProcessing';
 import { extractFootnotesFromContent, measureFootnotesHeight, applyParagraphStylesToContainer, isAtomicElement, splitTextAtSentenceBoundary, splitTextAtWordBoundary } from '../utils/paginationHelpers';
+import { beginPackerRun } from '../utils/packPages';
+import { MobilePackShell } from '../utils/mobilePackShell';
+import { packMobileElement } from '../utils/mobilePackElement';
+import { waitForMobilePackGeometry } from '../utils/mobilePackGeometry';
 
 /**
- * Main hook for calculating pages from chapters
- * Orchestrates all pagination logic using extracted utility functions
+ * Main hook for calculating pages from chapters.
+ * Picks desktop (fixed sheet) or mobile (Kindle viewport) packer profile.
  */
 export const usePagePagination = ({
   chapters,
@@ -24,24 +29,30 @@ export const usePagePagination = ({
   setCurrentPageIndex,
   setIsInitializing,
   setSubchapterPageMap,
+  /** Optional: force 'desktop' | 'mobile' (tests / tooling) */
+  packerMode = null,
 }) => {
+  /** Stale async packs must not overwrite a newer run (mobile refresh race). */
+  const packRunIdRef = useRef(0);
+
   const calculatePages = useCallback(async () => {
     if (!chapters || chapters.length === 0) {
       return;
     }
 
-    // Get viewport dimensions for mobile
-    const viewport = typeof window !== 'undefined' && window.visualViewport
-      ? window.visualViewport
-      : null;
-    const viewportHeight = viewport ? viewport.height : (typeof window !== 'undefined' ? window.innerHeight : 0);
-    
+    const runId = packRunIdRef.current + 1;
+    packRunIdRef.current = runId;
+
     const newPages = [];
     const sharedSubchapterStarts = [];
     const newKaraokeSources = {};
 
     // Sort chapters: isFirstPage first, then isCover, then regular chapters by order
     const sortedChapters = sortChapters(chapters);
+    // First regular chapter = book page "1" intro (e.g. Welcome…) — keep its typography.
+    const firstRegularChapterId = sortedChapters.find(
+      (c) => !c.isFirstPage && !c.isCover
+    )?.id;
 
     // Get all footnotes globally for numbering
     const allFootnotes = getAllFootnotes(chapters);
@@ -51,31 +62,27 @@ export const usePagePagination = ({
       footnoteContentToNumber.set(fn.content.trim(), fn.globalNumber);
     });
 
-    // Determine if we're calculating for desktop PDF or mobile
-    const isDesktop = typeof window !== 'undefined' && window.innerWidth > 768;
-    
-    // Desktop PDF page dimensions: 
-    // - Width: 450px (max-width for two-page spreads, matches CSS max-width: 450px)
-    // - Height: 636px (max-height for two-page spreads, matches CSS max-height: 636px)
-    //   Note: Single-page spreads use 848px height, but we use the smaller height (636px) 
-    //   for safety to ensure content fits in all pages. Padding (3rem top/bottom = 48px each)
-    //   is handled by createMeasureContainer which mirrors the actual page structure.
-    // Mobile uses viewport dimensions
-    const pageWidth = isDesktop ? 450 : undefined; // undefined = use CSS min(680px, 96vw)
-    const pageHeight = isDesktop ? 636 : viewportHeight; // Match CSS max-height: 636px
-    
-    // Create measurement container that matches rendered page structure
-    const measure = createMeasureContainer(isDesktop, pageWidth, pageHeight);
+    // Dual packer: fixed-sheet desktop vs full-viewport mobile policies + geometry
+    const {
+      policy,
+      isDesktop,
+      pageWidth,
+      pageHeight,
+      contentWidth,
+      measure,
+    } = beginPackerRun(packerMode);
 
-    // Desktop font size and line height (used in applyParagraphStylesToContainer)
-    // Desktop PDF uses 1.35rem (matches PDFViewer.css), mobile uses 1.3rem
-    const desktopFontSize = isDesktop ? '1.35rem' : '1.3rem';
-    // Desktop PDF uses 1.62 line-height (matches PDFViewer.css), mobile uses 1.35
-    const desktopLineHeight = isDesktop ? '1.50' : '1.35';
-    // Desktop: content width = page width - left padding - right padding
-    // .page-body has padding: 3rem 2.5rem, so 2.5rem ≈ 40px per side
-    // Content width = 450px - 40px - 40px = 370px
-    const contentWidth = isDesktop ? (pageWidth - 40 - 40) : undefined;
+    let mobileGeometry = null;
+    if (!isDesktop && typeof document !== 'undefined') {
+      mobileGeometry = await waitForMobilePackGeometry();
+      if (!mobileGeometry) {
+        return;
+      }
+    }
+
+    if (runId !== packRunIdRef.current) return;
+
+    const mobileShell = !isDesktop ? new MobilePackShell() : null;
 
     // Process chapters sequentially (now sorted: first page, cover, then regular)
     
@@ -116,6 +123,7 @@ export const usePagePagination = ({
       let currentPageElements = [];
       let pageHasHeading = false;
       let currentPageFootnotes = new Set(); // Track footnote numbers on current page
+      const footnoteSpill = new Set(); // Footnote defs that did not fit the previous page band
 
       const startNewPage = (initialHeading = false) => {
         // Clear array in place instead of reassigning to preserve reference
@@ -176,7 +184,12 @@ export const usePagePagination = ({
           backgroundVideosByPage,
           isDesktop,
           pageWidth,
-          hasFieldNotes: chapterHasFieldNotes
+          hasFieldNotes: chapterHasFieldNotes,
+          footnoteSpill,
+          preserveTypography:
+            !!chapter.isFirstPage ||
+            !!chapter.isCover ||
+            chapter.id === firstRegularChapterId,
         });
         
         if (newPage) {
@@ -209,8 +222,30 @@ export const usePagePagination = ({
           chapterPageIndex += 1;
         }
         
-        // Process HTML content: extract videos, replace dashes, prepare for pagination
-        const { elements, videoElements } = await processHTMLContent(block.content, isDesktop);
+        // Process HTML content: extract videos, replace dashes, prepare for pagination.
+        // Cover, special first page, and the first regular (intro) chapter keep designed type.
+        const preserveTypography =
+          !!chapter.isFirstPage ||
+          !!chapter.isCover ||
+          chapter.id === firstRegularChapterId;
+        const { elements, videoElements } = await processHTMLContent(block.content, isDesktop, {
+          standardizeTypography: !isDesktop && !preserveTypography,
+        });
+
+        if (mobileShell) {
+          mobileShell.syncSizeFromLiveReader();
+          const tightReserve =
+            (chapter.isFirstPage && chapterPageIndex === 0) ||
+            (preserveTypography &&
+              !chapter.isCover &&
+              !chapter.isFirstPage &&
+              chapterPageIndex === 0);
+          mobileShell.setPageStyle({
+            preserveTypography,
+            tightReserve,
+            fontFamily: block.fontFamily,
+          });
+        }
         
         // Create video pages for blank-page videos
         videoElements.forEach((video) => {
@@ -334,34 +369,51 @@ export const usePagePagination = ({
             }
           }
 
-          // Paginate regular elements
-          // Note: paginateElement mutates currentPageElements and currentPageFootnotes directly
-          const result = paginateElement({
-            element,
-            elementIndex,
-            elementsLength: elements.length,
-            currentPageElements,
-            currentPageFootnotes,
-            pageHasHeading,
-            chapter,
-            chapterPageIndex,
-            block,
-            measure,
-            contentWidth,
-            isDesktop,
-            pageHeight,
-            pageWidth,
-            footnoteContentToNumber,
-            allFootnotes,
-            applyParagraphStylesToContainer,
-            extractFootnotesFromContent,
-            measureFootnotesHeight,
-            isAtomicElement,
-            splitTextAtSentenceBoundary,
-            splitTextAtWordBoundary,
-            pushPage,
-            startNewPage
-          });
+          const elementFootnotes = extractFootnotesFromContent(
+            element.outerHTML,
+            footnoteContentToNumber
+          );
+
+          const result = !isDesktop
+            ? packMobileElement({
+                shell: mobileShell,
+                element,
+                currentPageElements,
+                currentPageFootnotes,
+                elementFootnotes,
+                footnoteContentToNumber,
+                block,
+                pushPage,
+                startNewPage,
+              })
+            : paginateElement({
+                element,
+                elementIndex,
+                elementsLength: elements.length,
+                currentPageElements,
+                currentPageFootnotes,
+                pageHasHeading,
+                chapter,
+                chapterPageIndex,
+                block,
+                measure,
+                contentWidth,
+                isDesktop,
+                pageHeight,
+                pageWidth,
+                footnoteContentToNumber,
+                allFootnotes,
+                applyParagraphStylesToContainer,
+                extractFootnotesFromContent,
+                measureFootnotesHeight,
+                isAtomicElement,
+                splitTextAtSentenceBoundary,
+                splitTextAtWordBoundary,
+                pushPage,
+                startNewPage,
+                policy,
+                preserveTypography,
+              });
           
           // Update state from result
           if (result && result.pageHasHeading !== undefined) {
@@ -393,21 +445,45 @@ export const usePagePagination = ({
           const canFlowSubchapter = block.type === 'chapter' && nextBlock?.type === 'subchapter';
           let skipPushForFlow = false;
           if (canFlowSubchapter) {
-            const isStandaloneFirstPage = chapter.isFirstPage && chapterPageIndex === 0;
-            const footnotesHeight = currentPageFootnotes.size > 0
-              ? measureFootnotesHeight(currentPageFootnotes, measure.body, allFootnotes, isDesktop, pageWidth)
-              : 0;
-            const contentAvailableHeight = measure.getAvailableHeight(footnotesHeight, isStandaloneFirstPage);
-            const { remainingContentHeight, currentPageContentHeight } = calculateRemainingHeight({
-              currentPageElements,
-              contentAvailableHeight,
-              contentWidth,
-              isDesktop,
-              measure,
-              applyParagraphStylesToContainer
-            });
-            const freePercent = contentAvailableHeight > 0 ? remainingContentHeight / contentAvailableHeight : 0;
-            skipPushForFlow = freePercent >= 0.45;
+            let remainingContentHeight = 0;
+            let contentAvailableHeight = 1;
+            if (mobileShell) {
+              const { content, slack } = mobileShell.measureBlocksHeight(
+                currentPageElements
+              );
+              contentAvailableHeight = mobileShell.contentLimitPx || 1;
+              remainingContentHeight = Math.max(0, slack);
+            } else {
+              const isStandaloneFirstPage =
+                chapter.isFirstPage && chapterPageIndex === 0;
+              const footnotesHeight =
+                currentPageFootnotes.size > 0
+                  ? measureFootnotesHeight(
+                      currentPageFootnotes,
+                      measure.body,
+                      allFootnotes,
+                      isDesktop,
+                      pageWidth
+                    )
+                  : 0;
+              contentAvailableHeight = measure.getAvailableHeight(
+                footnotesHeight,
+                isStandaloneFirstPage
+              );
+              ({ remainingContentHeight } = calculateRemainingHeight({
+                currentPageElements,
+                contentAvailableHeight,
+                contentWidth,
+                isDesktop,
+                measure,
+                applyParagraphStylesToContainer,
+              }));
+            }
+            const freePercent =
+              contentAvailableHeight > 0
+                ? remainingContentHeight / contentAvailableHeight
+                : 0;
+            skipPushForFlow = freePercent >= policy.subchapterFlowFreeRatio;
           }
           if (!skipPushForFlow) {
             pushPage(block);
@@ -419,7 +495,34 @@ export const usePagePagination = ({
         // If currentPageElements is empty and last wasn't field notes and chapter doesn't have field notes,
         // that's fine - nothing to push (empty chapter)
       }
+
+      // Flush any remaining spilled footnote defs onto the chapter's last page (PDF footer).
+      if (footnoteSpill.size > 0) {
+        for (let i = newPages.length - 1; i >= 0; i -= 1) {
+          if (newPages[i].chapterId !== chapter.id) continue;
+          const spilledFns = Array.from(footnoteSpill)
+            .sort((a, b) => a - b)
+            .map((num) => allFootnotes.find((fn) => fn.globalNumber === num))
+            .filter(Boolean);
+          if (spilledFns.length) {
+            const existing = newPages[i].footnotes || [];
+            const merged = [...existing];
+            spilledFns.forEach((fn) => {
+              if (!merged.some((e) => e.globalNumber === fn.globalNumber)) merged.push(fn);
+            });
+            newPages[i] = {
+              ...newPages[i],
+              footnotes: merged,
+              content: `${newPages[i].content}${renderFootnotesSection(spilledFns)}`,
+            };
+          }
+          footnoteSpill.clear();
+          break;
+        }
+      }
     }
+
+    mobileShell?.destroy();
 
     // Cleanup measurement container
     measure.destroy();
@@ -479,6 +582,8 @@ export const usePagePagination = ({
       setSubchapterPageMap(map);
     }
 
+    if (runId !== packRunIdRef.current) return;
+
     // Set pages immediately for faster initial render
     setPages(finalizedPages);
     setKaraokeSources(newKaraokeSources);
@@ -492,7 +597,7 @@ export const usePagePagination = ({
       setCurrentPageIndex,
       setIsInitializing
     });
-  }, [chapters, initialPosition, setPages, setKaraokeSources, setCurrentChapterIndex, setCurrentPageIndex, setIsInitializing, setSubchapterPageMap]);
+  }, [chapters, initialPosition, setPages, setKaraokeSources, setCurrentChapterIndex, setCurrentPageIndex, setIsInitializing, setSubchapterPageMap, packerMode]);
 
   return calculatePages;
 };

@@ -45,6 +45,12 @@ html body.feather-cursor-active .karaoke-dialog-overlay *::before,
 html body.feather-cursor-active .karaoke-dialog-overlay *::after {
   cursor: default !important;
 }
+
+/* Footnote superscripts: native cursor so browser `title` tooltips can show */
+html body.feather-cursor-active .footnote-ref,
+html body.feather-cursor-active .footnote-ref * {
+  cursor: help !important;
+}
 /* Clickable elements in editor and dialogs: pointer */
 html body.feather-cursor-active .editor-overlay button,
 html body.feather-cursor-active .editor-overlay a,

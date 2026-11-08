@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { buildChapterContentBlocks, extractVideosFromContent } from './contentProcessing.js';
+import {
+  buildChapterContentBlocks,
+  buildMobileReflowDocument,
+  extractVideosFromContent,
+  htmlHasKaraoke,
+  stripInlineTypographyMetrics,
+} from './contentProcessing.js';
 
 describe('contentProcessing', () => {
   describe('buildChapterContentBlocks', () => {
@@ -88,6 +94,53 @@ describe('contentProcessing', () => {
       expect(blocks).toHaveLength(1);
       expect(blocks[0].content).toMatch(/<h4[^>]*>[\s\S]*My Subchapter[\s\S]*<\/h4>/i);
       expect(blocks[0].content).toContain('<p>Only paragraph</p>');
+    });
+  });
+
+  describe('buildMobileReflowDocument', () => {
+    it('joins chapter HTML and flags karaoke', () => {
+      const chapter = {
+        id: 'ch1',
+        title: 'One',
+        contentHtml: '<p>Hello</p><p>World</p>',
+        content: '<p>Hello</p><p>World</p>',
+      };
+      const doc = buildMobileReflowDocument(chapter, { standardizeTypography: false });
+      expect(doc.hasKaraoke).toBe(false);
+      const plain = doc.html.replace(/\u00AD/g, '');
+      expect(plain).toContain('Hello');
+      expect(plain).toContain('World');
+    });
+
+    it('detects karaoke and returns empty flow html', () => {
+      const chapter = {
+        id: 'ch1',
+        title: 'K',
+        contentHtml: '<div data-karaoke-block="true">sing</div>',
+        content: '<div data-karaoke-block="true">sing</div>',
+      };
+      expect(htmlHasKaraoke(chapter.contentHtml)).toBe(true);
+      const doc = buildMobileReflowDocument(chapter);
+      expect(doc.hasKaraoke).toBe(true);
+      expect(doc.html).toBe('');
+    });
+  });
+
+  describe('stripInlineTypographyMetrics', () => {
+    it('removes font-size and line-height but keeps color', () => {
+      const html =
+        '<p><span style="font-size: 12px !important; line-height: 1.1 !important; color: red">x</span></p>';
+      const out = stripInlineTypographyMetrics(html);
+      expect(out).not.toContain('font-size');
+      expect(out).not.toContain('line-height');
+      expect(out).toContain('color: red');
+      expect(out).toContain('>x<');
+    });
+
+    it('unwraps spans that only carried typography metrics', () => {
+      const html = '<p><span style="font-size: 11px">pasted</span></p>';
+      const out = stripInlineTypographyMetrics(html);
+      expect(out).toBe('<p>pasted</p>');
     });
   });
 

@@ -1,5 +1,20 @@
 import { hyphenateSync } from 'hyphen/en';
 import { DEFAULT_CHAPTER_FONT } from '../constants/chapterFonts';
+import {
+  DESKTOP_BODY_PADDING_BOTTOM,
+  DESKTOP_BODY_PADDING_LEFT,
+  DESKTOP_BODY_PADDING_RIGHT,
+  DESKTOP_BODY_PADDING_TOP,
+  FOOTNOTE_EXTRA_PADDING_PX,
+  getDesktopBodyContentHeight,
+  getFontSize,
+  getLineHeight,
+  getOverflowTolerance,
+  getReservedBottomSpace,
+  MOBILE_PRESERVE_FONT_SIZE,
+  MOBILE_LINE_HEIGHT,
+} from './pageGeometry';
+import { createMeasureCache } from './measureCache';
 
 /**
  * Normalize word for matching (remove diacritics, lowercase, etc.)
@@ -164,32 +179,11 @@ export const applyHyphenationToHTML = (html) => {
 };
 
 /**
- * ============================================================================
- * CRITICAL: BOTTOM MARGIN MISMATCH
- * ============================================================================
- * 
- * There is an intentional mismatch between the bottom margin used for calculations
- * and the bottom margin used for actual page padding:
- * 
- * - getAvailableHeight() uses: 32px for non-first pages
- * - calculatePagePadding() uses: 48px for non-first pages
- * 
- * This mismatch was present in the original code (commit d3dd93cc) and is preserved
- * to maintain exact pagination behavior. The algorithm calculates available space
- * using 32px (more conservative), but pages use 48px padding (more space).
- * 
- * ⚠️ WARNING: If you change one value, you MUST understand the impact on pagination.
- * Changing this mismatch will alter how text is distributed across pages.
- * 
- * ============================================================================
- */
-
-/**
  * Creates a measurement container that matches the real DOM structure exactly.
- * Used for accurate page height calculations during pagination.
- * Appends to document.body with a .pdf-viewer wrapper (desktop) for CSS inheritance.
+ * Geometry comes from pageGeometry.js so reader / PDF / karaoke share one source of truth.
  */
 export const createMeasureContainer = (isDesktop, pageWidth, pageHeight) => {
+  const measureCache = createMeasureCache();
   const container = document.createElement('div');
   container.className = 'page-container';
   container.style.position = 'absolute';
@@ -203,13 +197,26 @@ export const createMeasureContainer = (isDesktop, pageWidth, pageHeight) => {
   if (isDesktop) {
     container.style.height = `${pageHeight}px`;
   } else {
-    const viewportHeight =
-      (typeof window !== 'undefined' && window.innerHeight) || pageHeight || window.screen?.height || 0;
-    container.style.height = viewportHeight ? `${viewportHeight}px` : '100dvh';
+    // Prefer the LIVE reader page-container box when mounted — that is the ground
+    // truth for what the user sees. Fall back to 100dvh (same as PageReader.css).
+    const liveBox =
+      typeof document !== 'undefined' &&
+      document.querySelector('.page-reader .page-container, .page-turn-surface .page-container');
+    const liveRect = liveBox?.getBoundingClientRect?.();
+    if (liveRect && liveRect.height > 100 && liveRect.width > 100) {
+      container.style.width = `${Math.round(liveRect.width)}px`;
+      container.style.height = `${Math.round(liveRect.height)}px`;
+    } else {
+      container.style.height = '100dvh';
+      if (pageHeight && Number.isFinite(pageHeight) && pageHeight > 0) {
+        container.style.minHeight = `${pageHeight}px`;
+      }
+    }
   }
   // Desktop: no container padding (page-sheet is direct child, matches PDFViewer.css structure)
-  // Mobile: container has padding for centering
-  container.style.padding = isDesktop ? '0' : '2rem 1.5rem 0.5rem';
+  // Mobile: MUST match live PageReader.css `.page-container { padding: 2rem 1rem 0 }`
+  // (older 1.5rem / 0.5rem bottom made measure narrower + shorter → systematic underfill)
+  container.style.padding = isDesktop ? '0' : '2rem 1rem 0';
   container.style.boxSizing = 'border-box';
   container.style.display = 'flex';
   container.style.alignItems = 'center';
@@ -234,52 +241,43 @@ export const createMeasureContainer = (isDesktop, pageWidth, pageHeight) => {
   // Desktop: page-body uses overflow: visible (matches PDFViewer.css)
   // Mobile: page-body uses overflow: hidden
   body.style.overflow = isDesktop ? 'visible' : 'hidden';
-  // Desktop: page-body has padding: 3rem 2.5rem (48px top/bottom) - matches PDFViewer.css
-  // Mobile: no explicit padding on body (handled by container)
   if (isDesktop) {
-    // Desktop: keep top padding at 3rem (48px) and a moderate bottom padding to
-    // leave a visual margin while still allowing most of the page to be used.
-    body.style.paddingTop = '3rem';
-    body.style.paddingRight = '2.5rem';
-    body.style.paddingLeft = '2.5rem';
-    body.style.paddingBottom = '20px';
+    body.style.paddingTop = `${DESKTOP_BODY_PADDING_TOP}px`;
+    body.style.paddingRight = `${DESKTOP_BODY_PADDING_RIGHT}px`;
+    body.style.paddingLeft = `${DESKTOP_BODY_PADDING_LEFT}px`;
+    body.style.paddingBottom = `${DESKTOP_BODY_PADDING_BOTTOM}px`;
     body.style.boxSizing = 'border-box';
     body.style.display = 'flex';
     body.style.flexDirection = 'column';
-    // Body height = pageHeight - top padding (48px) - bottom padding (20px)
-    const bodyHeight = pageHeight - 48 - 20;
+    const bodyHeight = getDesktopBodyContentHeight(pageHeight);
     body.style.height = bodyHeight + 'px';
     body.style.minHeight = bodyHeight + 'px';
     body.style.maxHeight = bodyHeight + 'px';
   }
   
   // CRITICAL: Add .page-content wrapper to match real DOM structure
-  // Desktop: .page-content uses height: auto and flex: 1 1 auto (matches PDFViewer.css)
-  //   BUT for measurement, we need to constrain it to available height to accurately measure
-  // Mobile: .page-content uses height: 90%, max-height: 95% (matches PageReader.css)
   const pageContent = document.createElement('div');
   pageContent.className = 'page-content';
   pageContent.style.width = '100%';
   if (isDesktop) {
-    // Desktop: In actual rendering, height: auto and flex: 1 1 auto allows growth.
-    // For measurement, we constrain to the full body height (pageHeight - top/bottom padding),
-    // and rely on the body padding itself as the visual/safety margin.
-    const availableHeight = pageHeight - 48 - 10;
+    const availableHeight = pageHeight - DESKTOP_BODY_PADDING_TOP - 10;
     pageContent.style.height = 'auto';
     pageContent.style.flex = '1 1 auto';
     pageContent.style.minHeight = '0';
     pageContent.style.maxHeight = availableHeight + 'px';
-    pageContent.style.overflow = 'hidden'; // Clip overflow during measurement
+    pageContent.style.overflow = 'hidden';
   } else {
-    // Mobile: match PageReader.css - height: 90%, max-height: 95%
-    pageContent.style.height = '90%';
-    pageContent.style.maxHeight = '95%';
+    // Mobile: match live body-page CSS (1.3rem / 1.35) — same as PageReader
+    pageContent.classList.add('page-content--canonical');
+    pageContent.style.height = '100%';
+    pageContent.style.maxHeight = '100%';
+    pageContent.style.fontSize = getFontSize(false);
+    pageContent.style.lineHeight = getLineHeight(false);
   }
   body.appendChild(pageContent);
   
   sheet.appendChild(body);
   // Desktop: wrap in .pdf-viewer so measure container gets same CSS as rendered pages.
-  // Append to document.body to avoid layout interference from viewer flex/overflow.
   let wrapper = null;
   if (isDesktop) {
     wrapper = document.createElement('div');
@@ -291,51 +289,76 @@ export const createMeasureContainer = (isDesktop, pageWidth, pageHeight) => {
     document.body.appendChild(container);
   }
 
+  const syncToLiveReader = () => {
+    if (isDesktop || typeof document === 'undefined') return;
+    const liveContainer = document.querySelector(
+      '.page-reader .page-container, .page-turn-surface .page-container'
+    );
+    const liveSheet = document.querySelector(
+      '.page-reader .page-sheet.content-page, .page-turn-surface .page-sheet.content-page'
+    );
+    const liveBody = document.querySelector(
+      '.page-reader .page-body.content-body, .page-turn-surface .page-body.content-body'
+    );
+    if (!liveContainer || !liveBody || liveBody.clientHeight < 80) return;
+    const w = Math.round(liveContainer.clientWidth);
+    const h = Math.round(liveContainer.clientHeight);
+    container.style.width = `${w}px`;
+    container.style.height = `${h}px`;
+    sheet.style.removeProperty('width');
+    sheet.style.removeProperty('max-width');
+    if (liveSheet) {
+      const sw = Math.round(liveSheet.getBoundingClientRect().width);
+      if (sw > 0) {
+        sheet.style.width = `${sw}px`;
+        sheet.style.maxWidth = `${sw}px`;
+      }
+    }
+    sheet.style.height = '100%';
+    void container.offsetHeight;
+    void liveBody.clientHeight;
+  };
+
   return {
     container,
     sheet,
     body,
-    pageContent, // Expose pageContent for content insertion
-    destroy: () => (wrapper ? wrapper.remove() : container.remove()),
+    pageContent,
+    measureCache,
+    syncToLiveReader,
+    destroy: () => {
+      measureCache.clear();
+      if (wrapper) wrapper.remove();
+      else container.remove();
+    },
     setHeading: (hasHeading) => {
       sheet.classList.remove('page-with-heading', 'page-without-heading');
       sheet.classList.add(hasHeading ? 'page-with-heading' : 'page-without-heading');
-      // Force reflow to apply CSS changes
       body.offsetHeight;
     },
     getAvailableHeight: (footnotesHeight = 0, isFirstPage = false) => {
-      // Return actual available height from CSS-applied styles
-      // IMPORTANT:
-      // - Desktop: we now rely entirely on the page-body padding (top: 48px, bottom: 15px)
-      //   as the visual/safety margin. No extra reserved space here – this lets the
-      //   paginator use the full body height that the eye sees.
-      // - Mobile: calculatePagePadding() adds padding-bottom, so we still reserve 32px.
-      const BOTTOM_MARGIN_NO_FOOTNOTES = isDesktop 
-        ? 0
-        : 15; // Mobile: 15px bottom safety margin, on top of % heights
-      
-      // For desktop PDF viewer, use fixed page height minus page-body padding
-      // For mobile, use body.clientHeight (matching original behavior)
       let height;
       if (isDesktop && pageHeight) {
-        // Desktop: pageHeight is 636px, page-body has padding: 3rem top (48px) and 20px bottom.
-        // So body content height = 636px - 48px (top) - 20px (bottom) = 568px
-        const bodyPaddingTop = 48;
-        const bodyPaddingBottom = 20;
-        height = pageHeight - bodyPaddingTop - bodyPaddingBottom;
+        height = getDesktopBodyContentHeight(pageHeight);
       } else {
-        // Mobile: use body.clientHeight (original behavior)
-        // NOTE: The real DOM has .page-content with height: 90% of body, but we measure
-        // from body directly to match the original pagination algorithm. This ensures
-        // consistent text distribution across pages.
-        height = body.clientHeight;
+        // One height source: live .page-body when mounted, else measure body.
+        // One reserve: page-number band (see getReservedBottomSpace). No vv scaling
+        // stack — live box already reflects Safari chrome when the reader is up.
+        const liveBody =
+          typeof document !== 'undefined' &&
+          document.querySelector(
+            '.page-reader .page-body.content-body, .page-turn-surface .page-body.content-body'
+          );
+        const liveH = liveBody && liveBody.clientHeight > 80 ? liveBody.clientHeight : 0;
+        height = liveH > 0 ? liveH : body.clientHeight;
       }
-      
-      // Reserve bottom margin for calculation (algorithm splits at this height)
-      // Visual overflow is allowed via CSS (overflow: visible), so content can extend beyond
-      const reservedSpace = footnotesHeight > 0 ? footnotesHeight : BOTTOM_MARGIN_NO_FOOTNOTES;
-      const availableHeight = Math.max(0, height - reservedSpace);
-      return availableHeight;
+
+      const reservedSpace = getReservedBottomSpace({
+        isDesktop,
+        isFirstPage,
+        footnotesHeight,
+      });
+      return Math.max(0, height - reservedSpace);
     },
   };
 };
@@ -348,20 +371,52 @@ export const createMeasureContainer = (isDesktop, pageWidth, pageHeight) => {
  * @param {boolean} isDesktop
  * @param {string} [fontFamily] - Optional chapter font (subchapters inherit from parent)
  */
-export const applyParagraphStylesToContainer = (container, isDesktop, fontFamily) => {
-  // Desktop PDF uses 1.35rem (matches PDFViewer.css), mobile uses 1.3rem
-  const desktopFontSize = isDesktop ? '1.35rem' : '1.3rem';
-  // Desktop PDF uses 1.62 line-height (matches PDFViewer.css), mobile uses 1.35
-  const desktopLineHeight = isDesktop ? '1.50' : '1.35';
+export const applyParagraphStylesToContainer = (container, isDesktop, fontFamily, options = {}) => {
+  const desktopFontSize = getFontSize(isDesktop);
+  const desktopLineHeight = getLineHeight(isDesktop);
   const font = fontFamily ?? DEFAULT_CHAPTER_FONT;
+  // First page / cover / intro: match live preserve CSS (.page-content 1.18rem),
+  // not MOBILE_FONT_SIZE 1.3rem — that mismatch underfills and spills a trailing word.
+  const canonicalTypography = options.canonicalTypography !== false;
+  const preserveFontSize = isDesktop ? desktopFontSize : MOBILE_PRESERVE_FONT_SIZE;
+  const preserveLineHeight = isDesktop ? desktopLineHeight : MOBILE_LINE_HEIGHT;
 
   const paragraphs = container.querySelectorAll('p');
   paragraphs.forEach(p => {
-    // Only apply if not already set (preserve inline styles from TipTap)
-    if (!p.style.fontSize) p.style.fontSize = desktopFontSize;
-    if (!p.style.lineHeight) p.style.lineHeight = desktopLineHeight;
-    if (!p.style.margin) p.style.margin = '0.35rem 0';
+  // Mobile canonical: match live reader — metrics from PageReader.css (.page-content--canonical),
+  // not inline styles (pack shell must measure the same box the overlay green band uses).
+    if (canonicalTypography && !isDesktop) {
+      p.style.removeProperty('font-size');
+      p.style.removeProperty('line-height');
+    } else if (canonicalTypography) {
+      p.style.fontSize = desktopFontSize;
+      p.style.lineHeight = desktopLineHeight;
+    } else {
+      // Keep inline paste sizes; otherwise match live inherit from .page-content.
+      if (!p.style.fontSize) p.style.fontSize = preserveFontSize;
+      if (!p.style.lineHeight) p.style.lineHeight = preserveLineHeight;
+    }
+    if (!p.style.margin) {
+      p.style.margin =
+        !isDesktop && canonicalTypography ? '0.15rem 0' : '0.35rem 0';
+    }
     if (!p.style.fontFamily) p.style.fontFamily = font;
+    // Match live .page-content p justification — without this, measure wraps
+    // differently (fewer words/line) and the packer underfills the real page.
+    if (!p.style.textAlign) {
+      p.style.textAlign = 'justify';
+      p.style.textAlignLast = 'left';
+    }
+    if (!p.style.wordSpacing) p.style.wordSpacing = '-0.08em';
+    if (!p.style.letterSpacing) p.style.letterSpacing = '0.01em';
+    if (!p.style.textJustify) p.style.textJustify = 'inter-word';
+    // Live canonical mobile uses soft hyphens only (hyphens:none on reader).
+    if (!isDesktop && canonicalTypography) {
+      p.style.hyphens = 'none';
+      p.style.webkitHyphens = 'none';
+    } else if (!p.style.hyphens) {
+      p.style.hyphens = 'auto';
+    }
     
     // Ensure empty paragraphs create visible spacing
     const isEmpty = !p.textContent || p.textContent.trim().length === 0 || (p.children.length === 0 && (!p.textContent || p.textContent.trim() === ''));
@@ -440,8 +495,19 @@ export const extractFootnotesFromContent = (htmlContent, footnoteContentToNumber
 /**
  * Measure actual footnote section height (including padding for browser bar)
  */
-export const measureFootnotesHeight = (footnoteNumbers, container, allFootnotes, isDesktop, pageWidth) => {
+export const measureFootnotesHeight = (footnoteNumbers, container, allFootnotes, isDesktop, pageWidth, measureCache = null) => {
   if (footnoteNumbers.size === 0) return 0;
+
+  const cacheKey = [
+    'fn',
+    isDesktop ? 'd' : 'm',
+    pageWidth || 0,
+    ...Array.from(footnoteNumbers).sort((a, b) => a - b),
+  ];
+  if (measureCache) {
+    const cached = measureCache.get(cacheKey);
+    if (cached != null) return cached;
+  }
   
   // Get the actual footnote data for accurate measurement
   const footnotesToMeasure = Array.from(footnoteNumbers)
@@ -499,9 +565,9 @@ export const measureFootnotesHeight = (footnoteNumbers, container, allFootnotes,
   
   // Subtract the extra padding from measurement - it's visual spacing at bottom of footnotes,
   // not space that needs to be reserved between content and footnotes
-  // The extra 1rem padding lifts the footnotes section up visually, but doesn't affect content space
-  const EXTRA_FOOTNOTE_PADDING = 16; // 1rem in pixels
-  return Math.max(0, height - EXTRA_FOOTNOTE_PADDING);
+  const result = Math.max(0, height - FOOTNOTE_EXTRA_PADDING_PX);
+  if (measureCache) measureCache.set(cacheKey, result);
+  return result;
 };
 
 /**
@@ -516,10 +582,9 @@ export const checkContentWithFootnotesFits = (contentElements, footnoteNumbers, 
   const tempContainer = document.createElement('div');
   tempContainer.style.width = contentWidth + 'px';
   // Apply the same font/line-height/margin rules that .page-content p uses
-  // Desktop PDF uses 1.4rem (matches PDFViewer.css), mobile uses 1.3rem
   tempContainer.style.fontFamily = font;
-  tempContainer.style.fontSize = isDesktop ? '1.4rem' : '1.3rem';
-  tempContainer.style.lineHeight = isDesktop ? '1.50' : '1.35';
+  tempContainer.style.fontSize = getFontSize(isDesktop);
+  tempContainer.style.lineHeight = getLineHeight(isDesktop);
   measure.pageContent.appendChild(tempContainer);
 
   contentElements.forEach(el => {
@@ -587,12 +652,174 @@ export const isAtomicElement = (element) => {
 };
 
 /**
+ * Measure a fragment clone — either solo against maxHeight, or appended to the
+ * current page (margin-collapse correct). Page-context mode is required for
+ * even mobile fill; solo measure systematically under-packs.
+ */
+const measureFragmentFit = ({
+  clone,
+  maxHeight,
+  measure,
+  contentWidth,
+  isDesktop,
+  fontFamily,
+  currentPageElements = null,
+  baseAvailableHeight = null,
+  finalReservedSpace = 0,
+  overflowTolerance = 2,
+  canonicalTypography = true,
+}) => {
+  // Preserve pages must measure at live .page-content size (1.18rem), not 1.3rem.
+  const fontSize = canonicalTypography
+    ? getFontSize(isDesktop)
+    : (isDesktop ? getFontSize(true) : MOBILE_PRESERVE_FONT_SIZE);
+  const lineHeight = canonicalTypography
+    ? getLineHeight(isDesktop)
+    : (isDesktop ? getLineHeight(true) : MOBILE_LINE_HEIGHT);
+  if (!clone.style.fontSize) clone.style.fontSize = fontSize;
+  if (!clone.style.lineHeight) clone.style.lineHeight = lineHeight;
+
+  const measureWidth =
+    (Number.isFinite(contentWidth) && contentWidth > 0)
+      ? contentWidth
+      : (measure.pageContent?.clientWidth || measure.body?.clientWidth || 0);
+  const measureParent = measure.pageContent || measure.body;
+  const tempMeasureContainer = document.createElement('div');
+  tempMeasureContainer.style.width = measureWidth + 'px';
+  tempMeasureContainer.style.position = 'absolute';
+  tempMeasureContainer.style.visibility = 'hidden';
+  measureParent.appendChild(tempMeasureContainer);
+
+  const contentWrapper = document.createElement('div');
+  contentWrapper.className = 'page-content-main';
+  const slack = Number.isFinite(overflowTolerance) ? overflowTolerance : 2;
+
+  const usePageContext =
+    Array.isArray(currentPageElements) &&
+    Number.isFinite(baseAvailableHeight);
+
+  if (usePageContext) {
+    contentWrapper.style.paddingBottom = (finalReservedSpace || 0) + 'px';
+    currentPageElements.forEach((el) => {
+      const temp = document.createElement('div');
+      temp.innerHTML = el;
+      contentWrapper.appendChild(temp.firstElementChild || temp);
+    });
+    contentWrapper.appendChild(clone);
+    applyParagraphStylesToContainer(contentWrapper, isDesktop, fontFamily, {
+      canonicalTypography,
+    });
+    tempMeasureContainer.appendChild(contentWrapper);
+    const height = tempMeasureContainer.offsetHeight;
+    measureParent.removeChild(tempMeasureContainer);
+    const available = baseAvailableHeight + (finalReservedSpace || 0);
+    return height <= available + slack;
+  }
+
+  contentWrapper.appendChild(clone);
+  applyParagraphStylesToContainer(contentWrapper, isDesktop, fontFamily, {
+    canonicalTypography,
+  });
+  tempMeasureContainer.appendChild(contentWrapper);
+  const height = tempMeasureContainer.offsetHeight;
+  measureParent.removeChild(tempMeasureContainer);
+  return height <= maxHeight + slack;
+};
+
+/**
+ * After binary search, walk forward word-by-word while the page still fits.
+ * Fixes measure-vs-live slack where the cut lands early but the device has
+ * tens of px left (e.g. 107px gap + short tail on the next page).
+ */
+const extendWordSplitToFillPage = (
+  element,
+  fullText,
+  startAbsoluteEnd,
+  resolveWordEnd,
+  fitOpts
+) => {
+  if (
+    !Array.isArray(fitOpts.currentPageElements) ||
+    !Number.isFinite(fitOpts.baseAvailableHeight)
+  ) {
+    return startAbsoluteEnd;
+  }
+
+  let extended = startAbsoluteEnd;
+  const tolerance =
+    Number.isFinite(fitOpts.overflowTolerance)
+      ? fitOpts.overflowTolerance
+      : getOverflowTolerance(!!fitOpts.isDesktop);
+
+  let topUpFitOpts = fitOpts;
+  if (!fitOpts.isDesktop && fitOpts.measure?.body) {
+    const liveBody =
+      typeof document !== 'undefined' &&
+      document.querySelector(
+        '.page-reader .page-body.content-body, .page-turn-surface .page-body.content-body'
+      );
+    const measureH = fitOpts.measure.body.clientHeight || 0;
+    const liveH = liveBody?.clientHeight || 0;
+    const extraH = liveH > measureH ? Math.min(140, liveH - measureH) : 0;
+    if (extraH > 0 && Number.isFinite(fitOpts.baseAvailableHeight)) {
+      topUpFitOpts = {
+        ...fitOpts,
+        baseAvailableHeight: fitOpts.baseAvailableHeight + extraH,
+      };
+    }
+  }
+
+  let cursor = extended;
+  while (cursor < fullText.length) {
+    while (cursor < fullText.length && /\s/.test(fullText[cursor])) {
+      cursor += 1;
+    }
+    if (cursor >= fullText.length) break;
+
+    const { range, absoluteEnd: wordEnd } = resolveWordEnd(
+      Math.min(cursor, fullText.length - 1)
+    );
+    if (wordEnd <= extended) break;
+
+    const clone = element.cloneNode(true);
+    clone.innerHTML = '';
+    clone.appendChild(range.cloneContents());
+
+    const fits = measureFragmentFit({
+      clone,
+      ...topUpFitOpts,
+      overflowTolerance: tolerance,
+    });
+    if (!fits) break;
+    extended = wordEnd;
+    cursor = wordEnd;
+  }
+
+  return extended;
+};
+
+/**
  * Split text element at word boundaries while preserving HTML structure
- * Uses Range API to find the split point that preserves formatting
+ * Uses Range API to find the split point that preserves formatting.
+ * Pass currentPageElements + baseAvailableHeight for page-context measuring (mobile).
  */
 export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {}) => {
-  const { returnCharCount = false, contentWidth, isDesktop, fontFamily } = options;
+  const {
+    returnCharCount = false,
+    contentWidth,
+    isDesktop,
+    fontFamily,
+    currentPageElements = null,
+    baseAvailableHeight = null,
+    finalReservedSpace = 0,
+    canonicalTypography = true,
+    overflowTolerance: overflowToleranceOpt = null,
+  } = options;
   const fullText = element.textContent || '';
+  const overflowTolerance =
+    Number.isFinite(overflowToleranceOpt)
+      ? overflowToleranceOpt
+      : getOverflowTolerance(!!isDesktop);
   if (!fullText.trim()) {
     return {
       first: element.outerHTML,
@@ -623,46 +850,41 @@ export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {
     };
   }
 
-  // Binary search to find split point
-  let low = 0;
-  let high = fullText.length;
-  let bestSplit = 0;
+  const fitOpts = {
+    maxHeight,
+    measure,
+    contentWidth,
+    isDesktop,
+    fontFamily,
+    currentPageElements,
+    baseAvailableHeight,
+    finalReservedSpace,
+    canonicalTypography,
+    overflowTolerance,
+  };
 
-  while (low < high) {
-    const mid = Math.floor((low + high) / 2);
-    
-    // Create range to get text up to mid position
+  const resolveWordEnd = (globalCharIndex) => {
     const range = document.createRange();
     range.setStart(element, 0);
-    
-    // Find character position across all text nodes
     let charCount = 0;
-    let found = false;
+    let absoluteEnd = globalCharIndex;
     for (const textNode of textNodes) {
       const nodeLength = textNode.textContent.length;
-      if (charCount + nodeLength >= mid) {
-        const offset = mid - charCount;
-        // Find word boundary near this position
+      if (charCount + nodeLength >= globalCharIndex) {
+        const offset = globalCharIndex - charCount;
         const text = textNode.textContent;
         let wordBoundary = offset;
-        
-        // Move to nearest word boundary (space or start of word)
+
         while (wordBoundary < text.length && !/\s/.test(text[wordBoundary])) {
           wordBoundary++;
         }
         if (wordBoundary === text.length && wordBoundary > 0) {
-          // Move back to previous space
           while (wordBoundary > 0 && !/\s/.test(text[wordBoundary - 1])) {
             wordBoundary--;
           }
         }
 
-        // Avoid breaking immediately after punctuation like ",", ".", "?" etc.
-        // If the candidate break is right after punctuation, look for an earlier space.
-        if (
-          wordBoundary > 0 &&
-          /[,\.;:!?]/.test(text[wordBoundary - 1])
-        ) {
+        if (wordBoundary > 0 && /[,\.;:!?]/.test(text[wordBoundary - 1])) {
           let safeBoundary = wordBoundary - 1;
           while (
             safeBoundary > 0 &&
@@ -675,52 +897,52 @@ export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {
             wordBoundary = safeBoundary;
           }
         }
-        
+
         range.setEnd(textNode, wordBoundary);
-        found = true;
-        break;
+        absoluteEnd = charCount + wordBoundary;
+        return { range, absoluteEnd };
       }
       charCount += nodeLength;
     }
-    
-    if (!found) {
-      range.setEnd(element, element.childNodes.length);
-    }
+    range.setEnd(element, element.childNodes.length);
+    return { range, absoluteEnd: fullText.length };
+  };
 
-    // Create clone with content up to range
+  // Binary search to find split point — store the *measured* word end, not mid.
+  let low = 0;
+  let high = fullText.length;
+  let bestSplit = 0;
+
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    const { range, absoluteEnd } = resolveWordEnd(mid);
+
     const clone = element.cloneNode(true);
     const cloneRange = range.cloneContents();
     clone.innerHTML = '';
     clone.appendChild(cloneRange);
-    
-    // Apply font styles to clone to match actual rendering
-    const desktopFontSize = isDesktop ? '1.35rem' : '1.3rem';
-    const desktopLineHeight = isDesktop ? '1.50' : '1.35';
-    if (!clone.style.fontSize) clone.style.fontSize = desktopFontSize;
-    if (!clone.style.lineHeight) clone.style.lineHeight = desktopLineHeight;
-    
-    // Use same structure as checkElementFits/calculateRemainingHeight (page-content-main wrapper)
-    const tempMeasureContainer = document.createElement('div');
-    const measureWidth = (isDesktop && contentWidth) ? contentWidth : measure.body.clientWidth;
-    tempMeasureContainer.style.width = measureWidth + 'px';
-    tempMeasureContainer.style.position = 'absolute';
-    tempMeasureContainer.style.visibility = 'hidden';
-    const measureParent = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
-    measureParent.appendChild(tempMeasureContainer);
-    const contentWrapper = document.createElement('div');
-    contentWrapper.className = 'page-content-main';
-    contentWrapper.appendChild(clone);
-    applyParagraphStylesToContainer(contentWrapper, isDesktop, fontFamily);
-    tempMeasureContainer.appendChild(contentWrapper);
-    const height = tempMeasureContainer.offsetHeight;
-    measureParent.removeChild(tempMeasureContainer);
 
-    if (height <= maxHeight + 2) {
-      bestSplit = mid;
-      low = mid + 1;
+    if (measureFragmentFit({ clone, ...fitOpts })) {
+      bestSplit = absoluteEnd;
+      low = Math.max(mid + 1, absoluteEnd + 1);
     } else {
       high = mid;
     }
+  }
+
+  // Prefer keeping the whole block when it fits in page context — but only within
+  // the real overflow tolerance (never ~1 line past the page-number band).
+  const fullClone = element.cloneNode(true);
+  const fullFitOpts = {
+    ...fitOpts,
+    overflowTolerance: isDesktop ? 2 : 8,
+  };
+  if (measureFragmentFit({ clone: fullClone, ...fullFitOpts })) {
+    return {
+      first: element.outerHTML,
+      second: null,
+      firstCharCount: returnCharCount ? fullText.length : undefined,
+    };
   }
 
   if (bestSplit === 0) {
@@ -730,32 +952,27 @@ export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {
       firstCharCount: returnCharCount ? 0 : undefined,
     };
   }
-  
-  // Check if entire element fits (for returnCharCount calculation)
-  const fullClone = element.cloneNode(true);
-  // Apply font styles to clone to match actual rendering (same as binary search)
-  const desktopFontSize = isDesktop ? '1.35rem' : '1.3rem';
-  const desktopLineHeight = isDesktop ? '1.50' : '1.35';
-  if (!fullClone.style.fontSize) fullClone.style.fontSize = desktopFontSize;
-  if (!fullClone.style.lineHeight) fullClone.style.lineHeight = desktopLineHeight;
-  
-  // Use same structure as checkElementFits/calculateRemainingHeight (page-content-main wrapper)
-  const tempMeasureContainer2 = document.createElement('div');
-  const measureWidth2 = (isDesktop && contentWidth) ? contentWidth : measure.body.clientWidth;
-  tempMeasureContainer2.style.width = measureWidth2 + 'px';
-  tempMeasureContainer2.style.position = 'absolute';
-  tempMeasureContainer2.style.visibility = 'hidden';
-  const measureParent2 = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
-  measureParent2.appendChild(tempMeasureContainer2);
-  const contentWrapper2 = document.createElement('div');
-  contentWrapper2.className = 'page-content-main';
-  contentWrapper2.appendChild(fullClone);
-  applyParagraphStylesToContainer(contentWrapper2, isDesktop, fontFamily);
-  tempMeasureContainer2.appendChild(contentWrapper2);
-  const fullHeight = tempMeasureContainer2.offsetHeight;
-  measureParent2.removeChild(tempMeasureContainer2);
-  
-  if (fullHeight <= maxHeight + 2) {
+
+  const filledEnd = !isDesktop
+    ? extendWordSplitToFillPage(
+        element,
+        fullText,
+        bestSplit,
+        resolveWordEnd,
+        fitOpts
+      )
+    : bestSplit;
+
+  // Rebuild with the SAME word-end resolver used during binary search.
+  const { range, absoluteEnd } = resolveWordEnd(filledEnd);
+  if (absoluteEnd <= 0) {
+    return {
+      first: null,
+      second: element.outerHTML,
+      firstCharCount: returnCharCount ? 0 : undefined,
+    };
+  }
+  if (absoluteEnd >= fullText.length) {
     return {
       first: element.outerHTML,
       second: null,
@@ -763,65 +980,6 @@ export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {
     };
   }
 
-  // Create the split using Range API
-  const range = document.createRange();
-  range.setStart(element, 0);
-  
-  // Find the actual split point at word boundary
-  let charCount = 0;
-  let splitFound = false;
-  for (const textNode of textNodes) {
-    const nodeLength = textNode.textContent.length;
-    if (charCount + nodeLength >= bestSplit) {
-      const offset = bestSplit - charCount;
-      const text = textNode.textContent;
-      let wordBoundary = offset;
-      
-      // Find nearest word boundary (prefer space before current position)
-      while (wordBoundary > 0 && !/\s/.test(text[wordBoundary - 1])) {
-        wordBoundary--;
-      }
-      if (wordBoundary === 0 && offset < text.length) {
-        // If at start, find next space
-        while (wordBoundary < text.length && !/\s/.test(text[wordBoundary])) {
-          wordBoundary++;
-        }
-      }
-
-      // Avoid breaking immediately after punctuation; prefer an earlier space.
-      if (
-        wordBoundary > 0 &&
-        /[,\.;:!?]/.test(text[wordBoundary - 1])
-      ) {
-        let safeBoundary = wordBoundary - 1;
-        while (
-          safeBoundary > 0 &&
-          (!/\s/.test(text[safeBoundary]) ||
-            /[,\.;:!?]/.test(text[safeBoundary - 1]))
-        ) {
-          safeBoundary--;
-        }
-        if (safeBoundary > 0 && /\s/.test(text[safeBoundary])) {
-          wordBoundary = safeBoundary;
-        }
-      }
-      
-      range.setEnd(textNode, wordBoundary);
-      splitFound = true;
-      break;
-    }
-    charCount += nodeLength;
-  }
-  
-  if (!splitFound) {
-    return {
-      first: element.outerHTML,
-      second: null,
-      firstCharCount: returnCharCount ? fullText.length : undefined,
-    };
-  }
-
-  // Extract first and second parts
   const firstPart = element.cloneNode(true);
   firstPart.innerHTML = '';
   firstPart.appendChild(range.cloneContents());
@@ -834,7 +992,6 @@ export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {
   secondPart.appendChild(secondRange.cloneContents());
   
   // Trim leading whitespace from second part to prevent gaps
-  // This ensures clean breaks at word boundaries
   const secondTextNodes = [];
   const secondWalker = document.createTreeWalker(
     secondPart,
@@ -847,7 +1004,6 @@ export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {
       secondTextNodes.push(secondNode);
     }
   }
-  // Trim leading whitespace from first text node in second part
   if (secondTextNodes.length > 0 && secondTextNodes[0].textContent) {
     const originalText = secondTextNodes[0].textContent;
     const trimmedText = originalText.replace(/^\s+/, '');
@@ -856,17 +1012,30 @@ export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {
     }
   }
 
-  // Get outerHTML AFTER trimming to ensure changes are captured
   const firstHTML = firstPart.outerHTML;
   const secondHTML = secondPart.outerHTML;
+  const firstHasText = !!(firstPart.textContent && firstPart.textContent.trim());
+  const secondHasText = !!(secondPart.textContent && secondPart.textContent.trim());
 
-  // Calculate character count for first part
-  const firstCharCount = returnCharCount ? bestSplit : undefined;
+  if (!firstHasText) {
+    return {
+      first: null,
+      second: element.outerHTML,
+      firstCharCount: returnCharCount ? 0 : undefined,
+    };
+  }
+  if (!secondHasText) {
+    return {
+      first: element.outerHTML,
+      second: null,
+      firstCharCount: returnCharCount ? fullText.length : undefined,
+    };
+  }
 
   return {
     first: firstHTML,
     second: secondHTML,
-    firstCharCount,
+    firstCharCount: returnCharCount ? absoluteEnd : undefined,
   };
 };
 
@@ -875,7 +1044,16 @@ export const splitTextAtWordBoundary = (element, maxHeight, measure, options = {
  * Tries to split at sentence ends (. ! ?) followed by space/capital letter
  */
 export const splitTextAtSentenceBoundary = (element, maxHeight, measure, splitTextAtWordBoundary, options = {}) => {
-  const { returnCharCount = false, contentWidth, isDesktop, fontFamily } = options;
+  const {
+    returnCharCount = false,
+    contentWidth,
+    isDesktop,
+    fontFamily,
+    currentPageElements = null,
+    baseAvailableHeight = null,
+    finalReservedSpace = 0,
+    overflowTolerance = 2,
+  } = options;
   const fullText = element.textContent || '';
   if (!fullText.trim()) {
     return {
@@ -925,7 +1103,22 @@ export const splitTextAtSentenceBoundary = (element, maxHeight, measure, splitTe
     };
   }
 
-  // Try to fit as many sentences as possible
+  const fitOpts = {
+    maxHeight,
+    measure,
+    contentWidth,
+    isDesktop,
+    fontFamily,
+    currentPageElements,
+    baseAvailableHeight,
+    finalReservedSpace,
+    overflowTolerance: 2,
+  };
+
+  const usePageContext =
+    Array.isArray(currentPageElements) && Number.isFinite(baseAvailableHeight);
+
+  // Try to fit as many sentences as possible (page-context when provided)
   let bestFit = 0;
   for (let i = 0; i < sentenceBoundaries.length; i++) {
     const targetCharCount = sentenceBoundaries[i];
@@ -951,35 +1144,12 @@ export const splitTextAtSentenceBoundary = (element, maxHeight, measure, splitTe
       range.setEnd(element, element.childNodes.length);
     }
 
-    // Measure height
     const clone = element.cloneNode(true);
     const cloneRange = range.cloneContents();
     clone.innerHTML = '';
     clone.appendChild(cloneRange);
-    
-    // Apply font styles to clone to match actual rendering
-    const desktopFontSize = isDesktop ? '1.35rem' : '1.3rem';
-    const desktopLineHeight = '1.35';
-    if (!clone.style.fontSize) clone.style.fontSize = desktopFontSize;
-    if (!clone.style.lineHeight) clone.style.lineHeight = desktopLineHeight;
-    
-    // Use same structure as checkElementFits/calculateRemainingHeight (page-content-main wrapper)
-    const tempMeasureContainer = document.createElement('div');
-    const measureWidth = (isDesktop && contentWidth) ? contentWidth : measure.body.clientWidth;
-    tempMeasureContainer.style.width = measureWidth + 'px';
-    tempMeasureContainer.style.position = 'absolute';
-    tempMeasureContainer.style.visibility = 'hidden';
-    const measureParent = (isDesktop && measure.pageContent) ? measure.pageContent : measure.body;
-    measureParent.appendChild(tempMeasureContainer);
-    const contentWrapper = document.createElement('div');
-    contentWrapper.className = 'page-content-main';
-    contentWrapper.appendChild(clone);
-    applyParagraphStylesToContainer(contentWrapper, isDesktop, fontFamily);
-    tempMeasureContainer.appendChild(contentWrapper);
-    const height = tempMeasureContainer.offsetHeight;
-    measureParent.removeChild(tempMeasureContainer);
 
-    if (height <= maxHeight + 2) {
+    if (measureFragmentFit({ clone, ...fitOpts })) {
       bestFit = i + 1;
     } else {
       break;
@@ -988,7 +1158,7 @@ export const splitTextAtSentenceBoundary = (element, maxHeight, measure, splitTe
 
   if (bestFit === 0) {
     // Can't fit even one sentence, fall back to word boundary
-    return splitTextAtWordBoundary(element, maxHeight, measure, { ...options, contentWidth, isDesktop, fontFamily });
+    return splitTextAtWordBoundary(element, maxHeight, measure, options);
   }
 
   if (bestFit === sentenceBoundaries.length) {
@@ -1000,7 +1170,8 @@ export const splitTextAtSentenceBoundary = (element, maxHeight, measure, splitTe
     };
   }
 
-  // Split at sentence boundary
+  // Split at sentence boundary (desktop / sentence-first callers).
+  // Mobile uses preferWordSplit → splitTextAtWordBoundary directly.
   const firstCharCount = sentenceBoundaries[bestFit - 1];
   
   // Create split using Range API
@@ -1138,10 +1309,16 @@ export const createEmptyPage = (chapter, chapterIndex, chapterPageIndex, hasFiel
     borderImageUrl: chapter.pageBorderImageUrl || null,
     borderWidth: chapter.pageBorderWidth || null,
     borderSlicePercent: chapter.pageBorderSlicePercent || null,
+    borderImageNaturalWidth: chapter.pageBorderImageNaturalWidth || null,
+    borderImageNaturalHeight: chapter.pageBorderImageNaturalHeight || null,
+    borderAssetKind: chapter.pageBorderAssetKind || null,
+    borderSliceVerticalPercent: chapter.pageBorderSliceVerticalPercent || null,
+    borderSliceHorizontalPercent: chapter.pageBorderSliceHorizontalPercent || null,
     fontFamily: chapter.fontFamily || null,
     backgroundImageUrl: chapter.backgroundImageUrl || null,
     isFirstPage: chapter.isFirstPage || false,
     isCover: chapter.isCover || false,
+    preserveTypography: !!(chapter.isFirstPage || chapter.isCover),
   };
 };
 
@@ -1175,6 +1352,21 @@ export const createEpigraphPage = (block, chapter, chapterIndex, chapterPageInde
   const borderSlicePercent = (block.pageBorderImageUrl ? block.pageBorderSlicePercent : null)
     ?? chapter.pageBorderSlicePercent
     ?? null;
+  const borderImageNaturalWidth = (block.pageBorderImageUrl ? block.pageBorderImageNaturalWidth : null)
+    ?? chapter.pageBorderImageNaturalWidth
+    ?? null;
+  const borderImageNaturalHeight = (block.pageBorderImageUrl ? block.pageBorderImageNaturalHeight : null)
+    ?? chapter.pageBorderImageNaturalHeight
+    ?? null;
+  const borderAssetKind = (block.pageBorderImageUrl ? block.pageBorderAssetKind : null)
+    ?? chapter.pageBorderAssetKind
+    ?? null;
+  const borderSliceVerticalPercent = (block.pageBorderImageUrl ? block.pageBorderSliceVerticalPercent : null)
+    ?? chapter.pageBorderSliceVerticalPercent
+    ?? null;
+  const borderSliceHorizontalPercent = (block.pageBorderImageUrl ? block.pageBorderSliceHorizontalPercent : null)
+    ?? chapter.pageBorderSliceHorizontalPercent
+    ?? null;
   
   return {
     chapterIndex: chapterIndex,
@@ -1195,6 +1387,11 @@ export const createEpigraphPage = (block, chapter, chapterIndex, chapterPageInde
     borderImageUrl,
     borderWidth,
     borderSlicePercent,
+    borderImageNaturalWidth,
+    borderImageNaturalHeight,
+    borderAssetKind,
+    borderSliceVerticalPercent,
+    borderSliceHorizontalPercent,
     fontFamily: block.fontFamily || chapter.fontFamily || null,
     isFirstPage: chapter.isFirstPage || false,
     isCover: chapter.isCover || false,

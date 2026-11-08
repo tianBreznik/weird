@@ -447,9 +447,9 @@ export const FontSize = Mark.create({
   },
 });
 
-/** Unitless line-height: tight so gap between paragraph lines is small (scales with font size). */
+/** Unitless line-height: match reader/editor canonical leading (scales with font size). */
 function lineHeightForFontSize(sizeStr) {
-  return 1.1;
+  return 1.35;
 }
 
 // Custom Mark for Underline
